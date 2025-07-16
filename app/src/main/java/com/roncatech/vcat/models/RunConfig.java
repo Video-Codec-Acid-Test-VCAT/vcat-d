@@ -14,7 +14,6 @@ public class RunConfig {
     public enum RunMode{ONCE, BATTERY, TIME};
     public RunMode runMode;
     public int runLimit; // battery %or total minutes
-    public boolean showVlcControls;
 
     public DecoderConfig decoderCfg = new DecoderConfig();
 
@@ -27,7 +26,6 @@ public class RunConfig {
         if (!(o instanceof RunConfig)) return false;
         RunConfig that = (RunConfig) o;
 
-        if(this.showVlcControls != that.showVlcControls){return false;}
         if(this.runLimit != that.runLimit){return false;}
         if(this.runMode != that.runMode){return false;}
         if(this.threads != that.threads){return false;}
@@ -43,7 +41,6 @@ public class RunConfig {
                 threads,
                 runMode,
                 runLimit,
-                showVlcControls,
                 decoderCfg
         );
     }
@@ -55,21 +52,19 @@ public class RunConfig {
         this.runMode = RunMode.BATTERY;
         this.runLimit = 15;
         this.decoderCfg = new DecoderConfig();
-        this.showVlcControls = true;
     }
 
     public RunConfig(final RunConfig copyFrom){
-        this(copyFrom.screenBrightness, copyFrom.threads, copyFrom.runMode, copyFrom.runLimit, copyFrom.decoderCfg, copyFrom.showVlcControls);
+        this(copyFrom.screenBrightness, copyFrom.threads, copyFrom.runMode, copyFrom.runLimit, copyFrom.decoderCfg);
     }
 
     // Constructor with parameters
-    public RunConfig(int screenBrightness, int threads, RunMode runMode, int runLimit, DecoderConfig decoderCfg, boolean showVlcControls) {
+    public RunConfig(int screenBrightness, int threads, RunMode runMode, int runLimit, DecoderConfig decoderCfg) {
         this.screenBrightness = screenBrightness;
         this.threads = threads;
         this.runMode = runMode;
         this.runLimit = runLimit;
         this.decoderCfg = new DecoderConfig(decoderCfg);
-        this.showVlcControls = showVlcControls;
     }
 
     // Convert object to JSON string (for saving)
@@ -108,10 +103,6 @@ public class RunConfig {
 
             if(config1.screenBrightness != config2.screenBrightness){
                 return Integer.compare(config1.screenBrightness, config2.screenBrightness);
-            }
-
-            if(config1.showVlcControls != config2.showVlcControls){
-                return Boolean.compare(config1.showVlcControls, config2.showVlcControls);
             }
 
             // now compare the decoder cfg

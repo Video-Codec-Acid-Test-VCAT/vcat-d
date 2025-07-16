@@ -156,17 +156,6 @@ public class FragmentTestConditions extends Fragment {
             });
         }
 
-        showVlcControlsCheckBox = view.findViewById(R.id.showVlcControls);
-
-        if (showVlcControlsCheckBox != null) {
-            showVlcControlsCheckBox.setChecked(runConfig.showVlcControls);
-        }
-
-        assert showVlcControlsCheckBox != null;
-        showVlcControlsCheckBox.setOnCheckedChangeListener((buttonView, isChecked) -> {
-            runConfig.showVlcControls = isChecked;
-        });
-
         ImageButton aboutBtn = view.findViewById(R.id.aboutBtn);
         /*aboutText.setOnClickListener(v -> {
             Intent intent = new Intent(getActivity(), AboutActivityVCAT.class);
@@ -224,18 +213,6 @@ public class FragmentTestConditions extends Fragment {
 
         batteryPickerText.setOnClickListener(v -> showBatteryPickerDialog());
         durationPickerText.setOnClickListener(v -> showDurationPickerDialog());
-
-// Inside your Activity or Fragment
-        CheckBox showVlcControls = view.findViewById(R.id.showVlcControls);
-        showVlcControls.setChecked(runConfig.showVlcControls);
-
-        showVlcControls.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
-            @Override
-            public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
-                runConfig.showVlcControls = isChecked;
-            }
-        });
-
 
         // ✅ Decoder Selection Section
         decoderContainer = view.findViewById(R.id.dynamicDecoderContainer);
