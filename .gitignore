@@ -1,0 +1,49 @@
+# ignore Gradle wrapper and settings
+/gradlew
+/gradlew.bat
+/settings.gradle
+/gradle.properties
+/gradle/
+
+# Built application files
+*.apk
+*.ap_
+
+# Java class files
+*.class
+
+# Gradle files
+.gradle/
+build/
+
+# Local configuration files (SDK paths, etc)
+local.properties
+
+# IntelliJ/Android Studio files
+.idea/
+*.iml
+*.hprof
+
+# Log files
+*.log
+
+# Generated files
+gen/
+bin/
+
+
+*.iml
+.gradle
+/local.properties
+/.idea/caches
+/.idea/libraries
+/.idea/modules.xml
+/.idea/workspace.xml
+/.idea/navEditor.xml
+/.idea/assetWizardSettings.xml
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties

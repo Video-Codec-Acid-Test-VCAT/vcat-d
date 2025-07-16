@@ -1,0 +1,12 @@
+<resources>
+    <string name="app_name">VCAT</string>
+
+    <string name="title_home">Home</string>
+    <string name="title_logs">Logs</string>
+    <string name="title_conditions">Conditions</string>
+    <string name="empty_nav">None</string>
+    <string name="home_nav">Home</string>
+    <string name="logs_nav">Logs</string>
+    <string name="conditions_nav">Conditions</string>
+    <string name="about_vcat">About VCAT</string>
+</resources>

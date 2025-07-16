@@ -1,0 +1,47 @@
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <!-- Base application theme. -->
+    <style name="Theme.Vcat" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <!-- allow coloring the system bars -->
+        <item name="android:windowDrawsSystemBarBackgrounds">true</item>
+
+        <!-- tint status bar to your blue -->
+        <item name="android:statusBarColor">@color/background_blue</item>
+        <!-- also tint nav bar if you like -->
+        <item name="android:navigationBarColor">@color/background_blue</item>
+        <!-- make sure icons stay light on the dark background -->
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+    </style>
+
+
+    <style name="VcatNt" parent="Theme.AppCompat.Light.NoActionBar"/>
+    <style name="DeviceInfoLabel">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:textSize">14sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:paddingEnd">8dp</item>
+    </style>
+
+    <style name="DeviceInfoValue">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:textSize">14sp</item>
+        <item name="android:textColor">@android:color/black</item>
+    </style>
+
+    <style name="AppTheme.FullScreen" parent="Theme.AppCompat.Light.NoActionBar">
+        <!-- already had these -->
+        <item name="android:windowFullscreen">true</item>
+        <!-- enable us to color the status bar -->
+        <item name="android:windowDrawsSystemBarBackgrounds">true</item>
+        <!-- tint the status bar to background_blue -->
+        <!-- status bar black -->
+        <item name="android:statusBarColor">@android:color/black</item>
+
+        <!-- nav bar black -->
+        <item name="android:navigationBarColor">@android:color/black</item>
+        <!-- ensure icons become light on dark background -->
+        <item name="android:windowLightNavigationBar">false</item>
+    </style>
+</resources>

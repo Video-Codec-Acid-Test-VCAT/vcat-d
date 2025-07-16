@@ -1,0 +1,151 @@
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="16dp">
+
+    <!-- ✅ Device Details Section -->
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:fillViewport="true"
+        android:paddingBottom="8dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="@color/light_blue_gray"
+            android:padding="6dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Device"
+                android:textSize="16sp"
+                android:textStyle="bold"
+                android:textColor="@android:color/black"
+                android:layout_marginBottom="8dp"/>
+
+            <TableLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:stretchColumns="1"
+                android:padding="8dp">
+
+                <TableRow>
+                    <TextView android:text="Model:" style="@style/DeviceInfoLabel"/>
+                    <TextView android:id="@+id/modelText" style="@style/DeviceInfoValue" android:text="Model Name" />
+                </TableRow>
+
+                <TableRow>
+                    <TextView android:text="Android Version:" style="@style/DeviceInfoLabel"/>
+                    <TextView android:id="@+id/androidVersionText" style="@style/DeviceInfoValue" android:text="1.2.3.4" />
+                </TableRow>
+
+                <TableRow>
+                    <TextView android:text="CPU:" style="@style/DeviceInfoLabel"/>
+                    <TextView android:id="@+id/cpuText" style="@style/DeviceInfoValue" android:text="Processor Info" />
+                </TableRow>
+
+                <TableRow>
+                    <TextView android:text="CPU Speed:" style="@style/DeviceInfoLabel"/>
+                    <TextView android:id="@+id/cpuSpeedText" style="@style/DeviceInfoValue" android:text="2.3 GHz" />
+                </TableRow>
+
+                <TableRow>
+                    <TextView android:text="Display:" style="@style/DeviceInfoLabel"/>
+                    <TextView android:id="@+id/displayResolutionText" style="@style/DeviceInfoValue" android:text="1920x1080" />
+                </TableRow>
+
+                <TableRow>
+                    <TextView android:text="Memory:" style="@style/DeviceInfoLabel"/>
+                    <TextView android:id="@+id/memoryText" style="@style/DeviceInfoValue" android:text="8GB RAM" />
+                </TableRow>
+
+                <TableRow>
+                    <TextView android:text="Storage (total/free):" style="@style/DeviceInfoLabel"/>
+                    <TextView android:id="@+id/storageText" style="@style/DeviceInfoValue" android:text="5678MB / 1234MB" />
+                </TableRow>
+            </TableLayout>
+        </LinearLayout>
+    </ScrollView>
+
+    <!-- ✅ Playlist Title -->
+    <TextView
+        android:id="@+id/playlistsTitle"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="PLAYLISTS"
+        android:textSize="18sp"
+        android:textStyle="bold"
+        android:textColor="@android:color/black"
+        android:gravity="start"
+        android:layout_marginTop="16dp"
+        android:layout_marginBottom="8dp"/>
+
+    <!-- ✅ Playlist Folder Selection -->
+    <LinearLayout
+        android:id="@+id/playlistFolderContainer"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginBottom="8dp">
+
+        <TextView
+            android:id="@+id/playlistFolderText"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Select Playlist Folder"
+            android:textSize="14sp"
+            android:textColor="@android:color/darker_gray"
+            android:gravity="start"
+            android:padding="8dp"
+            android:background="@android:color/white"
+            android:elevation="2dp"/>
+
+        <ImageButton
+            android:id="@+id/browsePlaylistsButton"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:src="@drawable/ic_orange_open_folder_icon"
+            android:contentDescription="Browse Playlists"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:scaleType="fitCenter"
+            app:tint="@null"
+            android:layout_marginStart="8dp"
+            android:clickable="true"
+            android:focusable="true"/>
+    </LinearLayout>
+
+    <!-- ✅ Playlist List (Scrollable TableLayout) -->
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:fillViewport="true"
+        android:overScrollMode="never">
+
+        <TableLayout
+            android:id="@+id/playlistTable"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:stretchColumns="1"
+            android:padding="8dp"/>
+    </ScrollView>
+
+    <!-- ✅ Floating Button for Creating a Playlist -->
+    <com.google.android.material.floatingactionbutton.FloatingActionButton
+        android:id="@+id/create_playlist_button"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="end|bottom"
+        android:contentDescription="Add Playlist"
+        android:src="@drawable/ic_new_playlist_icon"
+        app:backgroundTint="@color/background_blue"
+        android:layout_margin="16dp"/>
+
+</LinearLayout>

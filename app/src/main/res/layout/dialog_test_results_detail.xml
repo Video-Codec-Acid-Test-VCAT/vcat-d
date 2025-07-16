@@ -1,0 +1,174 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:padding="16dp">
+
+    <!-- Dialog Title -->
+    <TextView
+        android:id="@+id/tvDialogTitle"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:text="Test Summary"
+        android:textSize="20sp"
+        android:textStyle="bold"
+        android:gravity="center"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"/>
+
+    <!-- Log File -->
+    <TextView
+        android:id="@+id/tvLogFile"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:text="Log File:"
+        android:textSize="16sp"
+        app:layout_constraintTop_toBottomOf="@id/tvDialogTitle"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        android:layout_marginTop="8dp"/>
+
+    <!-- Start Time -->
+    <TextView
+        android:id="@+id/tvStartTime"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:text="Start Time:"
+        android:textSize="16sp"
+        app:layout_constraintTop_toBottomOf="@id/tvLogFile"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        android:layout_marginTop="8dp"/>
+
+    <!-- Test Duration -->
+    <TextView
+        android:id="@+id/tvTestDuration"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:text="Test Duration:"
+        android:textSize="16sp"
+        app:layout_constraintTop_toBottomOf="@id/tvStartTime"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        android:layout_marginTop="8dp"/>
+
+    <!-- Battery -->
+    <TextView
+        android:id="@+id/tvBattery"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:text="Battery:"
+        android:textSize="16sp"
+        app:layout_constraintTop_toBottomOf="@id/tvTestDuration"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        android:layout_marginTop="8dp"/>
+
+    <!-- Thermal Row (horizontal) -->
+    <LinearLayout
+        android:id="@+id/rowStatus"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        app:layout_constraintTop_toBottomOf="@id/tvBattery"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        android:layout_marginTop="8dp">
+
+        <TextView
+            android:id="@+id/tvThermal"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Status:"
+            android:textSize="16sp"/>
+
+        <TextView
+            android:id="@+id/viewStatusThermalSystem"
+            android:layout_width="wrap_content"
+            android:layout_height="24dp"
+            android:layout_marginStart="12dp"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:background="@drawable/status_rectangle_bg"
+            android:gravity="center"
+            android:text="Sys Temp"
+            android:textColor="@android:color/black"
+            android:textSize="12sp"/>
+
+        <TextView
+            android:id="@+id/viewStatusThermalBattery"
+            android:layout_width="wrap_content"
+            android:layout_height="24dp"
+            android:layout_marginStart="12dp"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:background="@drawable/status_rectangle_bg"
+            android:gravity="center"
+            android:text="Batt Temp"
+            android:textColor="@android:color/black"
+            android:textSize="12sp"/>
+
+        <TextView
+            android:id="@+id/viewStatusFrameDrops"
+            android:layout_width="wrap_content"
+            android:layout_height="24dp"
+            android:layout_marginStart="12dp"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:background="@drawable/status_rectangle_bg"
+            android:gravity="center"
+            android:text="Frm Drops"
+            android:textColor="@android:color/black"
+            android:textSize="12sp"/>
+    </LinearLayout>
+
+    <!-- Video Inputs Header -->
+    <TextView
+        android:id="@+id/tvInputsHeader"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Video Inputs:"
+        android:textStyle="bold"
+        android:textSize="16sp"
+        app:layout_constraintTop_toBottomOf="@id/rowStatus"
+        app:layout_constraintStart_toStartOf="parent"
+        android:layout_marginTop="16dp"/>
+
+    <!-- TableLayout for inputs -->
+    <TableLayout
+        android:id="@+id/tableVideoInputs"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:stretchColumns="*"
+        android:shrinkColumns="2"
+        app:layout_constraintTop_toBottomOf="@id/tvInputsHeader"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        android:layout_marginTop="8dp">
+
+        <!-- Header Row -->
+        <TableRow>
+            <TextView
+                android:padding="4dp"
+                android:text="Codec"
+                android:textStyle="bold"/>
+            <TextView
+                android:padding="4dp"
+                android:text="Res"
+                android:textStyle="bold"/>
+            <TextView
+                android:padding="4dp"
+                android:text="Decoder"
+                android:textStyle="bold"/>
+            <TextView
+                android:padding="4dp"
+                android:text="FPS"
+                android:textStyle="bold"/>
+        </TableRow>
+        <!-- Data rows will be added programmatically -->
+    </TableLayout>
+
+</androidx.constraintlayout.widget.ConstraintLayout>
