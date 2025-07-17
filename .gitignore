@@ -1,49 +1,44 @@
-# ignore Gradle wrapper and settings
-/gradlew
-/gradlew.bat
-/settings.gradle
-/gradle.properties
-/gradle/
+# --- Gradle wrapper files (✅ keep these tracked)
+!gradlew
+!gradlew.bat
+!gradle/wrapper/gradle-wrapper.jar
+!gradle/wrapper/gradle-wrapper.properties
+!gradle.properties
+!settings.gradle
+!build.gradle
+!build.gradle.kts
+!settings.gradle.kts
 
-# Built application files
-*.apk
-*.ap_
-
-# Java class files
-*.class
-
-# Gradle files
+# --- Gradle build output (ignore)
 .gradle/
 build/
+*/build/
 
-# Local configuration files (SDK paths, etc)
-local.properties
-
-# IntelliJ/Android Studio files
+# --- Android Studio / IntelliJ
 .idea/
 *.iml
+*.iws
+*.ipr
+
+# --- Local configuration (ignore)
+local.properties
+.DS_Store
+
+# --- Log and crash files
+*.log
 *.hprof
 
-# Log files
-*.log
+# --- APK and native build artifacts
+*.apk
+*.ap_
+.externalNativeBuild/
+.cxx/
 
-# Generated files
+# --- NDK / JNI build intermediates
+*.so
+obj/
+
+# --- Generated code
 gen/
 bin/
 
-
-*.iml
-.gradle
-/local.properties
-/.idea/caches
-/.idea/libraries
-/.idea/modules.xml
-/.idea/workspace.xml
-/.idea/navEditor.xml
-/.idea/assetWizardSettings.xml
-.DS_Store
-/build
-/captures
-.externalNativeBuild
-.cxx
-local.properties
