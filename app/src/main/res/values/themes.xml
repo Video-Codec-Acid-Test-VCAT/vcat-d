@@ -44,4 +44,15 @@
         <!-- ensure icons become light on dark background -->
         <item name="android:windowLightNavigationBar">false</item>
     </style>
+
+    <style name="Toolbar.WhiteTitleText" parent="TextAppearance.Widget.AppCompat.Toolbar.Title">
+        <item name="android:textColor">@android:color/white</item>
+    </style>
+    <style name="CustomTabText" parent="TextAppearance.Design.Tab">
+        <item name="android:textSize">48sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:textColor">@android:color/black</item> <!-- optional -->
+    </style>
+
+
 </resources>

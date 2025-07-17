@@ -9,4 +9,12 @@
     <string name="logs_nav">Logs</string>
     <string name="conditions_nav">Conditions</string>
     <string name="about_vcat">About VCAT</string>
+    <string name="about_title">"VCAT (Video Codec Acid Test)</string>
+    <string name="about_vcat_description">"VCAT is a tool for evaluating video codec playback behavior under real-world conditions. It helps benchmark device decode performance and analyze power, quality, and reliability across formats and conditions."</string>
+    <string name="about_contributors">"Contributors: David Ronca, Ittiam Systems, Meta, and the VCAT OSS community"</string>
+    <string name="url_roncatech">"https://www.roncatech.com"</string>
+    <string name="url_ittiam">"https://www.ittiam.com"</string>
+    <string name="view_license">"View License"</string>
+    <string name="about_heading">"About"</string>
+    <string name="license_placeholder">This license intentionally left blank (for now)</string>
 </resources>

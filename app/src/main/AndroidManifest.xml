@@ -32,6 +32,9 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
+        <activity android:name=".ui.AboutActivity"
+            android:theme="@style/Theme.Vcat">
+        </activity>
         <activity
             android:name="com.roncatech.vcat.video.FullScreenPlayerActivity"
             android:exported="false"

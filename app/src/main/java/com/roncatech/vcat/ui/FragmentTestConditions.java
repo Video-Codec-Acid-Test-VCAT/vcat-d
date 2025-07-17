@@ -1,6 +1,8 @@
 package com.roncatech.vcat.ui;
 
 import android.app.Dialog;
+import android.content.Context;
+import android.content.Intent;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.LayoutInflater;
@@ -47,6 +49,8 @@ public class FragmentTestConditions extends Fragment {
     private TextView batteryPickerText, durationPickerText;
     private LinearLayout decoderContainer;
     EditText httpPortEditText;
+
+    ImageButton aboutButton;
 
     public FragmentTestConditions(){
     }
@@ -106,6 +110,13 @@ public class FragmentTestConditions extends Fragment {
     }
 
     private void setupUIElements(View view) {
+
+        aboutButton = view.findViewById(R.id.aboutBtn);
+        aboutButton.setOnClickListener(v -> {
+            Context context = v.getContext();
+            Intent intent = new Intent(context, AboutActivity.class);
+            context.startActivity(intent);
+        });
 
         httpPortEditText = view.findViewById(R.id.httpPortEditText);
         viewModel = new ViewModelProvider(requireActivity()).get(SharedViewModel.class);
