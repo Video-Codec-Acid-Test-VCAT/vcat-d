@@ -1,11 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
-<FrameLayout
-    xmlns:android="http://schemas.android.com/apk/res/android"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/player_container"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@android:color/black">
 
+    <!-- Video player -->
     <com.google.android.exoplayer2.ui.PlayerView
         android:id="@+id/playerView"
         android:layout_width="match_parent"
@@ -16,20 +17,59 @@
         app:resize_mode="fit"
         app:surface_type="texture_view"
         android:background="@android:color/black"
-        android:keepScreenOn="true"/>
+        android:keepScreenOn="true">
 
-    <ImageButton
-        android:id="@+id/stopButton"
-        android:layout_width="96dp"
-        android:layout_height="96dp"
+        <!-- Fullscreen transparent overlay to display video info -->
+        <TextView
+            android:id="@+id/videoOverlay"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:padding="12dp"
+            android:textColor="#FFFFFF"
+            android:textSize="14sp"
+            android:background="@android:color/transparent"
+            android:gravity="top|start"
+            android:visibility="gone" />
+    </com.google.android.exoplayer2.ui.PlayerView>
+
+    <!-- Shared button row: initially hidden -->
+    <LinearLayout
+        android:id="@+id/buttonRow"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
         android:layout_gravity="center"
-        android:layout_margin="16dp"
-        android:background="@android:color/transparent"
-        android:src="@drawable/ic_stop"
-        android:contentDescription="Stop Test"
+        android:orientation="horizontal"
+        android:gravity="center"
         android:visibility="gone"
-        android:scaleType="fitCenter"
-        android:adjustViewBounds="true"/>
+        android:padding="8dp">
 
+        <!-- Stop button -->
+        <ImageButton
+            android:id="@+id/stopButton"
+            android:layout_width="96dp"
+            android:layout_height="96dp"
+            android:background="@android:color/transparent"
+            android:src="@drawable/ic_stop"
+            android:contentDescription="Stop Test"
+            android:tooltipText="Stop Test"
+            android:scaleType="fitCenter"
+            android:adjustViewBounds="true" />
+        <!-- padding -->
+        <View
+            android:layout_width="16dp"
+            android:layout_height="0dp"
+            android:layout_weight="0" />
+
+        <!-- Toggle video info button -->
+        <ImageButton
+            android:id="@+id/toggleVideoInfo"
+            android:layout_width="96dp"
+            android:layout_height="96dp"
+            android:background="@android:color/transparent"
+            android:src="@drawable/ic_about"
+            android:contentDescription="Toggle Video Info"
+            android:tooltipText="About Video"
+            android:scaleType="fitCenter"
+            android:adjustViewBounds="true" />
+    </LinearLayout>
 </FrameLayout>
-

@@ -5,11 +5,16 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
+import android.view.Gravity;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.Window;
 import android.view.WindowManager;
+import android.widget.FrameLayout;
 import android.widget.ImageButton;
 import android.graphics.Color;
+import android.widget.LinearLayout;
+import android.widget.TextView;
 
 
 import androidx.appcompat.app.AppCompatActivity;
@@ -41,6 +46,9 @@ public class FullScreenPlayerActivity extends AppCompatActivity {
     private SimpleExoPlayer exoPlayer;
     private PlayerView playerView;
     private ImageButton stopButton;
+    private ImageButton videoInfoButton;
+    LinearLayout buttonRow;
+    TextView videoOverlay;
 
     private List<Uri> testClips;
     private int curFileIndex;
@@ -53,6 +61,9 @@ public class FullScreenPlayerActivity extends AppCompatActivity {
 
         private void reset(){this.elapsedMs = this.frameDrops = 0;}
     }
+
+    private static final String emptyDecoder = "{none}";
+    private String curDecoder = emptyDecoder;
 
     FrameDrops fd = new FrameDrops();
 
@@ -100,6 +111,8 @@ public class FullScreenPlayerActivity extends AppCompatActivity {
             exoPlayer.release();
             exoPlayer = null;
         }
+
+        this.curDecoder = emptyDecoder;
         finish();
     }
 
@@ -168,8 +181,12 @@ public class FullScreenPlayerActivity extends AppCompatActivity {
 
         hideSystemUi();
 
-        playerView = findViewById(R.id.playerView);
-        stopButton  = findViewById(R.id.stopButton);
+        this.playerView = findViewById(R.id.playerView);
+        this.stopButton  = findViewById(R.id.stopButton);
+        this.videoInfoButton = findViewById(R.id.toggleVideoInfo);
+        this.buttonRow = findViewById(R.id.buttonRow);
+        this.videoOverlay = findViewById(R.id.videoOverlay);
+
         exoPlayer  = new SimpleExoPlayer.Builder(this).build();
         exoPlayer.setRepeatMode(Player.REPEAT_MODE_OFF);
         playerView.setPlayer(exoPlayer);
@@ -206,10 +223,22 @@ public class FullScreenPlayerActivity extends AppCompatActivity {
                 FullScreenPlayerActivity.this.fd.elapsedMs += elapsedMs;
                 FullScreenPlayerActivity.this.fd.frameDrops += droppedFrameCount;
             }
+
+            @Override
+            public void onVideoDecoderInitialized(
+                    AnalyticsListener.EventTime eventTime,
+                    String decoderName,
+                    long initializationDurationMs,
+                    long initializationDelayMs) {
+                Log.i(TAG, "Video decoder initialized: " + decoderName);
+                // Save or log decoderName as needed
+                FullScreenPlayerActivity.this.curDecoder = decoderName;
+            }
+
         });
 
         playerView.setControllerVisibilityListener(visibility -> {
-            stopButton.setVisibility(visibility);
+            buttonRow.setVisibility(visibility);
         });
 
         stopButton.setOnClickListener(v -> {
@@ -217,9 +246,32 @@ public class FullScreenPlayerActivity extends AppCompatActivity {
             stopTestAndCleanup();
         });
 
+        videoInfoButton.setOnClickListener(v -> {
+            if (videoOverlay.getVisibility() == View.VISIBLE) {
+                videoOverlay.setVisibility(View.GONE);
+            } else {
+
+                // calculate size
+                TelemetryLogger.VideoInfo vi = getTlVideoInfo(this.testClips.get(this.curFileIndex), this.viewModel.curTestDetails);
+                int displayHeight = playerView.getHeight(); // or dm.heightPixels;
+                double videoAspectRatio = Double.parseDouble(vi.width) / Double.parseDouble(vi.height);
+                int scaledVideoWidth = (int) (displayHeight * videoAspectRatio);
+
+                FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
+                        scaledVideoWidth,
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        Gravity.CENTER
+                );
+                videoOverlay.setLayoutParams(params);
+                videoOverlay.setVisibility(View.VISIBLE);
+                logTelemetry(false);
+            }
+        });
+
         // 3) Kick off the first clip
         playCurClip();
     }
+
 
     private void playCurClip() {
         Uri clip = this.testClips.get(this.curFileIndex);
@@ -314,6 +366,27 @@ public class FullScreenPlayerActivity extends AppCompatActivity {
         this.fd.reset();
 
         this.tl.logTelemetryRow(this, this.viewModel.curTestDetails.getStartTimeAsEpoch(), vi, frameDrops, false, endOfFile);
+
+        // if video overlay is vidible, populate
+        if (this.videoOverlay != null && this.videoOverlay.getVisibility() == View.VISIBLE) {
+            this.videoOverlay.setText(String.format(Locale.US,
+                    "Path: %s\n" +
+                            "Resolution: %sx%s\n" +
+                            "MIME Type: %s\n" +
+                            "Bitrate: %s\n" +
+                            "Codec: %s\n" +
+                            "Decoder: %s\n" +
+                            "Framerate: %.2f fps",
+                    vi.fileName,
+                    vi.width,
+                    vi.height,
+                    vi.mimeType,
+                    vi.bitrate,
+                    vi.codec,
+                    vi.decoderName,
+                    vi.fps
+            ));
+        }
     }
 
     public TelemetryLogger.VideoInfo getTlVideoInfo(
@@ -346,16 +419,18 @@ public class FullScreenPlayerActivity extends AppCompatActivity {
         // Frame rate (may be <= 0 if unspecified in the container)
         float fps = fmt.frameRate > 0 ? fmt.frameRate : -1f;
 
-        return new TelemetryLogger.VideoInfo(
+        TelemetryLogger.VideoInfo vi = new TelemetryLogger.VideoInfo(
                 /* path     = */ videoFileUri.toString(),
                 /* width    = */ width,
                 /* height   = */ height,
                 /* mimeType = */ mime,
                 /* bitrate  = */ bitrate,
                 /* codec    = */ codec,
-                /* decoder  = */ "<none>",    // or whatever decoder name you track
+                /* decoder  = */ this.curDecoder,    // or whatever decoder name you track
                 /* fps      = */ fps
         );
+
+        return vi;
     }
 
     public static String formatBitrate(String bitrateStr) {

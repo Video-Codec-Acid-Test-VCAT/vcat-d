@@ -159,8 +159,10 @@ public class SessionHeader {
                         // version exists but isn’t an int
                         return null;
                     }
-                    if (hv < 32) {
-                        // too old
+
+                    // Log version.  As this increases, older logs will not be supported
+                    // unless back-version support is added
+                    if (hv < 1) {
                         return null;
                     }
 
@@ -245,7 +247,8 @@ public class SessionHeader {
         }
 
         try {
-            return gson.fromJson(json.toString(), SessionHeader.class);
+            String jsonStr = json.toString();
+            return gson.fromJson(jsonStr, SessionHeader.class);
         } catch (JsonParseException | NullPointerException e) {
             Log.e(TAG, "SessionHeader::fromLogFile: Exception parsing header: " + e.getLocalizedMessage());
             // malformed JSON
