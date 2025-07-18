@@ -40,6 +40,9 @@ public class AboutActivity extends AppCompatActivity {
         adapter = new AboutPagerAdapter(this);
         viewPager.setAdapter(adapter);
 
+        ImageButton backButton = findViewById(R.id.bottomBackButton);
+        backButton.setOnClickListener(v -> finish()); // goes back to previous activity
+
         new TabLayoutMediator(tabLayout, viewPager, (tab, position) -> {
             View customTab = getLayoutInflater().inflate(R.layout.custom_tab_layout, null);
 
