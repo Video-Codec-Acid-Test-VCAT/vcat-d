@@ -49,7 +49,7 @@ public class MainActivity extends AppCompatActivity {
         }
 
         permissionPrompted = true;
-        
+
          if (!Environment.isExternalStorageManager()) {
             Intent storageIntent = new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
                     Uri.parse("package:" + getPackageName()));

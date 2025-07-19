@@ -99,6 +99,7 @@
                 android:background="@android:color/transparent"
                 android:layout_gravity="center_horizontal"
                 android:contentDescription="@string/view_license"
+                android:visibility="gone"
                 android:layout_marginTop="24dp" />
 
         </LinearLayout>

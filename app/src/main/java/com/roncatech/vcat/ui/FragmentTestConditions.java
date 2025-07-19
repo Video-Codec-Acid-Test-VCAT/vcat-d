@@ -10,7 +10,6 @@ import android.view.View;
 import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.CheckBox;
-import android.widget.CompoundButton;
 import android.widget.ImageButton;
 import android.widget.LinearLayout;
 import android.widget.NumberPicker;
@@ -44,13 +43,13 @@ public class FragmentTestConditions extends Fragment {
     private RunConfig runConfig;
     private SeekBar brightnessSeekBar;
     private Spinner threadsSpinner;
-    private CheckBox showVlcControlsCheckBox;
     private RadioGroup runModeRadioGroup;
     private TextView batteryPickerText, durationPickerText;
     private LinearLayout decoderContainer;
     EditText httpPortEditText;
 
     ImageButton aboutButton;
+    ImageButton downloadTestVectorsBtn;
 
     public FragmentTestConditions(){
     }
@@ -111,12 +110,14 @@ public class FragmentTestConditions extends Fragment {
 
     private void setupUIElements(View view) {
 
-        aboutButton = view.findViewById(R.id.aboutBtn);
-        aboutButton.setOnClickListener(v -> {
+        this.aboutButton = view.findViewById(R.id.aboutBtn);
+        this.aboutButton.setOnClickListener(v -> {
             Context context = v.getContext();
             Intent intent = new Intent(context, AboutActivity.class);
             context.startActivity(intent);
         });
+
+        this.downloadTestVectorsBtn = view.findViewById(R.id.downloadTestVectors);
 
         httpPortEditText = view.findViewById(R.id.httpPortEditText);
         viewModel = new ViewModelProvider(requireActivity()).get(SharedViewModel.class);
@@ -166,15 +167,6 @@ public class FragmentTestConditions extends Fragment {
                 @Override public void onNothingSelected(AdapterView<?> parent) {}
             });
         }
-
-        ImageButton aboutBtn = view.findViewById(R.id.aboutBtn);
-        /*aboutText.setOnClickListener(v -> {
-            Intent intent = new Intent(getActivity(), AboutActivityVCAT.class);
-            startActivity(intent);
-        });
-
-         */
-
 
         // ✅ Radio Buttons for Run Mode
         runModeRadioGroup = view.findViewById(R.id.radioGroup);
@@ -245,10 +237,10 @@ public class FragmentTestConditions extends Fragment {
             mimeTypeText.setText(curSet.mimeType.toString());
 
             Spinner decoderSpinner = new Spinner(getContext());
-            List<String> decodersWithVLC = new ArrayList<>(curSet.decoders);
-            decodersWithVLC.add(0, "Default VLC Decoder");
+            List<String> decodersWithVCAT = new ArrayList<>(curSet.decoders);
+            decodersWithVCAT.add(0, "VCAT SW Decoder");
 
-            ArrayAdapter<String> decoderAdapter = new ArrayAdapter<>(getContext(), android.R.layout.simple_spinner_item, decodersWithVLC);
+            ArrayAdapter<String> decoderAdapter = new ArrayAdapter<>(getContext(), android.R.layout.simple_spinner_item, decodersWithVCAT);
             decoderSpinner.setAdapter(decoderAdapter);
 
             row.addView(mimeTypeText);

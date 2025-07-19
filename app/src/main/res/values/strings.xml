@@ -9,6 +9,7 @@
     <string name="logs_nav">Logs</string>
     <string name="conditions_nav">Conditions</string>
     <string name="about_vcat">About VCAT</string>
+    <string name="download_test_vectors">Download Test Vectors</string>
     <string name="about_title">"VCAT (Video Codec Acid Test)</string>
     <string name="about_vcat_description">"VCAT is a tool for evaluating video codec playback behavior under real-world conditions. It helps benchmark device decode performance and analyze power, quality, and reliability across formats and conditions."</string>
     <string name="about_contributors">"Contributors: David Ronca, Ittiam Systems, Meta, and the VCAT OSS community"</string>

@@ -45,29 +45,18 @@ public class HttpRequestHandler implements VCAT_HttpServer.VCAT_ControlHandler{
     /*
     @Override
     public void onPlayPause() {
-        // Logic to play/pause VLC
+        // Logic to play/pause VCAT
         Log.d(TAG, "Play/Pause triggered");
-        Intent intent = new Intent("org.vlc.ADB_PLAY_PAUSE");
-        intent.setPackage("org.videolan.vlc");
-        this.parent.getApplicationContext().sendBroadcast(intent);
     }
 
     @Override
     public void onStop() {
         Log.d(TAG, "Stop triggered");
-
-        CancelBenchmarkReceiver rcv = new CancelBenchmarkReceiver();
-        Intent cancelIntent = new Intent(this.parent, CancelBenchmarkReceiver.class);
-        rcv.onReceive(this.parent, cancelIntent);
-        viewModel.curTestDetails.reset();
     }
 
     @Override
     public void onShowVideoStats() {
         Log.d(TAG, "Show Video Stats triggered");
-        Intent intent = new Intent("org.vlc.ADB_VIDEO_STATS");
-        intent.setPackage("org.videolan.vlc");
-        this.parent.getApplicationContext().sendBroadcast(intent);
     }
 
 
