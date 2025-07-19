@@ -3,6 +3,7 @@ package com.roncatech.vcat.models;
 import androidx.annotation.NonNull;
 import androidx.lifecycle.AndroidViewModel;
 import androidx.lifecycle.MutableLiveData;
+import androidx.lifecycle.Observer;
 
 import android.app.Application;
 import android.content.Context;
@@ -15,7 +16,7 @@ import com.roncatech.vcat.http.VCAT_HttpServer;
 public class SharedViewModel extends AndroidViewModel {
     public static final String LOG_FOLDER = "/vcat/test_results";
 
-    private Uri folderUri;
+    private MutableLiveData<Uri> folderUri = new MutableLiveData<>(null);
     private RunConfig runConfig;
     private final MutableLiveData<Integer> httpPortLive = new MutableLiveData<>(VCAT_HttpServer.defPort);
     public String appIpAddr = "";
@@ -40,12 +41,17 @@ public class SharedViewModel extends AndroidViewModel {
     }
 
     public Uri getFolderUri() {
-        return folderUri;
+        return folderUri.getValue();
     }
 
+    public MutableLiveData<Uri> getObservableFolderUri(){return this.folderUri;}
+
     public void setFolderUri(Uri uri) {
-        this.folderUri = uri;
-        saveFolderUri(getFolderUri());
+        if (uri != null) {
+            folderUri.setValue(uri);
+        } else {
+            folderUri.setValue(null);
+        }
     }
 
     private void saveFolderUri(Uri uri) {
@@ -54,7 +60,7 @@ public class SharedViewModel extends AndroidViewModel {
 
     private void loadFolderUri() {
         String uriString = prefs.getString(KEY_FOLDER_URI, null);
-        folderUri = (uriString != null) ? Uri.parse(uriString) : null;
+        folderUri.setValue((uriString != null) ? Uri.parse(uriString) : null);
     }
 
     public void setHttpPort(int port){

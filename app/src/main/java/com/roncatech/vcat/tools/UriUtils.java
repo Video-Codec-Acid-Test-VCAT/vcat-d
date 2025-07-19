@@ -3,12 +3,12 @@ package com.roncatech.vcat.tools;
 import android.net.Uri;
 import android.provider.DocumentsContract;
 
+import java.io.File;
 import java.net.URI;
 
 public class UriUtils {
     public static String fileNameFromURI(Uri uri){
-        String documentId = DocumentsContract.getDocumentId(uri); // e.g. "primary:Vcat/av1-720-fd2.xspf"
-        return fileNameFromURI(documentId);
+        return new File(uri.getPath()).getName();
     }
 
     public static String fileNameFromURI(String uriString){

@@ -8,8 +8,7 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
-import android.os.Handler;
-import android.os.Looper;
+import android.provider.DocumentsContract;
 import android.provider.OpenableColumns;
 import android.util.Log;
 import android.view.Gravity;
@@ -25,7 +24,6 @@ import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
-import androidx.documentfile.provider.DocumentFile;
 import androidx.fragment.app.Fragment;
 import androidx.lifecycle.ViewModelProvider;
 
@@ -36,7 +34,6 @@ import com.roncatech.vcat.models.SharedViewModel;
 import com.roncatech.vcat.tools.BatteryInfo;
 import com.roncatech.vcat.tools.CpuInfo;
 import com.roncatech.vcat.tools.DeviceInfo;
-import com.roncatech.vcat.tools.Permissions;
 import com.roncatech.vcat.tools.StorageManager;
 import com.roncatech.vcat.video.FullScreenPlayerActivity;
 
@@ -108,8 +105,6 @@ public class FragmentMain extends Fragment implements PlaylistUpdates {
     public View onCreateView(@NonNull LayoutInflater inflater, ViewGroup container,
                              Bundle savedInstanceState) {
         View view = inflater.inflate(R.layout.fragment_main, container, false);
-        Permissions.requestWriteSettingsPermission(getActivity());
-        Permissions.requestFileSystemWritePermission(getActivity());
 
         //checkBackgroundRestriction(requireContext());
         //checkBatteryOptimization();
@@ -122,26 +117,6 @@ public class FragmentMain extends Fragment implements PlaylistUpdates {
         ImageButton createPlaylistButton = view.findViewById(R.id.create_playlist_button);
         playlistFolderText = view.findViewById(R.id.playlistFolderText);
         playlistTable = view.findViewById(R.id.playlistTable);
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            new Thread(() -> {
-                while (!Environment.isExternalStorageManager()) {
-                    try {
-                        Thread.sleep(500); // Wait 0.5 seconds
-                    } catch (InterruptedException e) {
-                        e.printStackTrace();
-                    }
-                }
-
-                // Permission granted — create folders on the main thread
-                new Handler(Looper.getMainLooper()).post(() -> {
-                    boolean success = StorageManager.createVcatFolder();
-                    if(!success) {
-                        Log.e(TAG,"Failed to create vcat folders.");
-                    }
-                });
-            }).start();
-        }
 
         //  Set Click Listener
         browsePlaylistsButton.setOnClickListener(v -> openFolderSelection());
@@ -167,21 +142,34 @@ public class FragmentMain extends Fragment implements PlaylistUpdates {
         startActivityForResult(intent, REQUEST_CODE_OPEN_FOLDER);
     }
 
+    public static File safUriToFile(Context context, Uri treeUri) {
+        if (DocumentsContract.isTreeUri(treeUri)) {
+            String docId = DocumentsContract.getTreeDocumentId(treeUri);  // e.g. "primary:vcat"
+            String[] parts = docId.split(":");
+            if (parts.length == 2 && parts[0].equalsIgnoreCase("primary")) {
+                return new File(Environment.getExternalStorageDirectory(), parts[1]);
+            }
+        }
+        return null;
+    }
+
     //  Handle Folder Selection Result
     @Override
     public void onActivityResult(int requestCode, int resultCode, @Nullable Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
 
         if (requestCode == REQUEST_CODE_OPEN_FOLDER && resultCode == Activity.RESULT_OK) {
-            if (data != null) {
-                this.viewModel.setFolderUri(data.getData());
+            Uri treeUri = data.getData();
 
-                //  Persist permissions so app retains access
-                requireActivity().getContentResolver().takePersistableUriPermission(
-                        this.viewModel.getFolderUri(),
-                        Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-                );
-
+            File resolved = safUriToFile(requireContext(), treeUri);
+            if (resolved != null && resolved.exists() && resolved.isDirectory()) {
+                viewModel.setFolderUri(Uri.fromFile(resolved));
+                updatePlaylistFolder();
+            } else {
+                Toast.makeText(getContext(), "Invalid folder selected", Toast.LENGTH_LONG).show();
+                // Optionally: fallback to default
+                File fallback = new File(Environment.getExternalStorageDirectory(), "vcat/playlist");
+                viewModel.setFolderUri(Uri.fromFile(fallback));
                 updatePlaylistFolder();
             }
         }
@@ -197,23 +185,25 @@ public class FragmentMain extends Fragment implements PlaylistUpdates {
 
     //  Scan Selected Folder for .xspf Files
     private void getPlaylistFiles() {
-        if (this.viewModel.getFolderUri() == null) {
+        Uri folderUri = viewModel.getFolderUri();
+        if (folderUri == null) {
             return;
         }
 
         // Force refresh the folder
-        requireActivity().getContentResolver().notifyChange(this.viewModel.getFolderUri(), null);
+        //requireActivity().getContentResolver().notifyChange(this.viewModel.getFolderUri(), null);
 
-        DocumentFile folder = DocumentFile.fromTreeUri(requireContext(), this.viewModel.getFolderUri());
-        if (folder == null || !folder.exists() || !folder.isDirectory()) {
+        File playlistDir = new File(folderUri.getPath());
+        if (!playlistDir.exists() || !playlistDir.isDirectory()) {
             return;
         }
 
         playlistNames.clear(); // Clear previous results
 
-        for (DocumentFile file : folder.listFiles()) {
-            if (file.isFile() && file.getName().endsWith(".xspf")) {
-                playlistNames.add(file.getUri());
+        File[] files = playlistDir.listFiles((dir, name) -> name.endsWith(".xspf"));
+        if (files != null) {
+            for (File file : files) {
+                playlistNames.add(Uri.fromFile(file));
             }
         }
 
@@ -351,40 +341,28 @@ public class FragmentMain extends Fragment implements PlaylistUpdates {
         try {
             Uri folderUri = this.viewModel.getFolderUri();
             if (folderUri == null) {
-                Log.e("DeletePlaylist", "No valid folder selected.");
+                Log.e(TAG, "DeletePlaylist: No valid folder selected.");
                 return;
             }
 
-            DocumentFile folder = DocumentFile.fromTreeUri(context, folderUri);
-            if (folder == null || !folder.exists() || !folder.isDirectory()) {
-                Log.e("DeletePlaylist", "Selected folder is invalid.");
+            File folder = new File(folderUri.getPath());
+            if (!folder.exists() || !folder.isDirectory()) {
+                Log.e(TAG, "DeletePlaylist: Selected folder is invalid: " + folder.getAbsolutePath());
                 return;
             }
 
-            // Extract the playlist filename from Uri
-            String playlistFileName = getFileNameFromUri(context, playlistUri);
-            if (playlistFileName == null) {
-                Log.e("DeletePlaylist", "Invalid playlist URI: " + playlistUri);
-                return;
-            }
+            // Extract the playlist file name from the Uri
+            String playlistFileName = new File(playlistUri.getPath()).getName();
+            File targetFile = new File(folder, playlistFileName);
 
-            // Find and delete the matching file
-            for (DocumentFile file : folder.listFiles()) {
-                if (file.getName() != null && file.getName().equals(playlistFileName)) {
-                    if (file.delete()) {
-                        Log.i("DeletePlaylist", "Deleted playlist: " + file.getUri());
-                        onPlaylistDeleted(file.getUri());
-                        return;
-                    } else {
-                        Log.e("DeletePlaylist", "Failed to delete playlist.");
-                        return;
-                    }
-                }
+            if (targetFile.exists() && targetFile.delete()) {
+                Log.i(TAG, "Deleted playlist: " + targetFile.getAbsolutePath());
+                onPlaylistDeleted(Uri.fromFile(targetFile));
+            } else {
+                Log.e(TAG, "DeletePlaylist" + "Failed to delete playlist or file not found: " + targetFile.getAbsolutePath());
             }
-
-            Log.e("DeletePlaylist", "Playlist not found: " + playlistFileName);
         } catch (Exception e) {
-            Log.e("DeletePlaylist", "Error deleting playlist", e);
+            Log.e(TAG, "DeletePlaylist: Error deleting playlist", e);
         }
     }
 

@@ -1,5 +1,6 @@
 package com.roncatech.vcat.tools;
 
+import android.net.Uri;
 import android.os.Environment;
 import android.util.Log;
 
@@ -11,6 +12,38 @@ import java.io.RandomAccessFile;
 public class StorageManager {
     private static final String TAG = "StorageManager";
 
+    public enum VCATFolder {
+        ROOT("vcat"),
+        PLAYLIST("playlist"),
+        MEDIA("media"),
+        TEST_RESULTS("test_results");
+
+        private final String folderName;
+
+        VCATFolder(String folderName) {
+            this.folderName = folderName;
+        }
+
+        public String getFolderName() {
+            return folderName;
+        }
+
+        public static String playListFolder(){return ROOT.folderName + "/" + PLAYLIST.folderName;}
+        public static String resultsFolder(){return ROOT.folderName + "/" + TEST_RESULTS.folderName;}
+        public static String mediaFolder(){return ROOT.folderName + "/" + MEDIA.folderName;}
+
+    }
+
+    public static File getFolder(VCATFolder folder){
+
+        if(folder != VCATFolder.ROOT){
+            return new File(Environment.getExternalStorageDirectory(), VCATFolder.ROOT.getFolderName() + "/" + folder.folderName);
+        }
+
+        return new File(Environment.getExternalStorageDirectory(), VCATFolder.ROOT.getFolderName());
+    }
+
+
     /**
      * Creates the VCAT directory structure on external storage:
      * /vcat/{playlist, media, test_results}
@@ -18,8 +51,7 @@ public class StorageManager {
      * @return true if all directories exist or were created successfully, false otherwise
      */
     public static boolean createVcatFolder() {
-        File baseDir = new File(Environment.getExternalStorageDirectory(), "vcat");
-        String[] subDirs = {"playlist", "media", "test_results"};
+        File baseDir = getFolder(VCATFolder.ROOT);
 
         boolean allSubDirsCreated = true;
 
@@ -34,8 +66,11 @@ public class StorageManager {
             Log.d(TAG, "Base folder already exists: " + baseDir.getAbsolutePath());
         }
 
-        for (String subDir : subDirs) {
-            File dir = new File(baseDir, subDir);
+        for (VCATFolder cur : VCATFolder.values()) {
+            if(cur == VCATFolder.ROOT){continue;}
+
+            File dir = getFolder(cur);
+
             if (!dir.exists()) {
                 if (dir.mkdirs()) {
                     Log.d(TAG, "Subfolder created: " + dir.getAbsolutePath());
@@ -55,7 +90,8 @@ public class StorageManager {
      *         if none found or on error.
      */
     public static File findLatestLogFile() {
-        File dir = new File(Environment.getExternalStorageDirectory(), "vcat/test_results");
+        File dir = getFolder(VCATFolder.TEST_RESULTS);
+
         if (!dir.isDirectory()) {
             Log.w(TAG, "Not a directory: " + dir.getAbsolutePath());
             return null;

@@ -1,29 +1,127 @@
 package com.roncatech.vcat.ui;
 
+import android.content.Intent;
+import android.net.Uri;
 import android.os.Bundle;
+import android.os.Environment;
+import android.os.Handler;
+import android.os.Looper;
+import android.provider.Settings;
+import android.util.Log;
 import android.view.MenuItem;
 import android.view.Window;
 import android.view.WindowManager;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.constraintlayout.widget.ConstraintLayout;
 import androidx.core.content.ContextCompat;
 import androidx.fragment.app.Fragment;
+import androidx.lifecycle.ViewModelProvider;
 
 import com.roncatech.vcat.R;
 
 import com.google.android.material.bottomnavigation.BottomNavigationView;
+import com.roncatech.vcat.models.SharedViewModel;
+import com.roncatech.vcat.tools.StorageManager;
 
 public class MainActivity extends AppCompatActivity {
 
+    private final static String TAG = "MainActivity";
+
+    private SharedViewModel viewModel;
+
     private TextView curViewTitle;
     private BottomNavigationView bottomNav;
+    private boolean uiLoaded = false;
+    private boolean permissionPrompted = false;
+    private boolean waitingForPermissionResult = false;
+
+    private boolean hasAllPermissions() {
+        return Environment.isExternalStorageManager() && Settings.System.canWrite(this);
+    }
+
+    private void requestAllPermissions() {
+        if(permissionPrompted){
+            return;
+        }
+
+        permissionPrompted = true;
+        
+         if (!Environment.isExternalStorageManager()) {
+            Intent storageIntent = new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                    Uri.parse("package:" + getPackageName()));
+            startActivity(storageIntent);
+        }
+
+        if (!Settings.System.canWrite(this)) {
+            Intent settingsIntent = new Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS,
+                    Uri.parse("package:" + getPackageName()));
+            startActivity(settingsIntent);
+        }
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
+        this.viewModel = new ViewModelProvider(this).get(SharedViewModel.class);
+
+        if (hasAllPermissions()) {
+            loadUI(savedInstanceState);
+        } else {
+            requestAllPermissions();
+        }
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+
+        if (uiLoaded) return;
+
+        // If we're waiting for the user to act on permissions, check now
+        if (waitingForPermissionResult) {
+            if (hasAllPermissions()) {
+                loadUI(null);
+                return;
+            } else {
+                // Still not granted after user returned
+                Toast.makeText(this, "Required permissions not granted. Exiting.", Toast.LENGTH_LONG).show();
+                finishAffinity();
+                return;
+            }
+        }
+
+        // First entry — check if we need to prompt for permissions
+        if (!hasAllPermissions()) {
+            requestAllPermissions();
+            permissionPrompted = true;
+            waitingForPermissionResult = true;
+        } else {
+            loadUI(null);
+        }
+    }
+
+
+    private void loadUI(Bundle savedInstanceState){
+
+        if (uiLoaded) {return;}  // prevent accidental re-entry
+
+        uiLoaded = true;
+
+        // We're here so Permission granted — create folders on the main thread
+        if (!StorageManager.createVcatFolder()) {
+            Log.e(TAG, "Failed to create vcat folders.");
+            Toast.makeText(this, "Storage setup failed. Exiting.", Toast.LENGTH_LONG).show();
+            finishAffinity();
+            return;
+        }
+
+        // set the playlist folder
+        this.viewModel.setFolderUri(Uri.fromFile(StorageManager.getFolder(StorageManager.VCATFolder.PLAYLIST)));
 
         // Tell the window we’re going to draw the system bar backgrounds
         Window window = getWindow();

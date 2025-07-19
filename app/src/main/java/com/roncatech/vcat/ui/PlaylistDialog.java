@@ -24,6 +24,8 @@ import com.roncatech.vcat.R;
 import org.xmlpull.v1.XmlPullParser;
 import org.xmlpull.v1.XmlPullParserFactory;
 
+import java.io.File;
+import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
@@ -328,22 +330,24 @@ public class PlaylistDialog extends DialogFragment {
     }
 
     private Uri createFileInSelectedFolder(Uri folderUri, String filename) {
-        ContentValues values = new ContentValues();
-        values.put(DocumentsContract.Document.COLUMN_DISPLAY_NAME, filename);
-        values.put(DocumentsContract.Document.COLUMN_MIME_TYPE, "application/xspf+xml"); // MIME type for XSPF
+        File folder = new File(folderUri.getPath());
+        if (!folder.exists() || !folder.isDirectory()) {
+            Log.e("PlaylistDialog", "Invalid folder: " + folder.getAbsolutePath());
+            return null;
+        }
+
+        File newFile = new File(folder, filename);
 
         try {
-            Uri folderDocumentUri = DocumentsContract.buildDocumentUriUsingTree(folderUri,
-                    DocumentsContract.getTreeDocumentId(folderUri));
-
-            Uri fileUri = DocumentsContract.createDocument(context.getContentResolver(), folderDocumentUri, "application/xspf+xml", filename);
-
-            if (fileUri != null) {
-                Log.d("PlaylistDialog", "Created file: " + fileUri.toString());
+            if (newFile.createNewFile()) {
+                Log.d("PlaylistDialog", "Created file: " + newFile.getAbsolutePath());
+            } else {
+                Log.w("PlaylistDialog", "File already exists: " + newFile.getAbsolutePath());
             }
-            return fileUri;
-        } catch (Exception e) {
-            Log.e("PlaylistDialog", "Error creating file in selected folder", e);
+
+            return Uri.fromFile(newFile);
+        } catch (IOException e) {
+            Log.e("PlaylistDialog", "Error creating file in folder", e);
             return null;
         }
     }
