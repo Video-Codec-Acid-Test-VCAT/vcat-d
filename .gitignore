@@ -42,3 +42,6 @@ obj/
 gen/
 bin/
 
+# --- Release artifacts
+app/release/
+

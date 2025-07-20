@@ -227,7 +227,13 @@ public class TestResultsDetailDialog extends DialogFragment {
                 tvRes.setPadding(4,4,4,4);
 
                 TextView tvDec = new TextView(getContext());
-                tvDec.setText(tf.decoder);
+
+                // remove the word ''decoder' from the end
+                String decoder = tf.decoder;
+                if(decoder.endsWith(".decoder")){
+                    decoder = decoder.substring(0, decoder.length() - 8);
+                }
+                tvDec.setText(decoder);
                 tvDec.setSingleLine(true);
                 tvDec.setEllipsize(TextUtils.TruncateAt.END);
                 tvDec.setMaxEms(10);  // adjust as you like
@@ -235,7 +241,12 @@ public class TestResultsDetailDialog extends DialogFragment {
 
                 String parts[] = tf.frameRate.split(" ");
                 TextView tvFR = new TextView(getContext());
-                tvFR.setText(parts != null  ? parts[0] : "none");
+                try {
+                    float fps = Float.parseFloat(parts != null ? parts[0] : "0");
+                    tvFR.setText(String.format(Locale.US, "%.2f", fps));
+                } catch (NumberFormatException e) {
+                    tvFR.setText("n/a");
+                }
                 tvFR.setPadding(4,4,4,4);
 
                 // add all cells to the row
