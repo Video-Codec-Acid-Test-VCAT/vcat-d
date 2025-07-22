@@ -1,5 +1,6 @@
 package com.roncatech.vcat.video;
 
+import android.content.Context;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
@@ -15,6 +16,16 @@ import android.widget.ImageButton;
 import android.graphics.Color;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+
+import com.google.android.exoplayer2.DefaultRenderersFactory;
+import com.google.android.exoplayer2.Renderer;
+import com.google.android.exoplayer2.RenderersFactory;
+import com.google.android.exoplayer2.mediacodec.MediaCodecInfo;
+import com.google.android.exoplayer2.mediacodec.MediaCodecSelector;
+import com.google.android.exoplayer2.mediacodec.MediaCodecUtil;
+import com.google.android.exoplayer2.util.MimeTypes;
+import com.google.android.exoplayer2.video.MediaCodecVideoRenderer;
+import com.google.android.exoplayer2.video.VideoRendererEventListener;
 
 
 import androidx.appcompat.app.AppCompatActivity;
@@ -32,11 +43,13 @@ import com.roncatech.vcat.models.RunConfig;
 import com.roncatech.vcat.models.SharedViewModel;
 import com.roncatech.vcat.telemetry.TelemetryLogger;
 import com.roncatech.vcat.tools.BatteryInfo;
+import com.roncatech.vcat.tools.VideoDecoderEnumerator;
 import com.roncatech.vcat.tools.XspfParser;
 import com.roncatech.vcat.R;
 
 import java.util.List;
 import java.util.Locale;
+import java.util.ArrayList;
 
 public class FullScreenPlayerActivity extends AppCompatActivity {
 
@@ -147,6 +160,69 @@ public class FullScreenPlayerActivity extends AppCompatActivity {
         }
     };
 
+    MediaCodecSelector customSelector = (mimeType, requiresSecureDecoder, requiresTunnelingDecoder) -> {
+        String decoderName = null;
+
+        switch (mimeType) {
+            case MimeTypes.VIDEO_H264:
+                decoderName = viewModel.getRunConfig().decoderCfg.getDecoder(VideoDecoderEnumerator.MimeType.H264);
+                break;
+            case MimeTypes.VIDEO_H265:
+                decoderName = viewModel.getRunConfig().decoderCfg.getDecoder(VideoDecoderEnumerator.MimeType.H265);
+                break;
+            case MimeTypes.VIDEO_AV1:
+                decoderName = viewModel.getRunConfig().decoderCfg.getDecoder(VideoDecoderEnumerator.MimeType.AV1);
+                break;
+            case MimeTypes.VIDEO_VP9:
+                decoderName = viewModel.getRunConfig().decoderCfg.getDecoder(VideoDecoderEnumerator.MimeType.VP9);
+                break;
+            case "video/vvc":
+                decoderName = viewModel.getRunConfig().decoderCfg.getDecoder(VideoDecoderEnumerator.MimeType.VVC);
+                break;
+        }
+
+        List<MediaCodecInfo> infos = MediaCodecUtil.getDecoderInfos(
+                mimeType,
+                requiresSecureDecoder,
+                requiresTunnelingDecoder
+        );
+
+        if (decoderName != null && !decoderName.isEmpty()) {
+            List<MediaCodecInfo> filtered = new ArrayList<>();
+            for (MediaCodecInfo info : infos) {
+                if (info.name.equalsIgnoreCase(decoderName)) {
+                    filtered.add(info);
+                }
+            }
+            return filtered;
+        }
+        return infos;
+    };
+
+    RenderersFactory renderersFactory = new DefaultRenderersFactory(this) {
+        @Override
+        protected void buildVideoRenderers(
+                Context context,
+                int extensionRendererMode,
+                MediaCodecSelector mediaCodecSelector,
+                boolean enableDecoderFallback,
+                Handler eventHandler,
+                VideoRendererEventListener eventListener,
+                long allowedVideoJoiningTimeMs,
+                ArrayList<Renderer> out
+        ) {
+            out.add(new MediaCodecVideoRenderer(
+                    context,
+                    customSelector,
+                    allowedVideoJoiningTimeMs,
+                    enableDecoderFallback,
+                    eventHandler,
+                    eventListener,
+                    MAX_DROPPED_VIDEO_FRAME_COUNT_TO_NOTIFY
+            ));
+        }
+    };
+
     @Override
     protected void onCreate(Bundle b) {
         super.onCreate(b);
@@ -187,7 +263,7 @@ public class FullScreenPlayerActivity extends AppCompatActivity {
         this.buttonRow = findViewById(R.id.buttonRow);
         this.videoOverlay = findViewById(R.id.videoOverlay);
 
-        exoPlayer  = new SimpleExoPlayer.Builder(this).build();
+        exoPlayer  = new SimpleExoPlayer.Builder(this,renderersFactory).build();
         exoPlayer.setRepeatMode(Player.REPEAT_MODE_OFF);
         playerView.setPlayer(exoPlayer);
 

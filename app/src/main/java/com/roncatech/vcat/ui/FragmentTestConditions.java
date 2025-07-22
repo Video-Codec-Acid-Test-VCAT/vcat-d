@@ -24,6 +24,8 @@ import androidx.annotation.Nullable;
 import androidx.fragment.app.Fragment;
 import androidx.lifecycle.ViewModelProvider;
 
+import com.google.android.exoplayer2.mediacodec.MediaCodecInfo;
+import com.google.android.exoplayer2.mediacodec.MediaCodecUtil;
 import com.roncatech.vcat.models.RunConfig;
 import com.roncatech.vcat.models.SharedViewModel;
 
@@ -228,19 +230,28 @@ public class FragmentTestConditions extends Fragment {
         VideoDecoderEnumerator.MimeType[] decoderMimeTypes = VideoDecoderEnumerator.MimeType.values();
 
         for (VideoDecoderEnumerator.MimeType mimeType : decoderMimeTypes) {
-            VideoDecoderEnumerator.DecoderSet curSet = VideoDecoderEnumerator.getDecodersForMimeType(mimeType);
+            List<MediaCodecInfo> codecInfos;
+            try {
+                codecInfos = MediaCodecUtil.getDecoderInfos(mimeType.toString(), false, false);
+            } catch (MediaCodecUtil.DecoderQueryException e) {
+                codecInfos = new ArrayList<>();
+            }
 
             LinearLayout row = new LinearLayout(getContext());
             row.setOrientation(LinearLayout.VERTICAL);
 
             TextView mimeTypeText = new TextView(getContext());
-            mimeTypeText.setText(curSet.mimeType.toString());
+            mimeTypeText.setText(mimeType.toString());
 
             Spinner decoderSpinner = new Spinner(getContext());
-            List<String> decodersWithVCAT = new ArrayList<>(curSet.decoders);
-            decodersWithVCAT.add(0, "VCAT SW Decoder");
+            List<String> decoderNames = new ArrayList<>();
+            decoderNames.add("VCAT SW Decoder");
 
-            ArrayAdapter<String> decoderAdapter = new ArrayAdapter<>(getContext(), android.R.layout.simple_spinner_item, decodersWithVCAT);
+            for (MediaCodecInfo info : codecInfos) {
+                decoderNames.add(info.name);
+            }
+            ArrayAdapter<String> decoderAdapter = new ArrayAdapter<>(getContext(), android.R.layout.simple_spinner_item, decoderNames);
+            decoderAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
             decoderSpinner.setAdapter(decoderAdapter);
 
             row.addView(mimeTypeText);
