@@ -34,6 +34,10 @@ android {
         targetCompatibility JavaVersion.VERSION_11
     }
 
+    testOptions {
+        unitTests.includeAndroidResources = true
+    }
+
 
 }
 
@@ -57,4 +61,7 @@ dependencies {
     implementation "com.google.android.exoplayer:exoplayer-ui:2.19.1"
     implementation 'com.google.android.material:material:1.9.0'
     implementation "androidx.appcompat:appcompat:1.6.1"
+    testImplementation "org.robolectric:robolectric:4.11.1"
+    // OkHttp dependency
+    implementation 'com.squareup.okhttp3:okhttp:4.9.1'
 }

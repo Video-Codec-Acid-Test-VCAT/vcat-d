@@ -162,6 +162,9 @@ public class MainActivity extends AppCompatActivity {
         } else if (id == R.id.conditions_nav) {
             frag = new FragmentTestConditions();
             curViewTitle.setText(R.string.title_conditions);
+        }else if(id == R.id.vectors_nav){
+            frag = new FragmentTestVectors();
+            curViewTitle.setText(R.string.title_test_vectors);
         } else{
             frag = new FragmentMain();
             curViewTitle.setText(R.string.title_home);

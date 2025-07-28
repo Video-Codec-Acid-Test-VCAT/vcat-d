@@ -41,6 +41,7 @@ import java.io.File;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 public class FragmentMain extends Fragment implements PlaylistUpdates {
@@ -202,6 +203,9 @@ public class FragmentMain extends Fragment implements PlaylistUpdates {
 
         File[] files = playlistDir.listFiles((dir, name) -> name.endsWith(".xspf"));
         if (files != null) {
+            // Sort alphabetically (case-insensitive)
+            Arrays.sort(files, (f1, f2) -> f1.getName().compareToIgnoreCase(f2.getName()));
+
             for (File file : files) {
                 playlistNames.add(Uri.fromFile(file));
             }

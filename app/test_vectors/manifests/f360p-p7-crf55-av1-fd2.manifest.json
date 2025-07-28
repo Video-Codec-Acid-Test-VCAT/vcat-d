@@ -1,0 +1,10 @@
+{
+  "vcat-test-vector": {
+    "uuid": "514737de-4983-4551-a588-a1c6905f07f7",
+    "name": "f360p-p7-crf55-av1-fd2.mp4",
+    "codec": "av1-fd2",
+    "sha256": "d5725688f5e874f432b4fa5410c645af91ec0499fc72ce58bfe7f442c0afbd6e",
+    "framerate": 30,
+    "uri": "file:/var/folders/ps/q57ngjkd3z3d9058ljdvj7x00000gn/T/vcat_test_vectors/media/av1-fd2/f360p-p7-crf55-av1-fd2.mp4"
+  }
+}

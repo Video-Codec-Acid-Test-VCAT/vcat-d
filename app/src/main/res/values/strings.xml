@@ -4,10 +4,12 @@
     <string name="title_home">Home</string>
     <string name="title_logs">Logs</string>
     <string name="title_conditions">Conditions</string>
+    <string name="title_test_vectors">Test Vectors</string>
     <string name="empty_nav">None</string>
     <string name="home_nav">Home</string>
     <string name="logs_nav">Logs</string>
     <string name="conditions_nav">Conditions</string>
+    <string name="test_vectors_nav">Test Vectors</string>
     <string name="about_vcat">About VCAT</string>
     <string name="download_test_vectors">Download Test Vectors</string>
     <string name="about_title">"VCAT (Video Codec Acid Test)</string>

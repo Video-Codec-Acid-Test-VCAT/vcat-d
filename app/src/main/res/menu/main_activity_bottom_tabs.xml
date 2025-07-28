@@ -16,4 +16,9 @@
         android:icon="@drawable/ic_menu_conditions"
         android:title="@string/conditions_nav" />
 
+    <item
+        android:id="@+id/vectors_nav"
+        android:icon="@drawable/ic_menu_test_vectors"
+        android:title="@string/test_vectors_nav" />
+
 </menu>

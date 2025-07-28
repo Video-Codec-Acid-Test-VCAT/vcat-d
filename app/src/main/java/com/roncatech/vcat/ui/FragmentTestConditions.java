@@ -51,7 +51,6 @@ public class FragmentTestConditions extends Fragment {
     EditText httpPortEditText;
 
     ImageButton aboutButton;
-    ImageButton downloadTestVectorsBtn;
 
     public FragmentTestConditions(){
     }
@@ -118,8 +117,6 @@ public class FragmentTestConditions extends Fragment {
             Intent intent = new Intent(context, AboutActivity.class);
             context.startActivity(intent);
         });
-
-        this.downloadTestVectorsBtn = view.findViewById(R.id.downloadTestVectors);
 
         httpPortEditText = view.findViewById(R.id.httpPortEditText);
         viewModel = new ViewModelProvider(requireActivity()).get(SharedViewModel.class);
