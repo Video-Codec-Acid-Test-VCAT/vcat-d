@@ -107,6 +107,7 @@ public class FragmentTestVectors extends Fragment {
                 Toast.makeText(requireContext(), "Please enter a catalog URL", Toast.LENGTH_SHORT).show();
                 return;
             }
+            startCatalogDownload(url);
         });
 
         cbSelectAll.setOnCheckedChangeListener((buttonView, isChecked) -> {
@@ -122,6 +123,61 @@ public class FragmentTestVectors extends Fragment {
         });
 
         // TODO: optionally prepopulate etCatalogUrl from saved prefs
+    }
+
+
+    private void startCatalogDownload(String catalogUrl) {
+        // 1) Clear any previous rows
+        tableVectors.removeAllViews();
+
+        List<TestVectorMediaAsset> videoAssetTable = new ArrayList<>();
+
+        // 2) Kick off the download
+        DownloadTestVectors.downloadCatalog(
+                requireContext(),
+                catalogUrl,
+                new DownloadTestVectors.CatalogCallback() {
+                    @Override
+                    public void onSuccess(TestVectorManifests.Catalog catalog) {
+                        // Make sure we're on the main thread (downloadCatalog already does this)
+                        // 3) Populate the table with one row per playlist
+                        for (TestVectorManifests.PlaylistAsset playlist : catalog.playlists) {
+                            TableRow row = (TableRow) getLayoutInflater()
+                                    .inflate(R.layout.row_test_vector, tableVectors, false);
+
+                            CheckBox cb = row.findViewById(R.id.cbRow);
+                            cb.setChecked(false); // default
+
+                            TextView tv = row.findViewById(R.id.tvRowText);
+                            tv.setText(playlist.name);
+
+                            // tag the row so you can retrieve the playlist URL later
+                            row.setTag(playlist);
+
+                            tableVectors.addView(row);
+                        }
+
+                        // now decide whether to show the select-all control
+                        if (catalog.playlists.size() >= 2) {
+                            cbSelectAll.setVisibility(View.VISIBLE);
+                            tvSelectAll.setVisibility(View.VISIBLE);
+                        } else {
+                            cbSelectAll.setVisibility(View.GONE);
+                            tvSelectAll.setVisibility(View.GONE);
+                        }
+                        btnDownloadPlaylists.setEnabled(catalog.playlists.size()> 0);
+                    }
+
+                    @Override
+                    public void onError(String errorMessage) {
+                        Toast.makeText(
+                                requireContext(),
+                                "Failed to download catalog: " + errorMessage,
+                                Toast.LENGTH_SHORT
+                        ).show();
+                    }
+                }
+        );
     }
 
     private void startBatchDownload() {

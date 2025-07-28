@@ -15,7 +15,7 @@ android {
         minSdk 30
         targetSdk 35
         versionCode 2
-        versionName "1.0.1"
+        versionName "0.2.0.0"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField "String", "VERSION_NAME", "\"${versionName}\""
@@ -27,6 +27,18 @@ android {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+
+            // Add this block to modify the output APK filename
+            applicationVariants.all { variant ->
+                if (variant.buildType.name == "release") {
+                    variant.outputs.all {
+                        def versionCode = variant.versionCode
+                        def versionName = variant.versionName
+                        // Customize the APK filename with versionCode and versionName
+                        outputFileName = "MyApp-${versionName}-v${versionCode}.apk"
+                    }
+                }
+            }
         }
     }
     compileOptions {
