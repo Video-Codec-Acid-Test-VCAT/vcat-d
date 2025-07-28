@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+
+    <!-- Only for your Squarespace domain -->
+    <domain-config>
+        <domain includeSubdomains="true">www.roncatech.com</domain>
+        <trust-anchors>
+            <!-- Android’s normal system CAs -->
+            <certificates src="system"/>
+            <!-- + the Let’s Encrypt R11 intermediate you just bundled -->
+            <certificates src="@raw/letsencrypt_r11"/>
+        </trust-anchors>
+    </domain-config>
+
+    <!-- And still trust system CAs everywhere else -->
+    <base-config>
+        <trust-anchors>
+            <certificates src="system"/>
+        </trust-anchors>
+    </base-config>
+
+</network-security-config>
