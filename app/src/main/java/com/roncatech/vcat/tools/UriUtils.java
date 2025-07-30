@@ -15,4 +15,10 @@ public class UriUtils {
         String[] parts = uriString.split("/");
         return parts[parts.length - 1];
     }
+
+    public static String makeBaseUrlWithUri(String url) {
+        URI uri = URI.create(url);
+        URI base = uri.resolve("./");   // drops everything after the last '/'
+        return base.toString();         // includes trailing slash
+    }
 }

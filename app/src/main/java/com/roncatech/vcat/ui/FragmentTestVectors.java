@@ -32,6 +32,7 @@ import com.roncatech.vcat.test_vectors.DownloadTestVectors;
 import com.roncatech.vcat.test_vectors.SetupLocalVectors;
 import com.roncatech.vcat.test_vectors.XspfBuilder;
 import com.roncatech.vcat.tools.StorageManager;
+import com.roncatech.vcat.tools.UriUtils;
 import com.roncatech.vcat.tools.XSPFPlaylistCreator;
 
 import java.io.File;
@@ -52,6 +53,8 @@ public class FragmentTestVectors extends Fragment {
     private ImageButton btnDownloadPlaylists;
     CheckBox cbSelectAll;
     TextView tvSelectAll;
+
+    private String resolvedCatalogUrl = "";
 
     private int colorInProgress;
     private int colorSuccess;
@@ -101,14 +104,15 @@ public class FragmentTestVectors extends Fragment {
                 v -> startBatchDownload()
         );
 
-        btnOpenCatalog.setOnClickListener(v -> {
-            String url = etCatalogUrl.getText().toString().trim();
-            if (TextUtils.isEmpty(url)) {
-                Toast.makeText(requireContext(), "Please enter a catalog URL", Toast.LENGTH_SHORT).show();
-                return;
-            }
-            startCatalogDownload(url);
-        });
+        btnOpenCatalog.setEnabled(false);
+
+        String url = etCatalogUrl.getText().toString().trim();
+        if (TextUtils.isEmpty(url)) {
+            Toast.makeText(requireContext(), "Please enter a catalog URL", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        startCatalogDownload(url);
+
 
         cbSelectAll.setOnCheckedChangeListener((buttonView, isChecked) -> {
             // Iterate all rows currently in the table
@@ -121,6 +125,7 @@ public class FragmentTestVectors extends Fragment {
                 }
             }
         });
+
 
         // TODO: optionally prepopulate etCatalogUrl from saved prefs
     }
@@ -138,7 +143,9 @@ public class FragmentTestVectors extends Fragment {
                 catalogUrl,
                 new DownloadTestVectors.CatalogCallback() {
                     @Override
-                    public void onSuccess(TestVectorManifests.Catalog catalog) {
+                    public void onSuccess(TestVectorManifests.Catalog catalog, String resolvedCatalogUrl) {
+                        FragmentTestVectors.this.resolvedCatalogUrl = resolvedCatalogUrl;
+
                         // Make sure we're on the main thread (downloadCatalog already does this)
                         // 3) Populate the table with one row per playlist
                         for (TestVectorManifests.PlaylistAsset playlist : catalog.playlists) {
@@ -220,6 +227,8 @@ public class FragmentTestVectors extends Fragment {
             // a shared mediaTable
             Map<UUID, TestVectorMediaAsset> mediaTable = new HashMap<>();
 
+            String baseUrl = UriUtils.makeBaseUrlWithUri(this.resolvedCatalogUrl.trim());
+
             for (Pair<TestVectorManifests.PlaylistAsset, TableRow> p : queue) {
                 TestVectorManifests.PlaylistAsset asset = p.first;
                 TableRow row                           = p.second;
@@ -235,7 +244,7 @@ public class FragmentTestVectors extends Fragment {
                     // 3a) download playlist & videos
                     TestVectorManifests.PlaylistManifest manifest =
                             DownloadTestVectors.downloadPlaylistSync(
-                                    requireContext(), asset, mediaTable
+                                    requireContext(), baseUrl, asset, mediaTable
                             );
 
                     // 3b) relocate only this playlist’s assets

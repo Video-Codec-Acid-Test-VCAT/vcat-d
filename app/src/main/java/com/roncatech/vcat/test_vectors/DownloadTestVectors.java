@@ -15,6 +15,7 @@ import java.io.FileOutputStream;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.URI;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
@@ -35,7 +36,7 @@ public class DownloadTestVectors {
     private static final OkHttpClient client = new OkHttpClient();
 
     public interface CatalogCallback {
-        void onSuccess(TestVectorManifests.Catalog catalog);
+        void onSuccess(TestVectorManifests.Catalog catalog, String resolvedCatalogUrl);
         void onError(String errorMessage);
     }
 
@@ -75,7 +76,9 @@ public class DownloadTestVectors {
                                 TestVectorManifests.Catalog.class
                         );
 
-                mainHandler.post(() -> callback.onSuccess(catalog));
+                String resolvedCatalogUrl = response.request().url().toString();
+
+                mainHandler.post(() -> callback.onSuccess(catalog, resolvedCatalogUrl));
             } catch (Exception e) {
                 Log.e(TAG, "Failed to download catalog", e);
                 String msg = e.getMessage() != null ? e.getMessage() : "Unknown error";
@@ -86,6 +89,7 @@ public class DownloadTestVectors {
 
     public static TestVectorManifests.PlaylistManifest downloadPlaylistSync(
             Context context,
+            String baseUrl,
             TestVectorManifests.PlaylistAsset playlistAsset,
             Map<UUID, TestVectorMediaAsset> mediaAssetTable
     ) throws Exception {
@@ -95,6 +99,7 @@ public class DownloadTestVectors {
 
         downloadPlaylist(
                 context,
+                baseUrl,
                 playlistAsset,
                 mediaAssetTable,
                 new PlaylistCallback() {
@@ -128,6 +133,7 @@ public class DownloadTestVectors {
 
     public static Future<?> downloadPlaylist(
             Context context,
+            String baseUrl,
             TestVectorManifests.PlaylistAsset playlistAsset,
             Map<UUID, TestVectorMediaAsset> videoAssetTable,
             PlaylistCallback callback
@@ -137,10 +143,13 @@ public class DownloadTestVectors {
 
         Future<?> future = executor.submit(() -> {
             try {
+                URI baseUri = URI.create(baseUrl).resolve("./");
+                String playlistUrl = baseUri.resolve(playlistAsset.url).toString();
+
                 // 1) Download & verify playlist manifest
                 if (Thread.currentThread().isInterrupted()) throw new InterruptedException();
                 mainHandler.post(() -> callback.onStatusUpdate("Downloading playlist manifest..."));
-                String playlistJson = downloadJson(playlistAsset.url);
+                String playlistJson = downloadJson(playlistUrl);
 
                 if (Thread.currentThread().isInterrupted()) throw new InterruptedException();
                 File playlistFile = saveStringToTempFile(playlistJson, context);
@@ -162,9 +171,11 @@ public class DownloadTestVectors {
                 for (TestVectorManifests.PlaylistAsset ma : playlistManifest.mediaAssets) {
                     if (Thread.currentThread().isInterrupted()) throw new InterruptedException();
 
+                    String mediaManifestUrl = baseUri.resolve(ma.url).toString();
+
                     // a) Download & verify the media manifest JSON
                     mainHandler.post(() -> callback.onStatusUpdate("Downloading media manifest: " + ma.name));
-                    String vmJson = downloadJson(ma.url);
+                    String vmJson = downloadJson(mediaManifestUrl);
 
                     if (Thread.currentThread().isInterrupted()) throw new InterruptedException();
                     File vmFile = saveStringToTempFile(vmJson, context);
@@ -189,9 +200,12 @@ public class DownloadTestVectors {
                     }
 
                     // d) Download the actual video file
-                    if (Thread.currentThread().isInterrupted()) throw new InterruptedException();
+                    if (Thread.currentThread().isInterrupted()) {
+                        throw new InterruptedException();
+                    }
+                    String mediaAssetUrl = baseUri.resolve(va.url).toString();
                     mainHandler.post(() -> callback.onStatusUpdate("Downloading video file: " + va.name));
-                    File videoFile = downloadToTempFile(va.url, context);
+                    File videoFile = downloadToTempFile(mediaAssetUrl, context);
 
                     // e) Verify its checksum
                     if (!verifyChecksum(videoFile, va.checksum)) {
