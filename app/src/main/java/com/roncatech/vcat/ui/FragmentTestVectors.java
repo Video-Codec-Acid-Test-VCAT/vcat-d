@@ -135,8 +135,14 @@ public class FragmentTestVectors extends Fragment implements OpenCatalogDialog.L
     }
 
     @Override
-    public void onCatalogChosen(@NonNull String treeUriString) {
-        Uri treeUri = Uri.parse(treeUriString);
+    public void onCatalogChosen(@NonNull String catalogUrl) {
+
+        if (catalogUrl.startsWith("http://") || catalogUrl.startsWith("https://")) {
+            startCatalogDownload(catalogUrl);
+            return;
+        }
+
+        Uri treeUri = Uri.parse(catalogUrl);
         DocumentFile tree = DocumentFile.fromTreeUri(requireContext(), treeUri);
 
         // 1) find all “*_playlist_catalog.json” (or whatever suffix you use)

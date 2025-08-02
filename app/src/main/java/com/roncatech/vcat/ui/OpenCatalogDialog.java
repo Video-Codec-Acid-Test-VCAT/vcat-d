@@ -4,7 +4,6 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.app.Dialog;
 import android.content.Context;
-import android.content.DialogInterface;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Build;
@@ -17,7 +16,6 @@ import android.widget.ImageButton;
 import android.widget.LinearLayout;
 import android.widget.RadioButton;
 import android.widget.RadioGroup;
-import android.widget.Toast;
 
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
@@ -27,12 +25,6 @@ import androidx.fragment.app.DialogFragment;
 
 import com.roncatech.vcat.R;
 
-import java.io.File;
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
-
 public class OpenCatalogDialog extends DialogFragment {
     public interface Listener {
         void onCatalogChosen(@NonNull String catalogUrl);
@@ -41,12 +33,24 @@ public class OpenCatalogDialog extends DialogFragment {
     private Listener listener;
     private RadioGroup    rgSource;
     private RadioButton   rbHttp, rbFile;
-    private EditText      etHttpUrl, etFileUri;
+    private EditText      etHttpUrl, etFolderUri;
     private LinearLayout  llFilePicker;
     private ImageButton   btnBrowse;
     private Uri lastPickerTreeUri = null;
 
     private static final String ARG_INITIAL_URL = "initial_url";
+
+    private final ActivityResultLauncher<Uri> openTreeLauncher =
+            registerForActivityResult(new ActivityResultContracts.OpenDocumentTree(),
+                    uri -> {
+                        if (uri != null) {
+                            // user picked a local folder
+                            etFolderUri.setText(uri.toString());
+                        } else {
+                            // user hit “Cancel” → go back to HTTP-URL mode
+                            rbHttp.setChecked(true);
+                        }
+                    });
 
     public static OpenCatalogDialog newInstance(@NonNull String initialUrl) {
         OpenCatalogDialog dlg = new OpenCatalogDialog();
@@ -100,32 +104,34 @@ public class OpenCatalogDialog extends DialogFragment {
         // 2) Find all views
         rgSource    = root.findViewById(R.id.rgSource);
         rbHttp      = root.findViewById(R.id.rbHttp);
-        rbFile      = root.findViewById(R.id.rbFile);
+        rbFile      = root.findViewById(R.id.rbFolder);
         etHttpUrl   = root.findViewById(R.id.etHttpUrl);
         llFilePicker= root.findViewById(R.id.llFilePicker);
-        etFileUri   = root.findViewById(R.id.etFileUri);
+        etFolderUri = root.findViewById(R.id.etFileUri);
         btnBrowse   = root.findViewById(R.id.btnBrowse);
 
-        // 3) Wire up the HTTP/File toggle
+        // 3) Wire up the HTTP/Folder toggle
         rgSource.setOnCheckedChangeListener((group, checkedId) -> {
             boolean httpSelected = (checkedId == R.id.rbHttp);
-            etHttpUrl  .setVisibility(httpSelected ? View.VISIBLE : View.GONE);
+            etHttpUrl.setVisibility(httpSelected ? View.VISIBLE : View.GONE);
             llFilePicker.setVisibility(httpSelected ? View.GONE    : View.VISIBLE);
 
             if (!httpSelected) {
-                // Pre-populate with a sensible default
-                String defaultPath = "/sdcard/Download";
-                etFileUri.setText(defaultPath);
-                // move the cursor to the end so user can immediately start typing/sub-browsing
-                etFileUri.setSelection(defaultPath.length());
+                // User chose “Folder” → immediately fire the SAF folder picker
+                openTreeLauncher.launch(null);
+            } else {
+                // Back in HTTP mode: clear out any prior folder URI
+                etFolderUri.setText("");
+                etFolderUri.setHint("https://example.com/my_playlist_catalog.json");
             }
         });
+
 
         // 4) Pre‐populate from the initial URL argument
         String initialUrl = "";
         Bundle args = getArguments();
         if (args != null) {
-            initialUrl = args.getString("initial_url", "");
+            initialUrl = args.getString(ARG_INITIAL_URL, "");
         }
         if (initialUrl.startsWith("http://") || initialUrl.startsWith("https://")) {
             rbHttp.setChecked(true);
@@ -134,7 +140,7 @@ public class OpenCatalogDialog extends DialogFragment {
                 || initialUrl.startsWith("jar:")
                 || initialUrl.startsWith("zip:")) {
             rbFile.setChecked(true);
-            etFileUri.setText(initialUrl);
+            etFolderUri.setText(initialUrl);
         } else {
             // default to HTTP if it’s something unexpected
             rbHttp.setChecked(true);
@@ -171,7 +177,7 @@ public class OpenCatalogDialog extends DialogFragment {
                 .setPositiveButton("OK", (dialog, which) -> {
                     String chosen = rbHttp.isChecked()
                             ? etHttpUrl .getText().toString().trim()
-                            : etFileUri.getText().toString().trim();
+                            : etFolderUri.getText().toString().trim();
                     if (!chosen.isEmpty()) {
                         listener.onCatalogChosen(chosen);
                     }
