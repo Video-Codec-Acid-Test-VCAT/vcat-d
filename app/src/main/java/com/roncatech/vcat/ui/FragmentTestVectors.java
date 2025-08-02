@@ -6,7 +6,6 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.text.TextUtils;
-import android.util.Log;
 import android.util.Pair;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -23,6 +22,7 @@ import android.widget.Toast;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.core.content.ContextCompat;
+import androidx.documentfile.provider.DocumentFile;
 import androidx.fragment.app.Fragment;
 
 import com.roncatech.vcat.R;
@@ -44,7 +44,7 @@ import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-public class FragmentTestVectors extends Fragment {
+public class FragmentTestVectors extends Fragment implements OpenCatalogDialog.Listener {
     private final static String TAG = "FragmentTestVectors";
 
     private EditText etCatalogUrl;
@@ -104,14 +104,18 @@ public class FragmentTestVectors extends Fragment {
                 v -> startBatchDownload()
         );
 
-        btnOpenCatalog.setEnabled(false);
+        btnOpenCatalog.setOnClickListener(chk -> {
+            String current = etCatalogUrl.getText().toString().trim();
+            OpenCatalogDialog.newInstance(current)
+                    .show(getChildFragmentManager(), "openCatalog");
+        });
 
         String url = etCatalogUrl.getText().toString().trim();
         if (TextUtils.isEmpty(url)) {
             Toast.makeText(requireContext(), "Please enter a catalog URL", Toast.LENGTH_SHORT).show();
             return;
         }
-        startCatalogDownload(url);
+        //startCatalogDownload(url);
 
 
         cbSelectAll.setOnCheckedChangeListener((buttonView, isChecked) -> {
@@ -130,6 +134,46 @@ public class FragmentTestVectors extends Fragment {
         // TODO: optionally prepopulate etCatalogUrl from saved prefs
     }
 
+    @Override
+    public void onCatalogChosen(@NonNull String treeUriString) {
+        Uri treeUri = Uri.parse(treeUriString);
+        DocumentFile tree = DocumentFile.fromTreeUri(requireContext(), treeUri);
+
+        // 1) find all “*_playlist_catalog.json” (or whatever suffix you use)
+        List<DocumentFile> candidates = new ArrayList<>();
+        for (DocumentFile df : tree.listFiles()) {
+            if (df.isFile()
+                    && df.getName() != null
+                    && df.getName().endsWith("_playlist_catalog.json")) {
+                candidates.add(df);
+            }
+        }
+
+        if (candidates.isEmpty()) {
+            new AlertDialog.Builder(requireContext())
+                    .setTitle("No catalogs found")
+                    .setMessage("That folder contains no catalog JSON.")
+                    .setPositiveButton("OK", null)
+                    .show();
+            return;
+        }
+
+        // 2) if more than one, let the user pick
+        if (candidates.size() > 1) {
+            String[] names = new String[candidates.size()];
+            for (int i = 0; i < candidates.size(); i++) {
+                names[i] = candidates.get(i).getName();
+            }
+            new AlertDialog.Builder(requireContext())
+                    .setTitle("Select catalog")
+                    .setItems(names, (dlg, which) -> {
+                        startCatalogDownload(candidates.get(which).toString());
+                    })
+                    .show();
+        } else {
+            startCatalogDownload(candidates.get(0).getUri().toString());
+        }
+    }
 
     private void startCatalogDownload(String catalogUrl) {
         // 1) Clear any previous rows
@@ -137,54 +181,58 @@ public class FragmentTestVectors extends Fragment {
 
         List<TestVectorMediaAsset> videoAssetTable = new ArrayList<>();
 
-        // 2) Kick off the download
-        DownloadTestVectors.downloadCatalog(
-                requireContext(),
-                catalogUrl,
-                new DownloadTestVectors.CatalogCallback() {
-                    @Override
-                    public void onSuccess(TestVectorManifests.Catalog catalog, String resolvedCatalogUrl) {
-                        FragmentTestVectors.this.resolvedCatalogUrl = resolvedCatalogUrl;
+        DownloadTestVectors.CatalogCallback callback =new DownloadTestVectors.CatalogCallback() {
+            @Override
+            public void onSuccess(TestVectorManifests.Catalog catalog, String resolvedCatalogUrl) {
+                FragmentTestVectors.this.resolvedCatalogUrl = resolvedCatalogUrl;
 
-                        // Make sure we're on the main thread (downloadCatalog already does this)
-                        // 3) Populate the table with one row per playlist
-                        for (TestVectorManifests.PlaylistAsset playlist : catalog.playlists) {
-                            TableRow row = (TableRow) getLayoutInflater()
-                                    .inflate(R.layout.row_test_vector, tableVectors, false);
+                // Make sure we're on the main thread (downloadCatalog already does this)
+                // 3) Populate the table with one row per playlist
+                for (TestVectorManifests.PlaylistAsset playlist : catalog.playlists) {
+                    TableRow row = (TableRow) getLayoutInflater()
+                            .inflate(R.layout.row_test_vector, tableVectors, false);
 
-                            CheckBox cb = row.findViewById(R.id.cbRow);
-                            cb.setChecked(false); // default
+                    CheckBox cb = row.findViewById(R.id.cbRow);
+                    cb.setChecked(false); // default
 
-                            TextView tv = row.findViewById(R.id.tvRowText);
-                            tv.setText(playlist.name);
+                    TextView tv = row.findViewById(R.id.tvRowText);
+                    tv.setText(playlist.name);
 
-                            // tag the row so you can retrieve the playlist URL later
-                            row.setTag(playlist);
+                    // tag the row so you can retrieve the playlist URL later
+                    row.setTag(playlist);
 
-                            tableVectors.addView(row);
-                        }
-
-                        // now decide whether to show the select-all control
-                        if (catalog.playlists.size() >= 2) {
-                            cbSelectAll.setVisibility(View.VISIBLE);
-                            tvSelectAll.setVisibility(View.VISIBLE);
-                        } else {
-                            cbSelectAll.setVisibility(View.GONE);
-                            tvSelectAll.setVisibility(View.GONE);
-                        }
-                        btnDownloadPlaylists.setEnabled(catalog.playlists.size()> 0);
-                    }
-
-                    @Override
-                    public void onError(String errorMessage) {
-                        Toast.makeText(
-                                requireContext(),
-                                "Failed to download catalog: " + errorMessage,
-                                Toast.LENGTH_SHORT
-                        ).show();
-                    }
+                    tableVectors.addView(row);
                 }
-        );
+
+                // now decide whether to show the select-all control
+                if (catalog.playlists.size() >= 2) {
+                    cbSelectAll.setVisibility(View.VISIBLE);
+                    tvSelectAll.setVisibility(View.VISIBLE);
+                } else {
+                    cbSelectAll.setVisibility(View.GONE);
+                    tvSelectAll.setVisibility(View.GONE);
+                }
+                btnDownloadPlaylists.setEnabled(catalog.playlists.size()> 0);
+            }
+
+            @Override
+            public void onError(String errorMessage) {
+                Toast.makeText(
+                        requireContext(),
+                        "Failed to download catalog: " + errorMessage,
+                        Toast.LENGTH_SHORT
+                ).show();
+            }
+        };
+
+        // 2) Kick off the download
+        if (catalogUrl.startsWith("http://") || catalogUrl.startsWith("https://")) {
+            DownloadTestVectors.downloadCatalogHttp(requireContext(), catalogUrl, callback);
+        } else{
+            DownloadTestVectors.downloadCatalogFromFile(requireContext(),
+                    Uri.parse(catalogUrl),
+                    callback);
+        }
     }
 
     private void startBatchDownload() {

@@ -1,21 +1,35 @@
 package com.roncatech.vcat.test_vectors;
 import android.content.Context;
+import android.database.Cursor;
+import android.net.Uri;
+import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.ParcelFileDescriptor;
+import android.provider.OpenableColumns;
 import android.util.Log;
 
 import com.google.gson.Gson;
 import com.roncatech.vcat.models.TestVectorMediaAsset;
 import com.roncatech.vcat.models.TestVectorManifests;
+import com.roncatech.vcat.tools.UriUtils;
 
+import java.io.BufferedReader;
 import java.io.BufferedWriter;
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.net.URI;
+import java.net.URL;
+import java.net.URLConnection;
+import java.nio.channels.FileChannel;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
@@ -47,10 +61,100 @@ public class DownloadTestVectors {
     }
 
     /**
+     * Reads an InputStream fully into a UTF‑8 String, using readAllBytes() on API 33+
+     * or a manual loop on older devices.
+     */
+    private static String readStreamFully(InputStream in) throws IOException {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            // API‑33+: optimized
+            return new String(in.readAllBytes(), StandardCharsets.UTF_8);
+        } else {
+            // below API‑33: fallback to manual copy
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            byte[] buffer = new byte[8192];
+            int len;
+            while ((len = in.read(buffer)) != -1) {
+                out.write(buffer, 0, len);
+            }
+            return out.toString("UTF-8");
+        }
+    }
+
+
+    private static String downloadJson2(Context ctx, String url) throws IOException {
+        if (url.startsWith("http://") || url.startsWith("https://")) {
+            Request req = new Request.Builder().url(url).build();
+            Response resp = client.newCall(req).execute();
+            if (!resp.isSuccessful()) throw new IOException("HTTP " + resp.code());
+            return resp.body().string();
+        }
+        else if (url.startsWith("file://")) {
+            File f = new File(URI.create(url));
+            return new String(Files.readAllBytes(f.toPath()), StandardCharsets.UTF_8);
+        }
+        else if (url.startsWith("content://")) {
+            // handle Android content URIs
+            Uri uri = Uri.parse(url);
+            try (InputStream in = ctx.getContentResolver().openInputStream(uri)) {
+                if (in == null) throw new IOException("Cannot open content URI: " + url);
+                return readStreamFully(in);
+            }
+        }
+        else {
+            throw new IllegalArgumentException("Unsupported URL scheme: " + url);
+        }
+    }
+    /**
+     * file‐based catalog loader.  Accepts a Uri (content:// or file://) that points
+     * directly at a catalog JSON file and parses it.
+     */
+    public static void downloadCatalogFromFile(
+            Context context,
+            Uri fileUri,
+            CatalogCallback callback
+    ) {
+        ExecutorService exec = Executors.newSingleThreadExecutor();
+        Handler main = new Handler(Looper.getMainLooper());
+
+        exec.execute(() -> {
+            try {
+                // open the document
+                try (InputStream in = context.getContentResolver().openInputStream(fileUri)) {
+                    if (in == null) throw new IOException("Cannot open " + fileUri);
+                    String json = readStreamAsString(in);
+                    TestVectorManifests.Catalog cat =
+                            new Gson().fromJson(json, TestVectorManifests.Catalog.class);
+
+                    // hand back the Uri.toString() as “resolved”
+                    main.post(() -> callback.onSuccess(cat, fileUri.toString()));
+                }
+            } catch (Exception e) {
+                main.post(() -> callback.onError(e.getMessage()));
+            } finally {
+                exec.shutdown();
+            }
+        });
+    }
+
+
+    private static String readStreamAsString(InputStream in) throws IOException {
+        BufferedReader reader = new BufferedReader(
+                new InputStreamReader(in, StandardCharsets.UTF_8)
+        );
+        StringBuilder sb = new StringBuilder();
+        for (String line; (line = reader.readLine()) != null; ) {
+            sb.append(line).append('\n');
+        }
+        return sb.toString();
+    }
+
+
+
+    /**
      * Downloads the VCAT test‐vector catalog from the given URL and returns a parsed
      * VcatTestVectorPlaylistCatalog via the CatalogCallback.
      */
-    public static void downloadCatalog(
+    public static void downloadCatalogHttp(
             Context context,
             String catalogUrl,
             CatalogCallback callback
@@ -60,23 +164,33 @@ public class DownloadTestVectors {
 
         executor.execute(() -> {
             try {
-                Request request = new Request.Builder()
-                        .url(catalogUrl)
-                        .build();
-                Response response = client.newCall(request).execute();
+                String resolvedCatalogUrl;
+                String json;
 
-                if (!response.isSuccessful()) {
-                    throw new IOException("Unexpected HTTP " + response.code());
+                if (catalogUrl.startsWith("http://") || catalogUrl.startsWith("https://")) {
+                    // need to handle http special to get redirected url as base
+                    Request request = new Request.Builder()
+                            .url(catalogUrl)
+                            .build();
+                    Response response = client.newCall(request).execute();
+
+                    if (!response.isSuccessful()) {
+                        throw new IOException("Unexpected HTTP " + response.code());
+                    }
+
+                    json = response.body().string();
+
+
+                     resolvedCatalogUrl = response.request().url().toString();
+                }else{
+                    json = downloadJson2(context, catalogUrl);
+                    resolvedCatalogUrl = catalogUrl;
                 }
-
-                String json = response.body().string();
                 TestVectorManifests.Catalog catalog =
                         new Gson().fromJson(
                                 json,
                                 TestVectorManifests.Catalog.class
                         );
-
-                String resolvedCatalogUrl = response.request().url().toString();
 
                 mainHandler.post(() -> callback.onSuccess(catalog, resolvedCatalogUrl));
             } catch (Exception e) {
@@ -143,13 +257,13 @@ public class DownloadTestVectors {
 
         Future<?> future = executor.submit(() -> {
             try {
-                URI baseUri = URI.create(baseUrl).resolve("./");
-                String playlistUrl = baseUri.resolve(playlistAsset.url).toString();
+
+                String playlistUrl = UriUtils.resolveUri(context, baseUrl, playlistAsset.url).toString();
 
                 // 1) Download & verify playlist manifest
                 if (Thread.currentThread().isInterrupted()) throw new InterruptedException();
                 mainHandler.post(() -> callback.onStatusUpdate("Downloading playlist manifest..."));
-                String playlistJson = downloadJson(playlistUrl);
+                String playlistJson = downloadJson2(context, playlistUrl);
 
                 if (Thread.currentThread().isInterrupted()) throw new InterruptedException();
                 File playlistFile = saveStringToTempFile(playlistJson, context);
@@ -171,11 +285,11 @@ public class DownloadTestVectors {
                 for (TestVectorManifests.PlaylistAsset ma : playlistManifest.mediaAssets) {
                     if (Thread.currentThread().isInterrupted()) throw new InterruptedException();
 
-                    String mediaManifestUrl = baseUri.resolve(ma.url).toString();
+                    String mediaManifestUrl = UriUtils.resolveUri(context, baseUrl, ma.url).toString();
 
                     // a) Download & verify the media manifest JSON
                     mainHandler.post(() -> callback.onStatusUpdate("Downloading media manifest: " + ma.name));
-                    String vmJson = downloadJson(mediaManifestUrl);
+                    String vmJson = downloadJson2(context, mediaManifestUrl);
 
                     if (Thread.currentThread().isInterrupted()) throw new InterruptedException();
                     File vmFile = saveStringToTempFile(vmJson, context);
@@ -192,7 +306,6 @@ public class DownloadTestVectors {
 
                     TestVectorManifests.VideoAsset va = videoManifest.mediaAsset;
 
-
                     // c) Skip if already downloaded
                     if(videoAssetTable.containsKey(videoManifest.header.uuid))
                     {
@@ -203,7 +316,7 @@ public class DownloadTestVectors {
                     if (Thread.currentThread().isInterrupted()) {
                         throw new InterruptedException();
                     }
-                    String mediaAssetUrl = baseUri.resolve(va.url).toString();
+                    String mediaAssetUrl = UriUtils.resolveUri(context, baseUrl, va.url).toString();
                     mainHandler.post(() -> callback.onStatusUpdate("Downloading video file: " + va.name));
                     File videoFile = downloadToTempFile(mediaAssetUrl, context);
 
@@ -243,18 +356,6 @@ public class DownloadTestVectors {
             w.write(content);
         }
         return tmp;
-    }
-
-    // Download JSON from the URL
-    private static String downloadJson(String url) throws IOException {
-        Request request = new Request.Builder().url(url).build();
-        Response response = client.newCall(request).execute();
-
-        if (!response.isSuccessful()) {
-            throw new IOException("Failed to download JSON from " + url);
-        }
-
-        return response.body().string();
     }
 
     // Save JSON content to a temporary file
@@ -304,30 +405,100 @@ public class DownloadTestVectors {
     }
 
     private static File downloadToTempFile(String url, Context ctx) throws IOException {
-        Request req = new Request.Builder().url(url).build();
-        Response resp = client.newCall(req).execute();
-        if (!resp.isSuccessful()) {
-            throw new IOException("Failed to download " + url + ": HTTP " + resp.code());
-        }
+        Uri uri = Uri.parse(url);
+        String scheme = uri.getScheme();
 
-        // Extract the original file name from the URL
-        String originalName = url.substring(url.lastIndexOf('/') + 1);
-
-        // Use a random UUID as the prefix, and “_originalName” as the suffix
-        String prefix = UUID.randomUUID().toString();
-        String suffix = "_" + originalName;
-
-        File tmp = File.createTempFile(prefix, suffix, ctx.getCacheDir());
-        try (InputStream in = resp.body().byteStream();
-             FileOutputStream out = new FileOutputStream(tmp)) {
-            byte[] buf = new byte[8 * 1024];
-            int read;
-            while ((read = in.read(buf)) != -1) {
-                out.write(buf, 0, read);
+        // --- 1) Figure out a sensible "originalName" suffix ---
+        String originalName = null;
+        if ("content".equalsIgnoreCase(scheme)) {
+            // Query the provider for a DISPLAY_NAME (this is fast)
+            try (Cursor c = ctx.getContentResolver().query(
+                    uri,
+                    new String[]{ OpenableColumns.DISPLAY_NAME },
+                    null, null, null)) {
+                if (c != null && c.moveToFirst()) {
+                    originalName = c.getString(
+                            c.getColumnIndexOrThrow(OpenableColumns.DISPLAY_NAME));
+                }
             }
         }
+        if (originalName == null || originalName.isEmpty()) {
+            // fallback for file:// or http:// or if query failed
+            String last = uri.getLastPathSegment();
+            originalName = (last == null || last.isEmpty()) ? "download" : last;
+        }
+
+        // --- 2) Create a temp file with random prefix + originalName suffix ---
+        String prefix = UUID.randomUUID().toString();
+        String suffix = "_" + originalName;
+        File tmp = File.createTempFile(prefix, suffix, ctx.getCacheDir());
+
+        // --- 3) Copy contents as fast as possible ---
+        if ("content".equalsIgnoreCase(scheme) || "file".equalsIgnoreCase(scheme)) {
+            // For SAF content:// and file://, use NIO transferTo if we can
+            try (ParcelFileDescriptor pfd = ctx.getContentResolver()
+                    .openFileDescriptor(uri, "r");
+                 FileInputStream fis  = new FileInputStream(pfd.getFileDescriptor());
+                 FileOutputStream fos = new FileOutputStream(tmp)) {
+
+                FileChannel inChan  = fis.getChannel();
+                FileChannel outChan = fos.getChannel();
+                long size = inChan.size();
+                long pos  = 0;
+                while (pos < size) {
+                    pos += inChan.transferTo(pos, size - pos, outChan);
+                }
+            }
+        } else {
+            // Anything else (e.g. http://), fall back to buffered streaming
+            Request req  = new Request.Builder().url(url).build();
+            Response resp = client.newCall(req).execute();
+            if (!resp.isSuccessful()) {
+                throw new IOException("Failed to download "+ url +": HTTP "+ resp.code());
+            }
+
+            try (InputStream in = resp.body().byteStream();
+                 FileOutputStream out = new FileOutputStream(tmp)) {
+
+                byte[] buf = new byte[64*1024];  // larger buffer for speed
+                int   r;
+                while ((r = in.read(buf)) != -1) {
+                    out.write(buf, 0, r);
+                }
+                out.getFD().sync();
+            }
+        }
+
         return tmp;
     }
+
+
+    private static InputStream openStreamForUri(Context ctx, Uri uri) throws IOException {
+        String scheme = uri.getScheme();
+        if ("http".equals(scheme) || "https".equals(scheme)) {
+            // fall back to OkHttp for HTTP downloads
+            Request  req  = new Request.Builder().url(uri.toString()).build();
+            Response resp = client.newCall(req).execute();
+            if (!resp.isSuccessful()) {
+                throw new IOException("Failed to download " + uri + ": HTTP " + resp.code());
+            }
+            return resp.body().byteStream();
+        }
+        else if ("file".equals(scheme)) {
+            return new FileInputStream(new File(uri.getPath()));
+        }
+        else if ("content".equals(scheme)) {
+            InputStream in = ctx.getContentResolver().openInputStream(uri);
+            if (in == null) {
+                throw new IOException("Unable to open content URI: " + uri);
+            }
+            return in;
+        }
+        else {
+            throw new IOException("Unsupported URI scheme: " + scheme);
+        }
+    }
+
 
 
 }

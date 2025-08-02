@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="20dp">
+
+    <TextView
+        android:id="@+id/tvTitle"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Open Test‑Vector Catalog"
+        android:textAppearance="@style/TextAppearance.AppCompat.Title"
+        android:paddingBottom="12dp"/>
+
+    <RadioGroup
+        android:id="@+id/rgSource"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal">
+
+        <RadioButton
+            android:id="@+id/rbHttp"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="HTTP"
+            android:checked="true"/>
+
+        <RadioButton
+            android:id="@+id/rbFile"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="File"
+            android:layout_marginStart="24dp"/>
+    </RadioGroup>
+
+    <!-- HTTP URL entry -->
+    <EditText
+        android:id="@+id/etHttpUrl"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="https://…catalog.json"
+        android:inputType="textUri"
+        android:layout_marginTop="12dp"/>
+
+    <!-- FILE URL entry + browse button -->
+    <LinearLayout
+        android:id="@+id/llFilePicker"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginTop="12dp"
+        android:visibility="gone">
+
+        <EditText
+            android:id="@+id/etFileUri"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:hint="file:///…/catalog.json"
+            android:inputType="textUri"/>
+
+        <ImageButton
+            android:id="@+id/btnBrowse"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:src="@android:drawable/ic_menu_search"
+            android:contentDescription="Browse"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:layout_marginStart="8dp"/>
+    </LinearLayout>
+
+</LinearLayout>
