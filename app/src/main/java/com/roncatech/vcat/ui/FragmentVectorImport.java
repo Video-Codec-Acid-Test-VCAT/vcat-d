@@ -44,7 +44,7 @@ import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-public class FragmentVectorDownload extends Fragment implements OpenCatalogDialog.Listener {
+public class FragmentVectorImport extends Fragment implements OpenCatalogDialog.Listener {
     private final static String TAG = "FragmentTestVectors";
 
     private EditText etCatalogUrl;
@@ -60,12 +60,12 @@ public class FragmentVectorDownload extends Fragment implements OpenCatalogDialo
     private int colorSuccess;
     private int colorFailure;
 
-    public FragmentVectorDownload() {
+    public FragmentVectorImport() {
         // Required empty public constructor
     }
 
-    public static FragmentVectorDownload newInstance() {
-        return new FragmentVectorDownload();
+    public static FragmentVectorImport newInstance() {
+        return new FragmentVectorImport();
     }
 
     @Override
@@ -74,7 +74,7 @@ public class FragmentVectorDownload extends Fragment implements OpenCatalogDialo
             @Nullable ViewGroup container,
             @Nullable Bundle savedInstanceState) {
         // Inflate the layout for this fragment
-        return inflater.inflate(R.layout.fragment_vector_download, container, false);
+        return inflater.inflate(R.layout.fragment_vector_import, container, false);
     }
 
     @Override
@@ -190,7 +190,7 @@ public class FragmentVectorDownload extends Fragment implements OpenCatalogDialo
         DownloadTestVectors.CatalogCallback callback =new DownloadTestVectors.CatalogCallback() {
             @Override
             public void onSuccess(TestVectorManifests.Catalog catalog, String resolvedCatalogUrl) {
-                FragmentVectorDownload.this.resolvedCatalogUrl = resolvedCatalogUrl;
+                FragmentVectorImport.this.resolvedCatalogUrl = resolvedCatalogUrl;
 
                 // Make sure we're on the main thread (downloadCatalog already does this)
                 // 3) Populate the table with one row per playlist
