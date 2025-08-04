@@ -41,22 +41,26 @@ import com.google.android.exoplayer2.ui.PlayerView;
 import com.roncatech.vcat.models.TestStatus;
 import com.roncatech.vcat.models.RunConfig;
 import com.roncatech.vcat.models.SharedViewModel;
+import com.roncatech.vcat.service.PlayerCommandBus;
 import com.roncatech.vcat.telemetry.TelemetryLogger;
 import com.roncatech.vcat.tools.BatteryInfo;
+import com.roncatech.vcat.tools.UriUtils;
 import com.roncatech.vcat.tools.VideoDecoderEnumerator;
 import com.roncatech.vcat.tools.XspfParser;
 import com.roncatech.vcat.R;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
 import java.util.ArrayList;
 
-public class FullScreenPlayerActivity extends AppCompatActivity {
+public class FullScreenPlayerActivity extends AppCompatActivity implements PlayerCommandBus.Listener {
 
     private static final String TAG = "FullScreenPlayerActivity";
 
     private SharedViewModel viewModel;
     private SimpleExoPlayer exoPlayer;
+
     private PlayerView playerView;
     private ImageButton stopButton;
     private ImageButton videoInfoButton;
@@ -111,6 +115,37 @@ public class FullScreenPlayerActivity extends AppCompatActivity {
         if (++this.curFileIndex >= this.testClips.size()) {
             this.curFileIndex = 0;
         }
+    }
+
+    @Override
+    public void onStopTest(){
+        stopTestAndCleanup();
+    }
+    public void onToggleVideoInfo(){
+        if (videoOverlay.getVisibility() == View.VISIBLE) {
+            videoOverlay.setVisibility(View.GONE);
+        } else {
+
+            // calculate size
+            TelemetryLogger.VideoInfo vi = getTlVideoInfo(this.testClips.get(this.curFileIndex), this.viewModel.curTestDetails);
+            int displayHeight = playerView.getHeight(); // or dm.heightPixels;
+            double videoAspectRatio = Double.parseDouble(vi.width) / Double.parseDouble(vi.height);
+            int scaledVideoWidth = (int) (displayHeight * videoAspectRatio);
+
+            FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
+                    scaledVideoWidth,
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    Gravity.CENTER
+            );
+            videoOverlay.setLayoutParams(params);
+            videoOverlay.setVisibility(View.VISIBLE);
+            logTelemetry(false);
+        }
+
+    }
+
+    public void onPlayPause(){
+        exoPlayer.setPlayWhenReady(!exoPlayer.getPlayWhenReady());
     }
 
     private void stopTestAndCleanup() {
@@ -268,7 +303,7 @@ public class FullScreenPlayerActivity extends AppCompatActivity {
         playerView.setPlayer(exoPlayer);
 
         // 1) Load and parse the playlist
-        testClips  = XspfParser.parsePlaylist(this, viewModel.curTestDetails.getPlaylist());
+        testClips  = XspfParser.parsePlaylist(this, Uri.parse(viewModel.curTestDetails.getPlaylist()));
         curFileIndex = 0;
         if (testClips.isEmpty()) {
             finish();  // nothing to play
@@ -323,26 +358,11 @@ public class FullScreenPlayerActivity extends AppCompatActivity {
         });
 
         videoInfoButton.setOnClickListener(v -> {
-            if (videoOverlay.getVisibility() == View.VISIBLE) {
-                videoOverlay.setVisibility(View.GONE);
-            } else {
-
-                // calculate size
-                TelemetryLogger.VideoInfo vi = getTlVideoInfo(this.testClips.get(this.curFileIndex), this.viewModel.curTestDetails);
-                int displayHeight = playerView.getHeight(); // or dm.heightPixels;
-                double videoAspectRatio = Double.parseDouble(vi.width) / Double.parseDouble(vi.height);
-                int scaledVideoWidth = (int) (displayHeight * videoAspectRatio);
-
-                FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
-                        scaledVideoWidth,
-                        ViewGroup.LayoutParams.MATCH_PARENT,
-                        Gravity.CENTER
-                );
-                videoOverlay.setLayoutParams(params);
-                videoOverlay.setVisibility(View.VISIBLE);
-                logTelemetry(false);
-            }
+            onToggleVideoInfo();
         });
+
+        // register for external commands:
+        PlayerCommandBus.get().setListener(this);
 
         // 3) Kick off the first clip
         playCurClip();
@@ -436,12 +456,24 @@ public class FullScreenPlayerActivity extends AppCompatActivity {
     }
 
     private void logTelemetry(boolean endOfFile) {
+
         TelemetryLogger.VideoInfo vi = getTlVideoInfo(this.testClips.get(this.curFileIndex), this.viewModel.curTestDetails);
 
         int frameDrops = this.fd.frameDrops;
         this.fd.reset();
 
         this.tl.logTelemetryRow(this, this.viewModel.curTestDetails.getStartTimeAsEpoch(), vi, frameDrops, false, endOfFile);
+
+        if(!this.viewModel.curTestDetails.getCurrentTestVideo().getFileName().equals(vi.fileName)){
+            // update test details
+            this.viewModel.curTestDetails.setCurrentTestVideo(new TestStatus.CurrentTestVideo(vi.fileName,
+                    vi.codec,
+                    vi.decoderName,
+                    vi.width + "x" + vi.height,
+                    vi.mimeType,
+                    vi.bitrate,
+                    vi.fps));
+        }
 
         // if video overlay is vidible, populate
         if (this.videoOverlay != null && this.videoOverlay.getVisibility() == View.VISIBLE) {
@@ -452,15 +484,17 @@ public class FullScreenPlayerActivity extends AppCompatActivity {
                             "Bitrate: %s\n" +
                             "Codec: %s\n" +
                             "Decoder: %s\n" +
-                            "Framerate: %.2f fps",
-                    vi.fileName,
+                            "Framerate: %.2f fps\n"+
+                            "Battery Level: %d%%",
+                    UriUtils.fileNameFromURI(vi.fileName),
                     vi.width,
                     vi.height,
                     vi.mimeType,
                     vi.bitrate,
                     vi.codec,
                     vi.decoderName,
-                    vi.fps
+                    vi.fps,
+                    (int) BatteryInfo.getBatteryLevel(this)
             ));
         }
     }

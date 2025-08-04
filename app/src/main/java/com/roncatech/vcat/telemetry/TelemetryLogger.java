@@ -56,7 +56,9 @@ public class TelemetryLogger {
         CPU_USAGE_TOTAL       ("cpu.usage.total"),
         BATTERY_LEVEL         ("battery.level"),
         TEST_RESTART          ("test.restart"),
-        TEST_END_OF_CUR_FILE  ("test.end_of_cur_file");
+        TEST_END_OF_CUR_FILE  ("test.end_of_cur_file"),
+        TEST_SYSTEM_MEMORY ("test.memory.system"),
+        TEST_VCAT_MEMORY("test.memory.vcat");
 
         private final String name;
         Column(String name) { this.name = name; }

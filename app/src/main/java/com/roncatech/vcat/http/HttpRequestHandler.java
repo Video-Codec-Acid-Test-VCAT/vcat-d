@@ -3,19 +3,21 @@ package com.roncatech.vcat.http;
 import android.content.Context;
 import android.net.wifi.WifiInfo;
 import android.net.wifi.WifiManager;
+import android.util.Log;
 
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 import com.roncatech.vcat.models.SharedViewModel;
+import com.roncatech.vcat.service.PlayerCommandBus;
+import com.roncatech.vcat.tools.DeviceInfo;
 
 import java.util.Locale;
 
-public class HttpRequestHandler implements VCAT_HttpServer.VCAT_ControlHandler{
+public class HttpRequestHandler implements HttpServer.VCAT_ControlHandler{
 
-    static class tempParent{
-
-    }
     private final static String TAG = "HttpRequestHandler";
-    private final tempParent parent;
     private final SharedViewModel viewModel;
+    private final Context context;
 
     public SharedViewModel getViewModel(){return this.viewModel;}
 
@@ -37,38 +39,39 @@ public class HttpRequestHandler implements VCAT_HttpServer.VCAT_ControlHandler{
     }
 
 
-    public HttpRequestHandler(tempParent parent){
-        this.parent = parent;
-        this.viewModel = null; //new ViewModelProvider(parent).get(VCatSharedViewModel.class);
+    public HttpRequestHandler(Context context, SharedViewModel viewModel){
+        this.context = context;
+        this.viewModel = viewModel;
     }
 
-    /*
+
     @Override
     public void onPlayPause() {
         // Logic to play/pause VCAT
         Log.d(TAG, "Play/Pause triggered");
+        PlayerCommandBus.get().dispatchPlayPause();
     }
 
     @Override
     public void onStop() {
         Log.d(TAG, "Stop triggered");
+        PlayerCommandBus.get().dispatchStop();
     }
 
     @Override
     public void onShowVideoStats() {
         Log.d(TAG, "Show Video Stats triggered");
+        PlayerCommandBus.get().dispatchToggleVideoInfo();
     }
 
 
     @Override
     public String onGetDeviceInfo(){
-        Map<String, Object> deviceInfo = DeviceInfo.getDeviceInfo(parent.getApplicationContext());
+        DeviceInfo deviceInfo = new DeviceInfo(this.context);
 
         Gson gson = new GsonBuilder().setPrettyPrinting().create();
         return gson.toJson(deviceInfo);
     }
-
-     */
 
     @Override
     public String onGetRunConfig(){

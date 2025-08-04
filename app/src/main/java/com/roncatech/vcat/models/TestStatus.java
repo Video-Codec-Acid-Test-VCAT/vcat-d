@@ -4,6 +4,7 @@ import android.net.Uri;
 
 import com.google.gson.Gson;
 
+import com.google.gson.annotations.SerializedName;
 import com.roncatech.vcat.tools.UriUtils;
 
 import java.net.URI;
@@ -14,7 +15,8 @@ public class TestStatus {
     public final static String emptyPlaylist = "None";
 
     private String startTime = ""; // ISO 8601
-    private Uri playlistUri = Uri.EMPTY;
+    @SerializedName("playlist")
+    private String playlistUri = "";
     public enum TestState { Starting, Running, Stopped};
     private TestState testState;
 
@@ -29,12 +31,12 @@ public class TestStatus {
 
     public void reset(){
         this.startTime = Instant.now().toString(); // Machine-readable ISO 8601
-        this.playlistUri = Uri.EMPTY;
+        this.playlistUri = "";
         this.currentTestVideo = emptyTestVideo;
         this.testState = TestState.Stopped;
     }
 
-    public void startTest(Uri playlistUri){
+    public void startTest(String playlistUri){
         this.startTime = Instant.now().toString(); // Machine-readable ISO 8601
         this.playlistUri = playlistUri;
         this.currentTestVideo = emptyTestVideo;
@@ -56,7 +58,7 @@ public class TestStatus {
         return UriUtils.fileNameFromURI(playlistUri);
     }
 
-    public Uri getPlaylist(){
+    public String getPlaylist(){
         return this.playlistUri;
     }
 

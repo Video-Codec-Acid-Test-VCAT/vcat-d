@@ -8,15 +8,15 @@ import java.io.IOException;
 
 import fi.iki.elonen.NanoHTTPD;
 
-public class VCAT_HttpServer extends NanoHTTPD {
+public class HttpServer extends NanoHTTPD {
 
     public final static int defPort = 53000;
 
     public interface VCAT_ControlHandler {
-        //void onPlayPause();
-        //void onStop();
-        //void onShowVideoStats();
-        //String onGetDeviceInfo();
+        void onPlayPause();
+        void onStop();
+        void onShowVideoStats();
+        String onGetDeviceInfo();
         String onGetRunConfig();
         SharedViewModel getViewModel();
         String onGetTestStatus();
@@ -24,10 +24,10 @@ public class VCAT_HttpServer extends NanoHTTPD {
 
     private final VCAT_ControlHandler handler;
 
-    public VCAT_HttpServer(VCAT_ControlHandler handler) {
+    public HttpServer(VCAT_ControlHandler handler) {
         this(defPort, handler);
     }
-    public VCAT_HttpServer(int port, VCAT_ControlHandler handler)  {
+    public HttpServer(int port, VCAT_ControlHandler handler)  {
         super(port);
         this.handler = handler;
 
@@ -58,15 +58,15 @@ public class VCAT_HttpServer extends NanoHTTPD {
             switch(uri){
                 case "/api/status":
                     return newFixedLengthResponse("OK");
-                /*case "/api/device_info":
+                case "/api/device_info":
                     String jsonDevInfo = handler.onGetDeviceInfo();
                     return newFixedLengthResponse(Response.Status.OK, "application/json", jsonDevInfo);
-                 */
+
                 case "/api/run_config":
                     return newFixedLengthResponse(Response.Status.OK, "application/json", this.handler.onGetRunConfig());
                 case "/api/test/status":
                     return newFixedLengthResponse(Response.Status.OK, "application/json", this.handler.onGetTestStatus());
-                /*case "/api/control/playpause":
+                case "/api/control/playpause":
                     handler.onPlayPause();
                     return newFixedLengthResponse(Response.Status.OK, "application/json", "OK");
                 case "/api/control/stop":
@@ -76,7 +76,6 @@ public class VCAT_HttpServer extends NanoHTTPD {
                     handler.onShowVideoStats();
                     return newFixedLengthResponse(Response.Status.OK, "application/json", "OK");
 
-                 */
                 default:
                     return newFixedLengthResponse("404 Not Found");
             }

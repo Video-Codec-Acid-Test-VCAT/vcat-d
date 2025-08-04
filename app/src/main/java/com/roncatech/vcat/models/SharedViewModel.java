@@ -3,7 +3,6 @@ package com.roncatech.vcat.models;
 import androidx.annotation.NonNull;
 import androidx.lifecycle.AndroidViewModel;
 import androidx.lifecycle.MutableLiveData;
-import androidx.lifecycle.Observer;
 
 import android.app.Application;
 import android.content.Context;
@@ -11,14 +10,14 @@ import android.net.Uri;
 import android.content.SharedPreferences;
 
 import com.google.gson.Gson;
-import com.roncatech.vcat.http.VCAT_HttpServer;
+import com.roncatech.vcat.http.HttpServer;
 
 public class SharedViewModel extends AndroidViewModel {
     public static final String LOG_FOLDER = "/vcat/test_results";
 
     private MutableLiveData<Uri> folderUri = new MutableLiveData<>(null);
     private RunConfig runConfig;
-    private final MutableLiveData<Integer> httpPortLive = new MutableLiveData<>(VCAT_HttpServer.defPort);
+    private final MutableLiveData<Integer> httpPortLive = new MutableLiveData<>(HttpServer.defPort);
     public String appIpAddr = "";
     public TestStatus curTestDetails = TestStatus.emptyStatus;
     private final SharedPreferences prefs;
@@ -74,7 +73,7 @@ public class SharedViewModel extends AndroidViewModel {
     }
 
     private void loadHttpPort() {
-        int httpPort = prefs.getInt(KEY_HTTP_PORT, VCAT_HttpServer.defPort);
+        int httpPort = prefs.getInt(KEY_HTTP_PORT, HttpServer.defPort);
         this.httpPortLive.setValue(httpPort);
     }
 

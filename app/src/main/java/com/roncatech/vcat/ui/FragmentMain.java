@@ -325,7 +325,7 @@ public class FragmentMain extends Fragment implements PlaylistUpdates {
                 if ((this.viewModel.getRunConfig().runMode.name().equals("BATTERY")) && (this.viewModel.getRunConfig().runLimit >= (batteryLevel - 1))) {
                     Toast.makeText(requireContext(), "Battery limit must be at least 2% less than the current battery level", Toast.LENGTH_SHORT).show();
                 } else {
-                    this.viewModel.curTestDetails.startTest(playlistUri);
+                    this.viewModel.curTestDetails.startTest(playlistUri.toString());
 
                     Intent i = new Intent(getActivity(), FullScreenPlayerActivity.class);
                     startActivity(i);

@@ -1,11 +1,11 @@
 package com.roncatech.vcat.ui;
 
+import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Environment;
-import android.os.Handler;
-import android.os.Looper;
 import android.provider.Settings;
 import android.util.Log;
 import android.view.MenuItem;
@@ -24,8 +24,13 @@ import androidx.lifecycle.ViewModelProvider;
 import com.roncatech.vcat.R;
 
 import com.google.android.material.bottomnavigation.BottomNavigationView;
+import com.roncatech.vcat.http.HttpRequestHandler;
+import com.roncatech.vcat.http.HttpServer;
 import com.roncatech.vcat.models.SharedViewModel;
+import com.roncatech.vcat.service.CommandReceiver;
 import com.roncatech.vcat.tools.StorageManager;
+
+import java.io.IOException;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -38,6 +43,10 @@ public class MainActivity extends AppCompatActivity {
     private boolean uiLoaded = false;
     private boolean permissionPrompted = false;
     private boolean waitingForPermissionResult = false;
+
+    private HttpServer server;
+    HttpRequestHandler http_handler;
+    private CommandReceiver receiver;
 
     private boolean hasAllPermissions() {
         return Environment.isExternalStorageManager() && Settings.System.canWrite(this);
@@ -67,13 +76,45 @@ public class MainActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
+        // need shared view before we can do anything else
         this.viewModel = new ViewModelProvider(this).get(SharedViewModel.class);
+
+        this.viewModel.appIpAddr = HttpRequestHandler.getLocalIpAddress(this);
+
+        this.http_handler = new HttpRequestHandler(this, this.viewModel);
+        int port = this.viewModel.getHttpPort();
+        try {
+            this.server = new HttpServer(port, this.http_handler);
+            this.server.start();
+        } catch (IOException e) {
+            Log.e("VCAT", String.format("VCAT Failed to start HTTP server on port %d",port), e);
+        }
+
+        IntentFilter filter = new IntentFilter(CommandReceiver.broadcastLogHttp);
+        receiver = new CommandReceiver(this);  // use actual port
+        registerReceiver(receiver, filter, Context.RECEIVER_EXPORTED);
 
         if (hasAllPermissions()) {
             loadUI(savedInstanceState);
         } else {
             requestAllPermissions();
         }
+    }
+
+    @Override
+    protected void onDestroy(){
+        super.onDestroy();
+
+        if (this.server != null) {
+            this.server.stop();
+            Log.i("VCAT", "VCAT HTTP server stopped.");
+        }
+
+        if (this.receiver != null) {
+            this.unregisterReceiver(receiver);
+            Log.i("VCAT", "VCAT_CommandReceiver unregistered.");
+        }
+
     }
 
     @Override
