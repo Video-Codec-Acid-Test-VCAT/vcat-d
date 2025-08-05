@@ -14,8 +14,8 @@ android {
         applicationId "com.roncatech.vcat"
         minSdk 30
         targetSdk 35
-        versionCode 54
-        versionName "0.2.0.24"
+        versionCode 55
+        versionName "0.2.0.25"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField "String", "VERSION_NAME", "\"${versionName}\""

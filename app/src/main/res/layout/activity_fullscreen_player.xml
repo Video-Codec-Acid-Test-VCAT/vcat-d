@@ -11,13 +11,13 @@
         android:id="@+id/playerView"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
+        android:background="@android:color/black"
+        android:keepScreenOn="true"
         app:use_controller="true"
         app:show_timeout="3000"
         app:hide_on_touch="true"
         app:resize_mode="fit"
-        app:surface_type="texture_view"
-        android:background="@android:color/black"
-        android:keepScreenOn="true">
+        app:surface_type="texture_view" >
 
         <!-- Fullscreen transparent overlay to display video info -->
         <TextView

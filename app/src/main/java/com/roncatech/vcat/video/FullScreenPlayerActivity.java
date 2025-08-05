@@ -1,6 +1,7 @@
 package com.roncatech.vcat.video;
 
 import android.content.Context;
+import android.content.pm.ActivityInfo;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
@@ -28,6 +29,7 @@ import com.google.android.exoplayer2.video.MediaCodecVideoRenderer;
 import com.google.android.exoplayer2.video.VideoRendererEventListener;
 
 
+import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.lifecycle.ViewModelProvider;
 
@@ -38,6 +40,7 @@ import com.google.android.exoplayer2.SimpleExoPlayer;
 import com.google.android.exoplayer2.analytics.AnalyticsListener;
 import com.google.android.exoplayer2.ui.PlayerView;
 
+import com.google.android.exoplayer2.video.VideoSize;
 import com.roncatech.vcat.models.TestStatus;
 import com.roncatech.vcat.models.RunConfig;
 import com.roncatech.vcat.models.SharedViewModel;
@@ -49,7 +52,6 @@ import com.roncatech.vcat.tools.VideoDecoderEnumerator;
 import com.roncatech.vcat.tools.XspfParser;
 import com.roncatech.vcat.R;
 
-import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
 import java.util.ArrayList;
@@ -363,6 +365,23 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
 
         // register for external commands:
         PlayerCommandBus.get().setListener(this);
+
+        // Listen for when the video size is known:
+        exoPlayer.addListener(new Player.Listener() {
+            @Override
+            public void onVideoSizeChanged(VideoSize videoSize) {
+                if(videoSize.width == 0 && videoSize.height == 0){
+                    return;
+                }
+                if (videoSize.height > videoSize.width) {
+                    // lock to portrait and ignore the sensor entirely
+                    setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
+                } else {
+                    // lock to landscape (not sensor-landscape)
+                    setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
+                }
+            }
+        });
 
         // 3) Kick off the first clip
         playCurClip();
