@@ -115,7 +115,7 @@ public class FragmentVectorImport extends Fragment implements OpenCatalogDialog.
             Toast.makeText(requireContext(), "Please enter a catalog URL", Toast.LENGTH_SHORT).show();
             return;
         }
-        //startCatalogDownload(url);
+        startCatalogDownload(url);
 
 
         cbSelectAll.setOnCheckedChangeListener((buttonView, isChecked) -> {

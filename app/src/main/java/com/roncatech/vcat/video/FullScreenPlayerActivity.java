@@ -1,5 +1,6 @@
 package com.roncatech.vcat.video;
 
+import android.app.AlertDialog;
 import android.content.Context;
 import android.content.pm.ActivityInfo;
 import android.net.Uri;
@@ -19,9 +20,11 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 
 import com.google.android.exoplayer2.DefaultRenderersFactory;
+import com.google.android.exoplayer2.PlaybackException;
 import com.google.android.exoplayer2.Renderer;
 import com.google.android.exoplayer2.RenderersFactory;
 import com.google.android.exoplayer2.mediacodec.MediaCodecInfo;
+import com.google.android.exoplayer2.mediacodec.MediaCodecRenderer;
 import com.google.android.exoplayer2.mediacodec.MediaCodecSelector;
 import com.google.android.exoplayer2.mediacodec.MediaCodecUtil;
 import com.google.android.exoplayer2.util.MimeTypes;
@@ -29,6 +32,7 @@ import com.google.android.exoplayer2.video.MediaCodecVideoRenderer;
 import com.google.android.exoplayer2.video.VideoRendererEventListener;
 
 
+import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.lifecycle.ViewModelProvider;
@@ -180,6 +184,43 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
                     playCurClip();
                 }
             }
+        }
+
+        @Override
+        public void onPlayerError(@NonNull PlaybackException error) {
+            Throwable cause = error.getCause();
+            if (cause instanceof MediaCodecRenderer.DecoderInitializationException) {
+                MediaCodecRenderer.DecoderInitializationException die =
+                        (MediaCodecRenderer.DecoderInitializationException) cause;
+
+                // public fields on that exception:
+                String decoderName           = die.codecInfo.name;       // e.g. "c2.unisoc.av1.decoder"
+                boolean secureDecoderRequired = die.secureDecoderRequired;
+
+                String msg = new StringBuilder()
+                        .append("Failed to init decoder:\n")
+                        .append("  name: ").append(decoderName).append("\n")
+                        .append(die.getMessage())
+                        .toString();
+
+                AlertDialog dlg = new AlertDialog.Builder(FullScreenPlayerActivity.this)
+                        .setTitle("Decoder Initialization Error")
+                        .setMessage(msg)
+                        .setPositiveButton(android.R.string.ok, null)
+                        .show();
+                dlg.setOnDismissListener(d->stopTestAndCleanup());
+
+            } else {
+                // fallback for any other playback error
+                AlertDialog dlg = new AlertDialog.Builder(FullScreenPlayerActivity.this)
+                        .setTitle("Playback Error")
+                        .setMessage(error.getMessage())
+                        .setPositiveButton(android.R.string.ok, null)
+                        .show();
+                dlg.setOnDismissListener(d->stopTestAndCleanup());
+            }
+
+
         }
     };
 
