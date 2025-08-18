@@ -2,6 +2,7 @@ plugins {
     alias(libs.plugins.android.application)
 }
 
+def av1Aar = rootProject.file("libs/extension-av1-release.aar")
 android {
     namespace 'com.roncatech.vcat'
     compileSdk 35
@@ -21,6 +22,8 @@ android {
         buildConfigField "String", "VERSION_NAME", "\"${versionName}\""
         buildConfigField "int", "VERSION_CODE", "${versionCode}"
         buildConfigField "String", "BUILD_TIME", "\"${new Date().format("yyyy-MM-dd HH:mm:ss")}\""
+        buildConfigField "boolean", "HAS_LIDAV1D_EXTENSION", "${av1Aar.exists()}"
+        println "Setting BuildConfig.HAS_LIDAV1D_EXTENSION to ${av1Aar.exists()}"
     }
 
     buildTypes {
@@ -76,4 +79,9 @@ dependencies {
     testImplementation "org.robolectric:robolectric:4.11.1"
     // OkHttp dependency
     implementation 'com.squareup.okhttp3:okhttp:4.9.1'
+    if (av1Aar.exists()) {
+        implementation(name: 'extension-av1-release', ext: 'aar')
+    } else {
+        println "extension-av1-release.aar not found in libs/"
+    }
 }

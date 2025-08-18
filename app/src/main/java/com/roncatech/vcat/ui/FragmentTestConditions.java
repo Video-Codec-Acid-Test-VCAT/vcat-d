@@ -31,6 +31,7 @@ import com.roncatech.vcat.models.SharedViewModel;
 
 import com.roncatech.vcat.tools.VideoDecoderEnumerator;
 import com.roncatech.vcat.R;
+import com.roncatech.vcat.BuildConfig;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -242,7 +243,10 @@ public class FragmentTestConditions extends Fragment {
 
             Spinner decoderSpinner = new Spinner(getContext());
             List<String> decoderNames = new ArrayList<>();
-            decoderNames.add("VCAT SW Decoder");
+            // Add "VCAT SW Decoder" only for av01 if extension-av1-release.aar is present
+            if (mimeType.toString().equalsIgnoreCase("video/av01") && BuildConfig.HAS_LIDAV1D_EXTENSION) {
+                decoderNames.add("VCAT SW Decoder");
+            }
 
             for (MediaCodecInfo info : codecInfos) {
                 decoderNames.add(info.name);

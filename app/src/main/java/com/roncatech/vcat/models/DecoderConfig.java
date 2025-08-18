@@ -3,6 +3,7 @@ package com.roncatech.vcat.models;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 
+import com.roncatech.vcat.BuildConfig;
 import com.roncatech.vcat.tools.VideoDecoderEnumerator;
 
 import java.util.HashMap;
@@ -39,6 +40,9 @@ public class DecoderConfig {
     public String getDecoder(VideoDecoderEnumerator.MimeType mimeType) {
         if(decoderConfig.containsKey(mimeType)) {
             return decoderConfig.get(mimeType);
+        }
+        if(mimeType == VideoDecoderEnumerator.MimeType.AV1 && BuildConfig.HAS_LIDAV1D_EXTENSION) {
+            return "dav1d";
         }
         return "";
     }

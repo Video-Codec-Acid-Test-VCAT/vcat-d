@@ -59,6 +59,8 @@ import com.roncatech.vcat.R;
 import java.util.List;
 import java.util.Locale;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.lang.reflect.Constructor;
 
 public class FullScreenPlayerActivity extends AppCompatActivity implements PlayerCommandBus.Listener {
 
@@ -250,6 +252,11 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
                 break;
             case MimeTypes.VIDEO_AV1:
                 decoderName = viewModel.getRunConfig().decoderCfg.getDecoder(VideoDecoderEnumerator.MimeType.AV1);
+
+                if ("dav1d".equalsIgnoreCase(decoderName)) {
+                    Log.d("Decoder", "Skipping MediaCodec decoders for AV1 (dav1d selected)");
+                    return Collections.emptyList(); // Disables AV1 for MediaCodecVideoRenderer
+                }
                 break;
             case MimeTypes.VIDEO_VP9:
                 decoderName = viewModel.getRunConfig().decoderCfg.getDecoder(VideoDecoderEnumerator.MimeType.VP9);
@@ -289,6 +296,8 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
                 long allowedVideoJoiningTimeMs,
                 ArrayList<Renderer> out
         ) {
+            String av1Decoder = viewModel.getRunConfig().decoderCfg.getDecoder(VideoDecoderEnumerator.MimeType.AV1);
+            // Always add MediaCodec renderer for fallback/default
             out.add(new MediaCodecVideoRenderer(
                     context,
                     customSelector,
@@ -298,6 +307,26 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
                     eventListener,
                     MAX_DROPPED_VIDEO_FRAME_COUNT_TO_NOTIFY
             ));
+
+            // Conditionally add Libdav1d renderer only for AV1 and if libdav1d is desired
+            if ("dav1d".equalsIgnoreCase(av1Decoder)) {
+                try {
+                    Class<?> av1RendererClass = Class.forName("com.google.android.exoplayer2.ext.av1.Libgav1VideoRenderer");
+                    Constructor<?> constructor = av1RendererClass.getConstructor(
+                            long.class, Handler.class, VideoRendererEventListener.class, int.class
+                    );
+                    Renderer libav1Renderer = (Renderer) constructor.newInstance(
+                            allowedVideoJoiningTimeMs,
+                            eventHandler,
+                            eventListener,
+                            MAX_DROPPED_VIDEO_FRAME_COUNT_TO_NOTIFY
+                    );
+                    Log.d("RenderersFactory", "Add dav1dRenderer");
+                    out.add(libav1Renderer);
+                } catch (Exception e) {
+                    Log.w("RenderersFactory", "Libgav1VideoRenderer not available: " + e.getMessage());
+                }
+            }
         }
     };
 
