@@ -111,8 +111,8 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
             Log.i(TAG, String.format("Stopping test because battery level %d is < run limit", batteryLevel));
             shouldStop = true;
         } else if(rc.runMode == RunConfig.RunMode.TIME){
-            long elapsedTime = System.currentTimeMillis() - FullScreenPlayerActivity.this.viewModel.curTestDetails.getStartTimeAsEpoch();
-            if(elapsedTime > rc.runLimit){
+            long elapsedTime = (System.currentTimeMillis() - FullScreenPlayerActivity.this.viewModel.curTestDetails.getStartTimeAsEpoch()) / (1000 * 60);
+            if(elapsedTime >= rc.runLimit){
                 Log.i(TAG, "Stopping test because test run has exceeded run limit time");
                 shouldStop = true;
             }
