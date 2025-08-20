@@ -201,21 +201,6 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
         finish();
     }
 
-
-    // 2) Extract your frame‐drop listener
-    private final AnalyticsListener frameDropListener = new AnalyticsListener() {
-        @Override
-        public void onDroppedVideoFrames(
-                EventTime eventTime,
-                int droppedFrameCount,
-                long elapsedMs
-        ) {
-            Log.i(TAG, "Dropped " + droppedFrameCount + " frames over " + elapsedMs + " ms");
-            fd.elapsedMs  += elapsedMs;
-            fd.frameDrops += droppedFrameCount;
-        }
-    };
-
     MediaCodecSelector customSelector;
 
     private void initialize(){
@@ -227,6 +212,50 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
 
         float override = Math.max(0.01f, Math.min(testScreenBrightness / 100f, 1f));
         lp.screenBrightness = override;
+
+        this.customSelector = (mimeType, requiresSecureDecoder, requiresTunnelingDecoder) -> {
+            String decoderName = null;
+
+            switch (mimeType) {
+                case MimeTypes.VIDEO_H264:
+                    decoderName = viewModel.getRunConfig().decoderCfg.getDecoder(VideoDecoderEnumerator.MimeType.H264);
+                    break;
+                case MimeTypes.VIDEO_H265:
+                    decoderName = viewModel.getRunConfig().decoderCfg.getDecoder(VideoDecoderEnumerator.MimeType.H265);
+                    break;
+                case MimeTypes.VIDEO_AV1:
+                    decoderName = viewModel.getRunConfig().decoderCfg.getDecoder(VideoDecoderEnumerator.MimeType.AV1);
+
+                    if ("dav1d".equalsIgnoreCase(decoderName)) {
+                        Log.d("Decoder", "Skipping MediaCodec decoders for AV1 (dav1d selected)");
+                        return Collections.emptyList(); // Disables AV1 for MediaCodecVideoRenderer
+                    }
+                    break;
+                case MimeTypes.VIDEO_VP9:
+                    decoderName = viewModel.getRunConfig().decoderCfg.getDecoder(VideoDecoderEnumerator.MimeType.VP9);
+                    break;
+                case "video/vvc":
+                    decoderName = viewModel.getRunConfig().decoderCfg.getDecoder(VideoDecoderEnumerator.MimeType.VVC);
+                    break;
+            }
+
+            List<MediaCodecInfo> infos = MediaCodecUtil.getDecoderInfos(
+                    mimeType,
+                    requiresSecureDecoder,
+                    requiresTunnelingDecoder
+            );
+
+            if (decoderName != null && !decoderName.isEmpty()) {
+                List<MediaCodecInfo> filtered = new ArrayList<>();
+                for (MediaCodecInfo info : infos) {
+                    if (info.name.equalsIgnoreCase(decoderName)) {
+                        filtered.add(info);
+                    }
+                }
+                return filtered;
+            }
+            return infos;
+        };
 
         this.renderersFactory = new DefaultRenderersFactory(this) {
             @Override
@@ -272,50 +301,6 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
                     }
                 }
             }
-        };
-
-        this.customSelector = (mimeType, requiresSecureDecoder, requiresTunnelingDecoder) -> {
-            String decoderName = null;
-
-            switch (mimeType) {
-                case MimeTypes.VIDEO_H264:
-                    decoderName = viewModel.getRunConfig().decoderCfg.getDecoder(VideoDecoderEnumerator.MimeType.H264);
-                    break;
-                case MimeTypes.VIDEO_H265:
-                    decoderName = viewModel.getRunConfig().decoderCfg.getDecoder(VideoDecoderEnumerator.MimeType.H265);
-                    break;
-                case MimeTypes.VIDEO_AV1:
-                    decoderName = viewModel.getRunConfig().decoderCfg.getDecoder(VideoDecoderEnumerator.MimeType.AV1);
-
-                    if ("dav1d".equalsIgnoreCase(decoderName)) {
-                        Log.d("Decoder", "Skipping MediaCodec decoders for AV1 (dav1d selected)");
-                        return Collections.emptyList(); // Disables AV1 for MediaCodecVideoRenderer
-                    }
-                    break;
-                case MimeTypes.VIDEO_VP9:
-                    decoderName = viewModel.getRunConfig().decoderCfg.getDecoder(VideoDecoderEnumerator.MimeType.VP9);
-                    break;
-                case "video/vvc":
-                    decoderName = viewModel.getRunConfig().decoderCfg.getDecoder(VideoDecoderEnumerator.MimeType.VVC);
-                    break;
-            }
-
-            List<MediaCodecInfo> infos = MediaCodecUtil.getDecoderInfos(
-                    mimeType,
-                    requiresSecureDecoder,
-                    requiresTunnelingDecoder
-            );
-
-            if (decoderName != null && !decoderName.isEmpty()) {
-                List<MediaCodecInfo> filtered = new ArrayList<>();
-                for (MediaCodecInfo info : infos) {
-                    if (info.name.equalsIgnoreCase(decoderName)) {
-                        filtered.add(info);
-                    }
-                }
-                return filtered;
-            }
-            return infos;
         };
 
         this.playbackStateListener = new Player.Listener() {
@@ -383,6 +368,17 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
 
                 FullScreenPlayerActivity.this.fd.elapsedMs += elapsedMs;
                 FullScreenPlayerActivity.this.fd.frameDrops += droppedFrameCount;
+            }
+
+            @Override
+            public void onVideoDecoderInitialized(
+                    AnalyticsListener.EventTime eventTime,
+                    String decoderName,
+                    long initializationDurationMs,
+                    long initializationDelayMs) {
+                Log.i(TAG, "Video decoder initialized: " + decoderName);
+                // Save or log decoderName as needed
+                FullScreenPlayerActivity.this.curDecoder = decoderName;
             }
         };
     }
