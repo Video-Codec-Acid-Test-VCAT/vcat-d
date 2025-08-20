@@ -1,6 +1,7 @@
 package com.roncatech.vcat.video;
 
 import android.app.AlertDialog;
+import android.app.AsyncNotedAppOp;
 import android.content.Context;
 import android.content.pm.ActivityInfo;
 import android.net.Uri;
@@ -27,6 +28,7 @@ import com.google.android.exoplayer2.mediacodec.MediaCodecInfo;
 import com.google.android.exoplayer2.mediacodec.MediaCodecRenderer;
 import com.google.android.exoplayer2.mediacodec.MediaCodecSelector;
 import com.google.android.exoplayer2.mediacodec.MediaCodecUtil;
+import com.google.android.exoplayer2.ui.PlayerControlView;
 import com.google.android.exoplayer2.util.MimeTypes;
 import com.google.android.exoplayer2.video.MediaCodecVideoRenderer;
 import com.google.android.exoplayer2.video.VideoRendererEventListener;
@@ -70,8 +72,6 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
     private SimpleExoPlayer exoPlayer;
 
     private PlayerView playerView;
-    private ImageButton stopButton;
-    private ImageButton videoInfoButton;
     LinearLayout buttonRow;
     TextView videoOverlay;
 
@@ -79,6 +79,13 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
     private int curFileIndex;
 
     private TelemetryLogger tl;
+
+    private AnalyticsListener analyticsListener;
+
+    private Player.Listener playbackStateListener;
+
+    RenderersFactory renderersFactory;
+
 
     private static class FrameDrops{
         private int elapsedMs = 0;
@@ -129,27 +136,49 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
     public void onStopTest(){
         stopTestAndCleanup();
     }
-    public void onToggleVideoInfo(){
+    public void onToggleVideoInfo() {
         if (videoOverlay.getVisibility() == View.VISIBLE) {
             videoOverlay.setVisibility(View.GONE);
-        } else {
-
-            // calculate size
-            TelemetryLogger.VideoInfo vi = getTlVideoInfo(this.testClips.get(this.curFileIndex), this.viewModel.curTestDetails);
-            int displayHeight = playerView.getHeight(); // or dm.heightPixels;
-            double videoAspectRatio = Double.parseDouble(vi.width) / Double.parseDouble(vi.height);
-            int scaledVideoWidth = (int) (displayHeight * videoAspectRatio);
-
-            FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
-                    scaledVideoWidth,
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    Gravity.CENTER
-            );
-            videoOverlay.setLayoutParams(params);
-            videoOverlay.setVisibility(View.VISIBLE);
-            logTelemetry(false);
+            return;
         }
 
+        // calculate size (fall back if height is not laid out yet)
+        TelemetryLogger.VideoInfo vi = getTlVideoInfo(this.testClips.get(this.curFileIndex), this.viewModel.curTestDetails);
+        int displayHeight = playerView.getHeight();
+        if (displayHeight == 0) {
+            displayHeight = playerView.getMeasuredHeight();
+            if (displayHeight == 0) {
+                // final fallback: just use MATCH_PARENT width if we can't compute yet
+                displayHeight = ViewGroup.LayoutParams.MATCH_PARENT;
+            }
+        }
+        double videoAspectRatio = Double.parseDouble(vi.width) / Double.parseDouble(vi.height);
+        int scaledVideoWidth = (displayHeight == ViewGroup.LayoutParams.MATCH_PARENT)
+                ? ViewGroup.LayoutParams.MATCH_PARENT
+                : (int) (displayHeight * videoAspectRatio);
+
+        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
+                scaledVideoWidth,
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                Gravity.CENTER
+        );
+        videoOverlay.setLayoutParams(params);
+
+        // show it ABOVE the video + controller
+        videoOverlay.setVisibility(View.VISIBLE);
+        videoOverlay.bringToFront();
+        videoOverlay.setElevation(1000f);
+
+        // FIX: make sure it’s actually visible (don’t leave alpha at 0)
+        // Simple on/off:
+        videoOverlay.setAlpha(1f);
+
+        // (If you prefer a fade-in, use this instead of the line above)
+        // videoOverlay.setAlpha(0f);
+        // videoOverlay.animate().alpha(1f).setDuration(150).start();
+
+        // populate overlay text (your logTelemetry already sets it when overlay is VISIBLE)
+        logTelemetry(false);
     }
 
     public void onPlayPause(){
@@ -172,59 +201,6 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
         finish();
     }
 
-    private final Player.Listener playbackStateListener = new Player.Listener() {
-        @Override
-        public void onPlaybackStateChanged(int state) {
-            if (state == Player.STATE_READY) {
-                onPlaybackStarted();
-            } else if (state == Player.STATE_ENDED) {
-                logTelemetry(true);
-                if (shouldStopTesting()) {
-                    stopTestAndCleanup();
-                } else {
-                    advanceToNextClip();
-                    playCurClip();
-                }
-            }
-        }
-
-        @Override
-        public void onPlayerError(@NonNull PlaybackException error) {
-            Throwable cause = error.getCause();
-            if (cause instanceof MediaCodecRenderer.DecoderInitializationException) {
-                MediaCodecRenderer.DecoderInitializationException die =
-                        (MediaCodecRenderer.DecoderInitializationException) cause;
-
-                // public fields on that exception:
-                String decoderName           = die.codecInfo.name;       // e.g. "c2.unisoc.av1.decoder"
-                boolean secureDecoderRequired = die.secureDecoderRequired;
-
-                String msg = new StringBuilder()
-                        .append("Failed to init decoder:\n")
-                        .append("  name: ").append(decoderName).append("\n")
-                        .append(die.getMessage())
-                        .toString();
-
-                AlertDialog dlg = new AlertDialog.Builder(FullScreenPlayerActivity.this)
-                        .setTitle("Decoder Initialization Error")
-                        .setMessage(msg)
-                        .setPositiveButton(android.R.string.ok, null)
-                        .show();
-                dlg.setOnDismissListener(d->stopTestAndCleanup());
-
-            } else {
-                // fallback for any other playback error
-                AlertDialog dlg = new AlertDialog.Builder(FullScreenPlayerActivity.this)
-                        .setTitle("Playback Error")
-                        .setMessage(error.getMessage())
-                        .setPositiveButton(android.R.string.ok, null)
-                        .show();
-                dlg.setOnDismissListener(d->stopTestAndCleanup());
-            }
-
-
-        }
-    };
 
     // 2) Extract your frame‐drop listener
     private final AnalyticsListener frameDropListener = new AnalyticsListener() {
@@ -240,99 +216,9 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
         }
     };
 
-    MediaCodecSelector customSelector = (mimeType, requiresSecureDecoder, requiresTunnelingDecoder) -> {
-        String decoderName = null;
+    MediaCodecSelector customSelector;
 
-        switch (mimeType) {
-            case MimeTypes.VIDEO_H264:
-                decoderName = viewModel.getRunConfig().decoderCfg.getDecoder(VideoDecoderEnumerator.MimeType.H264);
-                break;
-            case MimeTypes.VIDEO_H265:
-                decoderName = viewModel.getRunConfig().decoderCfg.getDecoder(VideoDecoderEnumerator.MimeType.H265);
-                break;
-            case MimeTypes.VIDEO_AV1:
-                decoderName = viewModel.getRunConfig().decoderCfg.getDecoder(VideoDecoderEnumerator.MimeType.AV1);
-
-                if ("dav1d".equalsIgnoreCase(decoderName)) {
-                    Log.d("Decoder", "Skipping MediaCodec decoders for AV1 (dav1d selected)");
-                    return Collections.emptyList(); // Disables AV1 for MediaCodecVideoRenderer
-                }
-                break;
-            case MimeTypes.VIDEO_VP9:
-                decoderName = viewModel.getRunConfig().decoderCfg.getDecoder(VideoDecoderEnumerator.MimeType.VP9);
-                break;
-            case "video/vvc":
-                decoderName = viewModel.getRunConfig().decoderCfg.getDecoder(VideoDecoderEnumerator.MimeType.VVC);
-                break;
-        }
-
-        List<MediaCodecInfo> infos = MediaCodecUtil.getDecoderInfos(
-                mimeType,
-                requiresSecureDecoder,
-                requiresTunnelingDecoder
-        );
-
-        if (decoderName != null && !decoderName.isEmpty()) {
-            List<MediaCodecInfo> filtered = new ArrayList<>();
-            for (MediaCodecInfo info : infos) {
-                if (info.name.equalsIgnoreCase(decoderName)) {
-                    filtered.add(info);
-                }
-            }
-            return filtered;
-        }
-        return infos;
-    };
-
-    RenderersFactory renderersFactory = new DefaultRenderersFactory(this) {
-        @Override
-        protected void buildVideoRenderers(
-                Context context,
-                int extensionRendererMode,
-                MediaCodecSelector mediaCodecSelector,
-                boolean enableDecoderFallback,
-                Handler eventHandler,
-                VideoRendererEventListener eventListener,
-                long allowedVideoJoiningTimeMs,
-                ArrayList<Renderer> out
-        ) {
-            String av1Decoder = viewModel.getRunConfig().decoderCfg.getDecoder(VideoDecoderEnumerator.MimeType.AV1);
-            // Always add MediaCodec renderer for fallback/default
-            out.add(new MediaCodecVideoRenderer(
-                    context,
-                    customSelector,
-                    allowedVideoJoiningTimeMs,
-                    enableDecoderFallback,
-                    eventHandler,
-                    eventListener,
-                    MAX_DROPPED_VIDEO_FRAME_COUNT_TO_NOTIFY
-            ));
-
-            // Conditionally add Libdav1d renderer only for AV1 and if libdav1d is desired
-            if ("dav1d".equalsIgnoreCase(av1Decoder)) {
-                try {
-                    Class<?> av1RendererClass = Class.forName("com.google.android.exoplayer2.ext.av1.Libgav1VideoRenderer");
-                    Constructor<?> constructor = av1RendererClass.getConstructor(
-                            long.class, Handler.class, VideoRendererEventListener.class, int.class
-                    );
-                    Renderer libav1Renderer = (Renderer) constructor.newInstance(
-                            allowedVideoJoiningTimeMs,
-                            eventHandler,
-                            eventListener,
-                            MAX_DROPPED_VIDEO_FRAME_COUNT_TO_NOTIFY
-                    );
-                    Log.d("RenderersFactory", "Add dav1dRenderer");
-                    out.add(libav1Renderer);
-                } catch (Exception e) {
-                    Log.w("RenderersFactory", "Libgav1VideoRenderer not available: " + e.getMessage());
-                }
-            }
-        }
-    };
-
-    @Override
-    protected void onCreate(Bundle b) {
-        super.onCreate(b);
+    private void initialize(){
         this.viewModel = new ViewModelProvider(this).get(SharedViewModel.class);
 
         int testScreenBrightness = viewModel.getRunConfig().screenBrightness;
@@ -341,60 +227,152 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
 
         float override = Math.max(0.01f, Math.min(testScreenBrightness / 100f, 1f));
         lp.screenBrightness = override;
-        getWindow().setAttributes(lp);
 
-        setContentView(R.layout.activity_fullscreen_player);
+        this.renderersFactory = new DefaultRenderersFactory(this) {
+            @Override
+            protected void buildVideoRenderers(
+                    Context context,
+                    int extensionRendererMode,
+                    MediaCodecSelector mediaCodecSelector,
+                    boolean enableDecoderFallback,
+                    Handler eventHandler,
+                    VideoRendererEventListener eventListener,
+                    long allowedVideoJoiningTimeMs,
+                    ArrayList<Renderer> out
+            ) {
+                String av1Decoder = viewModel.getRunConfig().decoderCfg.getDecoder(VideoDecoderEnumerator.MimeType.AV1);
+                // Always add MediaCodec renderer for fallback/default
+                out.add(new MediaCodecVideoRenderer(
+                        context,
+                        customSelector,
+                        allowedVideoJoiningTimeMs,
+                        enableDecoderFallback,
+                        eventHandler,
+                        eventListener,
+                        MAX_DROPPED_VIDEO_FRAME_COUNT_TO_NOTIFY
+                ));
 
-        Window window = getWindow();
-        // Let us draw under the status and nav bars:
-        window.getDecorView().setSystemUiVisibility(
-                View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
-                        | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
-                        | View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-                        // … your existing immersive flags …
-                        | View.SYSTEM_UI_FLAG_FULLSCREEN
-                        | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
-                        | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
-        );
+                // Conditionally add Libdav1d renderer only for AV1 and if libdav1d is desired
+                if ("dav1d".equalsIgnoreCase(av1Decoder)) {
+                    try {
+                        Class<?> av1RendererClass = Class.forName("com.google.android.exoplayer2.ext.av1.Libgav1VideoRenderer");
+                        Constructor<?> constructor = av1RendererClass.getConstructor(
+                                long.class, Handler.class, VideoRendererEventListener.class, int.class
+                        );
+                        Renderer libav1Renderer = (Renderer) constructor.newInstance(
+                                allowedVideoJoiningTimeMs,
+                                eventHandler,
+                                eventListener,
+                                MAX_DROPPED_VIDEO_FRAME_COUNT_TO_NOTIFY
+                        );
+                        Log.d("RenderersFactory", "Add dav1dRenderer");
+                        out.add(libav1Renderer);
+                    } catch (Exception e) {
+                        Log.w("RenderersFactory", "Libgav1VideoRenderer not available: " + e.getMessage());
+                    }
+                }
+            }
+        };
 
-        // And force both bars to be black
-        window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
-        window.setStatusBarColor(Color.BLACK);
-        window.setNavigationBarColor(Color.BLACK);
+        this.customSelector = (mimeType, requiresSecureDecoder, requiresTunnelingDecoder) -> {
+            String decoderName = null;
 
-        hideSystemUi();
+            switch (mimeType) {
+                case MimeTypes.VIDEO_H264:
+                    decoderName = viewModel.getRunConfig().decoderCfg.getDecoder(VideoDecoderEnumerator.MimeType.H264);
+                    break;
+                case MimeTypes.VIDEO_H265:
+                    decoderName = viewModel.getRunConfig().decoderCfg.getDecoder(VideoDecoderEnumerator.MimeType.H265);
+                    break;
+                case MimeTypes.VIDEO_AV1:
+                    decoderName = viewModel.getRunConfig().decoderCfg.getDecoder(VideoDecoderEnumerator.MimeType.AV1);
 
-        this.playerView = findViewById(R.id.playerView);
-        this.stopButton  = findViewById(R.id.stopButton);
-        this.videoInfoButton = findViewById(R.id.toggleVideoInfo);
-        this.buttonRow = findViewById(R.id.buttonRow);
-        this.videoOverlay = findViewById(R.id.videoOverlay);
+                    if ("dav1d".equalsIgnoreCase(decoderName)) {
+                        Log.d("Decoder", "Skipping MediaCodec decoders for AV1 (dav1d selected)");
+                        return Collections.emptyList(); // Disables AV1 for MediaCodecVideoRenderer
+                    }
+                    break;
+                case MimeTypes.VIDEO_VP9:
+                    decoderName = viewModel.getRunConfig().decoderCfg.getDecoder(VideoDecoderEnumerator.MimeType.VP9);
+                    break;
+                case "video/vvc":
+                    decoderName = viewModel.getRunConfig().decoderCfg.getDecoder(VideoDecoderEnumerator.MimeType.VVC);
+                    break;
+            }
 
-        exoPlayer  = new SimpleExoPlayer.Builder(this,renderersFactory).build();
-        exoPlayer.setRepeatMode(Player.REPEAT_MODE_OFF);
-        playerView.setPlayer(exoPlayer);
+            List<MediaCodecInfo> infos = MediaCodecUtil.getDecoderInfos(
+                    mimeType,
+                    requiresSecureDecoder,
+                    requiresTunnelingDecoder
+            );
 
-        // 1) Load and parse the playlist
-        testClips  = XspfParser.parsePlaylist(this, Uri.parse(viewModel.curTestDetails.getPlaylist()));
-        curFileIndex = 0;
-        if (testClips.isEmpty()) {
-            finish();  // nothing to play
-            return;
-        }
+            if (decoderName != null && !decoderName.isEmpty()) {
+                List<MediaCodecInfo> filtered = new ArrayList<>();
+                for (MediaCodecInfo info : infos) {
+                    if (info.name.equalsIgnoreCase(decoderName)) {
+                        filtered.add(info);
+                    }
+                }
+                return filtered;
+            }
+            return infos;
+        };
 
-        // setup telemetry file
-        long startTime = System.currentTimeMillis();
-        String telemetryFileName = "logs_" + startTime + ".csv";
+        this.playbackStateListener = new Player.Listener() {
+            @Override
+            public void onPlaybackStateChanged(int state) {
+                if (state == Player.STATE_READY) {
+                    onPlaybackStarted();
+                } else if (state == Player.STATE_ENDED) {
+                    logTelemetry(true);
+                    if (shouldStopTesting()) {
+                        stopTestAndCleanup();
+                    } else {
+                        advanceToNextClip();
+                        startClipWithFreshPlayer();
+                    }
+                }
+            }
 
-        this.tl = new TelemetryLogger(telemetryFileName);
+            @Override
+            public void onPlayerError(@NonNull PlaybackException error) {
+                Throwable cause = error.getCause();
+                if (cause instanceof MediaCodecRenderer.DecoderInitializationException) {
+                    MediaCodecRenderer.DecoderInitializationException die =
+                            (MediaCodecRenderer.DecoderInitializationException) cause;
 
-        this.tl.writeHeaderRows(this, viewModel.curTestDetails.getPlaylistFileName(), this.viewModel.getRunConfig(), startTime);
-        this.tl.writeCsvHeader();
+                    // public fields on that exception:
+                    String decoderName           = die.codecInfo.name;       // e.g. "c2.unisoc.av1.decoder"
+                    boolean secureDecoderRequired = die.secureDecoderRequired;
 
-        // 2) When one clip ends, play next (or loop)
-        exoPlayer.addListener(this.playbackStateListener);
+                    String msg = new StringBuilder()
+                            .append("Failed to init decoder:\n")
+                            .append("  name: ").append(decoderName).append("\n")
+                            .append(die.getMessage())
+                            .toString();
 
-        exoPlayer.addAnalyticsListener(new AnalyticsListener() {
+                    AlertDialog dlg = new AlertDialog.Builder(FullScreenPlayerActivity.this)
+                            .setTitle("Decoder Initialization Error")
+                            .setMessage(msg)
+                            .setPositiveButton(android.R.string.ok, null)
+                            .show();
+                    dlg.setOnDismissListener(d->stopTestAndCleanup());
+
+                } else {
+                    // fallback for any other playback error
+                    AlertDialog dlg = new AlertDialog.Builder(FullScreenPlayerActivity.this)
+                            .setTitle("Playback Error")
+                            .setMessage(error.getMessage())
+                            .setPositiveButton(android.R.string.ok, null)
+                            .show();
+                    dlg.setOnDismissListener(d->stopTestAndCleanup());
+                }
+
+
+            }
+        };
+
+        this.analyticsListener = new AnalyticsListener() {
             @Override
             public void onDroppedVideoFrames(AnalyticsListener.EventTime eventTime, int droppedFrameCount, long elapsedMs) {
                 // This is the number of frames dropped *since the last callback*,
@@ -406,56 +384,109 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
                 FullScreenPlayerActivity.this.fd.elapsedMs += elapsedMs;
                 FullScreenPlayerActivity.this.fd.frameDrops += droppedFrameCount;
             }
+        };
+    }
 
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        setContentView(R.layout.activity_fullscreen_player);
+        initialize();
+
+        playerView = findViewById(R.id.playerView);
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+
+        // Lookups for the overlay controls that live OUTSIDE the PlayerView
+        LinearLayout buttonRow   = findViewById(R.id.buttonRow);
+        View stopButton          = findViewById(R.id.stopButton);
+        View infoButton          = findViewById(R.id.toggleVideoInfo);
+        this.videoOverlay        = findViewById(R.id.videoOverlay);
+
+        // Ensure the overlay is above the video surface and clickable
+        buttonRow.bringToFront();
+        buttonRow.setClickable(true);
+        buttonRow.setFocusable(true);
+
+        // Make PlayerView controller behavior explicit
+        playerView.setUseController(true);
+        playerView.setControllerShowTimeoutMs(3000);
+        playerView.setControllerHideOnTouch(true);
+
+        // Keep the overlay in lockstep with the controller visibility
+        playerView.setControllerVisibilityListener(new PlayerControlView.VisibilityListener() {
             @Override
-            public void onVideoDecoderInitialized(
-                    AnalyticsListener.EventTime eventTime,
-                    String decoderName,
-                    long initializationDurationMs,
-                    long initializationDelayMs) {
-                Log.i(TAG, "Video decoder initialized: " + decoderName);
-                // Save or log decoderName as needed
-                FullScreenPlayerActivity.this.curDecoder = decoderName;
+            public void onVisibilityChange(int visibility) {
+                buttonRow.setVisibility(visibility == View.VISIBLE ? View.VISIBLE : View.GONE);
             }
-
         });
 
-        playerView.setControllerVisibilityListener(visibility -> {
-            buttonRow.setVisibility(visibility);
-        });
+        // Optional: start with controller visible so buttons appear initially
+        playerView.showController();
 
-        stopButton.setOnClickListener(v -> {
-            // your VCAT stop logic here:
-            stopTestAndCleanup();
-        });
-
-        videoInfoButton.setOnClickListener(v -> {
+        // Wire button actions
+        stopButton.setOnClickListener(v -> stopTestAndCleanup());
+        infoButton.setOnClickListener(v -> {
             onToggleVideoInfo();
         });
 
-        // register for external commands:
-        PlayerCommandBus.get().setListener(this);
+        // setup telemetry file
+        long startTime = System.currentTimeMillis();
+        String telemetryFileName = "logs_" + startTime + ".csv";
 
-        // Listen for when the video size is known:
-        exoPlayer.addListener(new Player.Listener() {
-            @Override
-            public void onVideoSizeChanged(VideoSize videoSize) {
-                if(videoSize.width == 0 && videoSize.height == 0){
-                    return;
-                }
-                if (videoSize.height > videoSize.width) {
-                    // lock to portrait and ignore the sensor entirely
-                    setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
-                } else {
-                    // lock to landscape (not sensor-landscape)
-                    setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
-                }
-            }
-        });
+        this.tl = new TelemetryLogger(telemetryFileName);
 
-        // 3) Kick off the first clip
-        playCurClip();
+        this.tl.writeHeaderRows(this, viewModel.curTestDetails.getPlaylistFileName(), this.viewModel.getRunConfig(), startTime);
+        this.tl.writeCsvHeader();
+
+        testClips  = XspfParser.parsePlaylist(this, Uri.parse(viewModel.curTestDetails.getPlaylist()));
+        curFileIndex = 0;
+        if (testClips.isEmpty()) {
+            finish();  // nothing to play
+            return;
+        }
+
+        if (curFileIndex < 0) curFileIndex = 0;
+        startClipWithFreshPlayer();
     }
+
+    // Put this near your other private helpers
+    private void startClipWithFreshPlayer() {
+        // Keep a handle to the old player so we can release it after swap
+        SimpleExoPlayer old = exoPlayer;
+
+        // Build a new player using your existing RenderersFactory (dav1d, etc.)
+        SimpleExoPlayer newPlayer = new SimpleExoPlayer.Builder(this, renderersFactory).build();
+        newPlayer.setRepeatMode(Player.REPEAT_MODE_OFF);
+
+        // Wire listeners you already use
+        newPlayer.addListener(this.playbackStateListener);
+        if (this.analyticsListener != null) {
+            newPlayer.addAnalyticsListener(this.analyticsListener);
+        }
+
+        // Attach it to the PlayerView
+        playerView.setPlayer(newPlayer);
+
+        // Load & play the current clip
+        Uri clip = this.testClips.get(this.curFileIndex);
+        newPlayer.setMediaItem(MediaItem.fromUri(clip));
+        newPlayer.prepare();
+        newPlayer.play();
+
+        // Make the new player current
+        exoPlayer = newPlayer;
+
+        // Release the old one after we've fully switched the view
+        if (old != null) {
+            // Defensive: clear media & listeners before release
+            old.clearMediaItems();
+            old.removeListener(this.playbackStateListener);
+            if (this.analyticsListener != null) old.removeAnalyticsListener(this.analyticsListener);
+            old.release();
+        }
+    }
+
 
 
     private void playCurClip() {

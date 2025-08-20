@@ -17,20 +17,21 @@
         app:show_timeout="3000"
         app:hide_on_touch="true"
         app:resize_mode="fit"
-        app:surface_type="texture_view" >
+        app:surface_type="texture_view" />
 
-        <!-- Fullscreen transparent overlay to display video info -->
-        <TextView
-            android:id="@+id/videoOverlay"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:padding="12dp"
-            android:textColor="#FFFFFF"
-            android:textSize="14sp"
-            android:background="@android:color/transparent"
-            android:gravity="top|start"
-            android:visibility="gone" />
-    </com.google.android.exoplayer2.ui.PlayerView>
+    <!-- FULLSCREEN OVERLAY SIBLING (always above video) -->
+    <TextView
+        android:id="@+id/videoOverlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:padding="12dp"
+        android:textColor="#FFFFFF"
+        android:textSize="14sp"
+        android:background="#66000000"
+        android:gravity="top|start"
+        android:visibility="gone"
+        android:clickable="false"
+        android:focusable="false" />
 
     <!-- Shared button row: initially hidden -->
     <LinearLayout
@@ -43,7 +44,6 @@
         android:visibility="gone"
         android:padding="8dp">
 
-        <!-- Stop button -->
         <ImageButton
             android:id="@+id/stopButton"
             android:layout_width="96dp"
@@ -54,13 +54,11 @@
             android:tooltipText="Stop Test"
             android:scaleType="fitCenter"
             android:adjustViewBounds="true" />
-        <!-- padding -->
+
         <View
             android:layout_width="16dp"
-            android:layout_height="0dp"
-            android:layout_weight="0" />
+            android:layout_height="0dp" />
 
-        <!-- Toggle video info button -->
         <ImageButton
             android:id="@+id/toggleVideoInfo"
             android:layout_width="96dp"
