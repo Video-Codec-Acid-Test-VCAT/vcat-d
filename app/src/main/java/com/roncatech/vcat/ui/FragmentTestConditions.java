@@ -7,6 +7,7 @@ import android.os.Bundle;
 import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
+import android.view.ViewGroup;
 import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.CheckBox;
@@ -50,6 +51,8 @@ public class FragmentTestConditions extends Fragment {
     private TextView batteryPickerText, durationPickerText;
     private LinearLayout decoderContainer;
     EditText httpPortEditText;
+
+    private Spinner videoOrientationSpinner;
 
     ImageButton aboutButton;
 
@@ -166,6 +169,39 @@ public class FragmentTestConditions extends Fragment {
                 }
                 @Override public void onNothingSelected(AdapterView<?> parent) {}
             });
+        }
+
+        videoOrientationSpinner = view.findViewById(R.id.videoOrientationDropdown);
+
+        if(videoOrientationSpinner != null){
+            ArrayAdapter<RunConfig.VideoOrientation> adapter = new ArrayAdapter<RunConfig.VideoOrientation>(
+                    requireContext(),
+                    android.R.layout.simple_spinner_item,
+                    RunConfig.VideoOrientation.values()
+            ) {
+                @NonNull @Override public View getView(int pos, View convertView, @NonNull ViewGroup parent) {
+                    TextView tv = (TextView) super.getView(pos, convertView, parent);
+                    tv.setText(getItem(pos).label);
+                    return tv;
+                }
+                @Override public View getDropDownView(int pos, View convertView, @NonNull ViewGroup parent) {
+                    TextView tv = (TextView) super.getDropDownView(pos, convertView, parent);
+                    tv.setText(getItem(pos).label);
+                    return tv;
+                }
+            };
+            adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+            videoOrientationSpinner.setAdapter(adapter);
+
+            videoOrientationSpinner.setSelection(runConfig.videoOrientation.ordinal(), false);
+            videoOrientationSpinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+                //boolean init = false;
+                @Override public void onItemSelected(AdapterView<?> parent, View v, int pos, long id) {
+                    runConfig.videoOrientation = (RunConfig.VideoOrientation) parent.getItemAtPosition(pos);
+                }
+                @Override public void onNothingSelected(AdapterView<?> parent) {}
+            });
+
         }
 
         // ✅ Radio Buttons for Run Mode

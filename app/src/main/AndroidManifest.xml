@@ -39,9 +39,9 @@
         <activity
             android:name="com.roncatech.vcat.video.FullScreenPlayerActivity"
             android:exported="false"
-            android:screenOrientation="sensorLandscape"
-            android:theme="@style/AppTheme.FullScreen" />
-
+            android:theme="@style/AppTheme.FullScreen"
+            android:screenOrientation="unspecified"
+            android:configChanges="orientation|screenSize|keyboardHidden|smallestScreenSize|screenLayout|layoutDirection" />
     </application>
 
 

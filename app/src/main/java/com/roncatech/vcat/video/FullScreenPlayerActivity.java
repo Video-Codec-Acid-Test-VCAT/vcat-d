@@ -1,5 +1,9 @@
 package com.roncatech.vcat.video;
 
+import static android.content.pm.ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR;
+import static android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE;
+import static android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT;
+
 import android.app.AlertDialog;
 import android.app.AsyncNotedAppOp;
 import android.content.Context;
@@ -101,6 +105,12 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
 
     private float originalWindowBrightness = -1;
 
+    private boolean orientationCommittedForClip = false;
+
+    private static boolean hasValidVideoSize(@Nullable VideoSize vs) {
+        return vs != null && vs.width > 0 && vs.height > 0;
+    }
+
     private boolean shouldStopTesting(){
         boolean shouldStop = false;
 
@@ -198,6 +208,7 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
         }
 
         this.curDecoder = emptyDecoder;
+        setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
         finish();
     }
 
@@ -319,6 +330,8 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
                 }
             }
 
+            final RunConfig.VideoOrientation mode = FullScreenPlayerActivity.this.viewModel.getRunConfig().videoOrientation;
+
             @Override
             public void onPlayerError(@NonNull PlaybackException error) {
                 Throwable cause = error.getCause();
@@ -352,8 +365,21 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
                             .show();
                     dlg.setOnDismissListener(d->stopTestAndCleanup());
                 }
+            }
 
+            @Override
+            public void onVideoSizeChanged(VideoSize videoSize) {
+                if (!orientationCommittedForClip && hasValidVideoSize(videoSize)) {
+                    maybeApplyOrientationForClip(mode, videoSize);
+                }
+            }
 
+            @Override
+            public void onMediaItemTransition(@Nullable com.google.android.exoplayer2.MediaItem mediaItem, int reason) {
+                orientationCommittedForClip = false;
+                if (mode != RunConfig.VideoOrientation.MATCH_VIDEO) {
+                    maybeApplyOrientationForClip(mode, /*vs=*/null);
+                }
             }
         };
 
@@ -446,8 +472,18 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
         startClipWithFreshPlayer();
     }
 
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
+    }
+
     // Put this near your other private helpers
     private void startClipWithFreshPlayer() {
+
+        orientationCommittedForClip = false;
+        final RunConfig.VideoOrientation mode = viewModel.getRunConfig().videoOrientation;
+
         // Keep a handle to the old player so we can release it after swap
         SimpleExoPlayer old = exoPlayer;
 
@@ -459,6 +495,10 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
         newPlayer.addListener(this.playbackStateListener);
         if (this.analyticsListener != null) {
             newPlayer.addAnalyticsListener(this.analyticsListener);
+        }
+
+        if (mode != RunConfig.VideoOrientation.MATCH_VIDEO) {
+            maybeApplyOrientationForClip(mode, /*vs=*/null);
         }
 
         // Attach it to the PlayerView
@@ -482,9 +522,6 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
             old.release();
         }
     }
-
-
-
     private void playCurClip() {
         Uri clip = this.testClips.get(this.curFileIndex);
         exoPlayer.setMediaItem(MediaItem.fromUri(clip));
@@ -708,6 +745,37 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
         }
     }
 
+    // screen orientation
+    private void maybeApplyOrientationForClip(RunConfig.VideoOrientation mode, @Nullable VideoSize vs) {
+        switch (mode) {
+            case MATCH_DEVICE: {
+                setRequestedOrientation(SCREEN_ORIENTATION_FULL_SENSOR);
+                orientationCommittedForClip = true;
+                return;
+            }
+            case VERTICAL: {
+                setRequestedOrientation(SCREEN_ORIENTATION_SENSOR_PORTRAIT);
+                orientationCommittedForClip = true;
+                return;
+            }
+            case HORIZONTAL: {
+                setRequestedOrientation(SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
+                orientationCommittedForClip = true;
+                return;
+            }
+            case MATCH_VIDEO:
+            default: {
+                if (!hasValidVideoSize(vs)) return; // don't commit on 0×0
+                int w = vs.width, h = vs.height;
+                if ((vs.unappliedRotationDegrees % 180) == 90) { int t = w; w = h; h = t; }
+                boolean portrait = h >= w;
+                setRequestedOrientation(portrait
+                        ? SCREEN_ORIENTATION_SENSOR_PORTRAIT
+                        : SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
+                orientationCommittedForClip = true;
+            }
+        }
+    }
 
 }
 

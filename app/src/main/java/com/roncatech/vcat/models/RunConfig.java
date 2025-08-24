@@ -12,6 +12,33 @@ public class RunConfig {
     public int screenBrightness;
     public int threads;
     public enum RunMode{ONCE, BATTERY, TIME};
+
+    public enum VideoOrientation{
+        // show all videos in vertical orientation
+        VERTICAL("Vertical"),
+
+        // show all videos in vertical orientation
+        HORIZONTAL("Horizontal"),
+
+        // show all videos matching the video orientation
+        MATCH_VIDEO("Match Video"),
+
+        // show all videos matching current device orientation
+        MATCH_DEVICE("Match Device");
+
+        private VideoOrientation(String label){this.label = label;}
+        public final String label;
+
+        public static VideoOrientation fromLabel(String label){
+            for(VideoOrientation cur : VideoOrientation.values()){
+                if (cur.label.equals(label)) {
+                    return cur;
+                }
+            }
+            return MATCH_VIDEO;
+        }
+    }
+    public VideoOrientation videoOrientation;
     public RunMode runMode;
     public int runLimit; // battery %or total minutes
 
@@ -30,6 +57,7 @@ public class RunConfig {
         if(this.runMode != that.runMode){return false;}
         if(this.threads != that.threads){return false;}
         if(this.screenBrightness != that.screenBrightness){return false;}
+        if(this.videoOrientation != that.videoOrientation){return false;}
 
         return Objects.equals(this.decoderCfg, that.decoderCfg);
     }
@@ -52,19 +80,27 @@ public class RunConfig {
         this.runMode = RunMode.BATTERY;
         this.runLimit = 15;
         this.decoderCfg = new DecoderConfig();
+        this.videoOrientation = VideoOrientation.MATCH_VIDEO;
     }
 
     public RunConfig(final RunConfig copyFrom){
-        this(copyFrom.screenBrightness, copyFrom.threads, copyFrom.runMode, copyFrom.runLimit, copyFrom.decoderCfg);
+        this(
+                copyFrom.screenBrightness,
+                copyFrom.threads,
+                copyFrom.runMode,
+                copyFrom.runLimit,
+                copyFrom.decoderCfg,
+                copyFrom.videoOrientation);
     }
 
     // Constructor with parameters
-    public RunConfig(int screenBrightness, int threads, RunMode runMode, int runLimit, DecoderConfig decoderCfg) {
+    public RunConfig(int screenBrightness, int threads, RunMode runMode, int runLimit, DecoderConfig decoderCfg, VideoOrientation videoOrientation) {
         this.screenBrightness = screenBrightness;
         this.threads = threads;
         this.runMode = runMode;
         this.runLimit = runLimit;
         this.decoderCfg = new DecoderConfig(decoderCfg);
+        this.videoOrientation = videoOrientation;
     }
 
     // Convert object to JSON string (for saving)
@@ -77,7 +113,13 @@ public class RunConfig {
     public static RunConfig fromJson(String json) {
         if(json != null) {
             Gson gson = new Gson();
-            return gson.fromJson(json, RunConfig.class);
+            RunConfig ret = gson.fromJson(json, RunConfig.class);
+            // handle new fields, possibly not in persisted config
+            if(ret.videoOrientation == null){
+                ret.videoOrientation = VideoOrientation.MATCH_VIDEO;
+            }
+
+            return ret;
         }
         return new RunConfig();
     }
@@ -103,6 +145,10 @@ public class RunConfig {
 
             if(config1.screenBrightness != config2.screenBrightness){
                 return Integer.compare(config1.screenBrightness, config2.screenBrightness);
+            }
+
+            if(config1.videoOrientation != config2.videoOrientation){
+                return Integer.compare(config1.videoOrientation.ordinal(), config2.videoOrientation.ordinal());
             }
 
             // now compare the decoder cfg

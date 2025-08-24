@@ -45,3 +45,5 @@ bin/
 # --- Release artifacts
 app/release/
 
+# --- temp lib folder for decoder
+libs/
