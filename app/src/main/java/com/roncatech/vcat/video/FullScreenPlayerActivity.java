@@ -295,20 +295,23 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
                 // Conditionally add Libdav1d renderer only for AV1 and if libdav1d is desired
                 if ("dav1d".equalsIgnoreCase(av1Decoder)) {
                     try {
-                        Class<?> av1RendererClass = Class.forName("com.google.android.exoplayer2.ext.av1.Libgav1VideoRenderer");
+                        Class<?> av1RendererClass = Class.forName("com.google.android.exoplayer2.ext.av1.Libdav1dVideoRenderer");
                         Constructor<?> constructor = av1RendererClass.getConstructor(
-                                long.class, Handler.class, VideoRendererEventListener.class, int.class
+                                long.class, Handler.class, VideoRendererEventListener.class, int.class, int.class, int.class, int.class
                         );
                         Renderer libav1Renderer = (Renderer) constructor.newInstance(
                                 allowedVideoJoiningTimeMs,
                                 eventHandler,
                                 eventListener,
-                                MAX_DROPPED_VIDEO_FRAME_COUNT_TO_NOTIFY
+                                MAX_DROPPED_VIDEO_FRAME_COUNT_TO_NOTIFY,
+                                FullScreenPlayerActivity.this.viewModel.getRunConfig().threads,
+                                4,
+                                4
                         );
                         Log.d("RenderersFactory", "Add dav1dRenderer");
                         out.add(libav1Renderer);
                     } catch (Exception e) {
-                        Log.w("RenderersFactory", "Libgav1VideoRenderer not available: " + e.getMessage());
+                        Log.w("RenderersFactory", "Libdav1dVideoRenderer not available: " + e.getMessage());
                     }
                 }
             }
