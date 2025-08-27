@@ -38,7 +38,7 @@ android {
                         def versionCode = variant.versionCode
                         def versionName = variant.versionName
                         // Customize the APK filename with versionCode and versionName
-                        outputFileName = "MyApp-${versionName}-v${versionCode}.apk"
+                        outputFileName = "VCAT-${versionName}-v${versionCode}.apk"
                     }
                 }
             }

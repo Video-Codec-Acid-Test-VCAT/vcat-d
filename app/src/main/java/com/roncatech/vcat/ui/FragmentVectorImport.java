@@ -150,7 +150,7 @@ public class FragmentVectorImport extends Fragment implements OpenCatalogDialog.
         for (DocumentFile df : tree.listFiles()) {
             if (df.isFile()
                     && df.getName() != null
-                    && df.getName().endsWith("_playlist_catalog.json")) {
+                    && df.getName().endsWith(".json")) {
                 candidates.add(df);
             }
         }
