@@ -13,8 +13,10 @@ import android.util.Log;
 
 import com.roncatech.vcat.models.SessionHeader;
 import com.roncatech.vcat.models.RunConfig;
+import com.roncatech.vcat.tools.AppMemoryInfo;
 import com.roncatech.vcat.tools.BatteryInfo;
 import com.roncatech.vcat.models.SessionInfo;
+import com.roncatech.vcat.tools.DeviceInfo;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -219,6 +221,13 @@ public class TelemetryLogger {
 
         row.put(Column.CPU_USAGE_TOTAL, String.format(Locale.US, "%.3f", TelemetryLogger.CpuStats.getInstance().getAppCpuUsage()));
         row.put(Column.BATTERY_LEVEL, batLevelPcnt.toString());
+
+        Long vcatMemUsed = AppMemoryInfo.getBytes(ct);
+        DeviceInfo.MemoryInfo sysMemInfo = DeviceInfo.MemoryInfo.getMemory(ct);
+        Long sysMemUsed = sysMemInfo.total - sysMemInfo.available;
+        row.put(Column.TEST_VCAT_MEMORY, vcatMemUsed.toString());
+        row.put(Column.TEST_SYSTEM_MEMORY, sysMemUsed.toString());
+
 
         // build row string in same order as column defiinitions
         List<String> values = new ArrayList<>();

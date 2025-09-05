@@ -1,7 +1,9 @@
 package com.roncatech.vcat.tools;
 
+import android.content.Context;
 import android.net.Uri;
 import android.os.Environment;
+import android.provider.DocumentsContract;
 import android.util.Log;
 
 import java.io.File;
@@ -184,5 +186,18 @@ public class StorageManager {
             Log.e(TAG, "I/O error reading last timestamp", e);
             return -1L;
         }
+    }
+
+    public static String getFullPathFromUri(Context context, Uri uri) {
+        // Handle tree URIs (SAF)
+        if (DocumentsContract.isTreeUri(uri)) {
+            String docId = DocumentsContract.getTreeDocumentId(uri);
+            if (docId.startsWith("primary:")) {
+                return Environment.getExternalStorageDirectory().getAbsolutePath()
+                        + "/" + docId.substring("primary:".length());
+            }
+        }
+        // fallback
+        return uri.getPath();
     }
 }

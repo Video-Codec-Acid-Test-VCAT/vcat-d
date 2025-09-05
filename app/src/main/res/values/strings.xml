@@ -21,4 +21,28 @@
     <string name="about_heading">"About"</string>
     <string name="license_placeholder">This license intentionally left blank (for now)</string>
     <string name="under_construction">Under Construction</string>
+
+    <!-- Dialog Title -->
+    <string name="export_test_vectors_title">Export Test Vectors</string>
+
+    <!-- Labels for fields -->
+    <string name="label_staging_folder">Staging Folder</string>
+    <string name="label_vector_name">Vector Name</string>
+    <string name="label_created_by">Created By</string>
+    <string name="label_description">Description</string>
+
+    <!-- Hints for edit boxes -->
+    <string name="hint_staging_folder">Select folder...</string>
+    <string name="hint_vector_name">Enter vector name</string>
+    <string name="hint_created_by">Enter creator name</string>
+    <string name="hint_description">Enter description (optional)</string>
+
+    <!-- Buttons -->
+    <string name="button_browse">...</string>
+    <string name="button_ok">OK</string>
+    <string name="button_cancel">Cancel</string>
+
+    <!-- Validation Errors -->
+    <string name="error_staging_folder_required">Staging folder is required</string>
+    <string name="error_vector_name_required">Vector name is required</string>
 </resources>

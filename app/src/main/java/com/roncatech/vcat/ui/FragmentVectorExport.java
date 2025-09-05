@@ -22,7 +22,7 @@ import java.io.File;
 import java.util.Arrays;
 import java.util.Comparator;
 
-public class FragmentVectorExport extends Fragment {
+public class FragmentVectorExport extends Fragment implements ExportTestVectorsDialog.Listener{
     private TableLayout tableExport;
     private CheckBox   cbSelectAll;
     private TextView   tvSelectAll;
@@ -43,11 +43,7 @@ public class FragmentVectorExport extends Fragment {
         tvSelectAll   = view.findViewById(R.id.tvSelectAll);
         btnExport = view.findViewById(R.id.btnExportPlaylists);
 
-        btnExport.setOnClickListener((v ->
-                UnderConstructionDialog
-                        .newInstance()
-                        .show(getParentFragmentManager(), UnderConstructionDialog.TAG)
-        ));
+        btnExport.setOnClickListener(v ->doExport());
 
         loadPlaylists();
     }
@@ -101,6 +97,28 @@ public class FragmentVectorExport extends Fragment {
                 }
             });
         }
+    }
+
+    /**
+     * Handle export button click.
+     * Shows ExportTestVectorsDialog, then UnderConstructionDialog.
+     */
+    private void doExport() {
+        // Show the modal ExportTestVectorsDialog
+        ExportTestVectorsDialog exportDialog = new ExportTestVectorsDialog();
+        exportDialog.setListener(this);
+        exportDialog.show(getParentFragmentManager(), "ExportTestVectorsDialog");
+    }
+
+    @Override
+    public void onExportConfirmed(String stagingFolder, String vectorName, String createdBy, String description){
+        UnderConstructionDialog.newInstance()
+                .show(getParentFragmentManager(), UnderConstructionDialog.TAG);
+    }
+
+    @Override
+    public void onExportCancelled(){
+
     }
 
 }
