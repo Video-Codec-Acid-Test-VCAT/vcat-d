@@ -1,0 +1,66 @@
+plugins {
+    alias(libs.plugins.android.library)
+}
+
+android {
+    // Use this namespace to match the package names in the Java snippets I gave you.
+    // If you prefer to keep your old one, keep it — just make sure the Java package
+    // declarations match whatever you set here.
+    namespace 'com.roncatech.exoplayer.dav1d'
+
+    compileSdk 35
+
+    defaultConfig {
+        minSdk 29
+        targetSdk 35
+
+        // Enable CMake build for the JNI wrapper (libdav1d_jni.so)
+        externalNativeBuild {
+            cmake { }
+        }
+
+        // Ship only the ABIs you need. arm64-v8a is the must-have.
+        ndk {
+            abiFilters "arm64-v8a", "armeabi-v7a"
+        }
+
+        consumerProguardFiles "consumer-rules.pro"
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    buildTypes {
+        debug { debuggable true }
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+
+    // Java 11 is perfect
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_11
+        targetCompatibility JavaVersion.VERSION_11
+    }
+
+    // Point to your CMakeLists for the JNI build
+    externalNativeBuild {
+        cmake {
+            path "src/main/cpp/CMakeLists.txt"
+        }
+    }
+
+    // (Optional) If you’ll ever use Prefab to consume prebuilt C/C++ deps:
+    // buildFeatures { prefab true }
+}
+
+
+
+dependencies {
+    // ExoPlayer core (stick with 2.19.x unless you’re on Media3)
+    implementation "com.google.android.exoplayer:exoplayer-core:2.19.1"
+
+    // You don’t need appcompat/material in this headless extension; removing them keeps the AAR slim.
+    testImplementation libs.junit
+    androidTestImplementation libs.ext.junit
+    androidTestImplementation libs.espresso.core
+}

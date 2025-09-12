@@ -278,16 +278,10 @@ public class FragmentTestConditions extends Fragment {
             mimeTypeText.setText(mimeType.toString());
 
             Spinner decoderSpinner = new Spinner(getContext());
-            List<String> decoderNames = new ArrayList<>();
-            // Add "VCAT SW Decoder" only for av01 if extension-av1-release.aar is present
-            if (mimeType.toString().equalsIgnoreCase("video/av01") && BuildConfig.HAS_LIDAV1D_EXTENSION) {
-                decoderNames.add("VCAT SW Decoder");
-            }
 
-            for (MediaCodecInfo info : codecInfos) {
-                decoderNames.add(info.name);
-            }
-            ArrayAdapter<String> decoderAdapter = new ArrayAdapter<>(getContext(), android.R.layout.simple_spinner_item, decoderNames);
+            VideoDecoderEnumerator.DecoderSet decoders = VideoDecoderEnumerator.getDecodersForMimeType(mimeType);
+
+            ArrayAdapter<String> decoderAdapter = new ArrayAdapter<>(getContext(), android.R.layout.simple_spinner_item, decoders.decoders);
             decoderAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
             decoderSpinner.setAdapter(decoderAdapter);
 
@@ -304,11 +298,7 @@ public class FragmentTestConditions extends Fragment {
                 @Override
                 public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
                     String selectedItem = (String) parent.getItemAtPosition(position);
-                    if (position == 0) {
-                        runConfig.decoderCfg.removeDecoder(mimeType);
-                    } else {
-                        runConfig.decoderCfg.setDecoder(mimeType, selectedItem);
-                    }
+                    runConfig.decoderCfg.setDecoder(mimeType, selectedItem);
                 }
                 @Override public void onNothingSelected(AdapterView<?> parent) {}
             });

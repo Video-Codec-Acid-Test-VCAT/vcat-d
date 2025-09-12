@@ -24,3 +24,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "vcat"
 include ':app'
+include ':extension-dav1d'

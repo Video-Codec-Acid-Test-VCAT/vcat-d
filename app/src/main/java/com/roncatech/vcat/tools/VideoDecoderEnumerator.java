@@ -5,6 +5,8 @@ import android.media.MediaCodec;
 
 import androidx.annotation.NonNull;
 
+import com.google.android.exoplayer2.mediacodec.MediaCodecUtil;
+
 import org.jetbrains.annotations.Contract;
 
 import java.util.ArrayList;
@@ -65,22 +67,22 @@ public class VideoDecoderEnumerator {
     }
 
     public static DecoderSet getDecodersForMimeType(MimeType mimeType){
-        MediaCodecList codecList = new MediaCodecList(MediaCodecList.ALL_CODECS);
-        MediaCodecInfo[] codecInfos = codecList.getCodecInfos();
+
+        List<com.google.android.exoplayer2.mediacodec.MediaCodecInfo> codecInfos;
+        try {
+            codecInfos = MediaCodecUtil.getDecoderInfos(mimeType.toString(), false, false);
+        } catch (MediaCodecUtil.DecoderQueryException e) {
+            codecInfos = new ArrayList<>();
+        }
 
         List<String> decoders = new ArrayList<>();
 
-        for (MediaCodecInfo codecInfo : codecInfos) {
-            if (!codecInfo.isEncoder()) { // Only list decoders
-                try {
-                    MediaCodecInfo.CodecCapabilities capabilities = codecInfo.getCapabilitiesForType(mimeType.toString());
-                    if (capabilities != null) {
-                        decoders.add(codecInfo.getName());
-                    }
-                } catch (IllegalArgumentException ignored) {
-                    // Codec does not support this MIME type
-                }
-            }
+        if(mimeType == MimeType.AV1){
+            decoders.add("vcat.dav1d");
+        }
+
+        for (com.google.android.exoplayer2.mediacodec.MediaCodecInfo codecInfo : codecInfos) {
+            decoders.add(codecInfo.name);
         }
 
         return new DecoderSet(mimeType, decoders);

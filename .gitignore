@@ -47,3 +47,5 @@ app/release/
 
 # --- temp lib folder for decoder
 libs/
+
+extension-dav1d/src/main/cpp/third_party/

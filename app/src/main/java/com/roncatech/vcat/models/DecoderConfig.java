@@ -1,11 +1,15 @@
 package com.roncatech.vcat.models;
 
+import android.util.Log;
+
+import com.google.android.exoplayer2.util.MimeTypes;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 
 import com.roncatech.vcat.BuildConfig;
 import com.roncatech.vcat.tools.VideoDecoderEnumerator;
 
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
@@ -41,9 +45,24 @@ public class DecoderConfig {
         if(decoderConfig.containsKey(mimeType)) {
             return decoderConfig.get(mimeType);
         }
-        if(mimeType == VideoDecoderEnumerator.MimeType.AV1 && BuildConfig.HAS_LIDAV1D_EXTENSION) {
-            return "dav1d";
+
+        return "";
+    }
+
+    public String getDecoder(String mimeType){
+        switch (mimeType) {
+            case MimeTypes.VIDEO_H264:
+                return getDecoder(VideoDecoderEnumerator.MimeType.H264);
+            case MimeTypes.VIDEO_H265:
+                return getDecoder(VideoDecoderEnumerator.MimeType.H265);
+            case MimeTypes.VIDEO_AV1:
+                return getDecoder(VideoDecoderEnumerator.MimeType.AV1);
+            case MimeTypes.VIDEO_VP9:
+                return getDecoder(VideoDecoderEnumerator.MimeType.VP9);
+            case "video/vvc":
+                return getDecoder(VideoDecoderEnumerator.MimeType.VVC);
         }
+
         return "";
     }
 
