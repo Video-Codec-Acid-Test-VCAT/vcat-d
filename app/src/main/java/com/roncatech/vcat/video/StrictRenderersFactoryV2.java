@@ -72,16 +72,7 @@ public final class StrictRenderersFactoryV2 extends DefaultRenderersFactory {
     )  {
 
         String av1Decoder = viewModel.getRunConfig().decoderCfg.getDecoder(VideoDecoderEnumerator.MimeType.AV1);
-        // Always add MediaCodec renderer for fallback/default
-        out.add(new MediaCodecVideoRenderer(
-                context,
-                customSelector,
-                allowedVideoJoiningTimeMs,
-                enableDecoderFallback,
-                eventHandler,
-                eventListener,
-                MAX_DROPPED_VIDEO_FRAME_COUNT_TO_NOTIFY
-        ));
+
 
         // Conditionally add Libdav1d renderer only for AV1 and if libdav1d is desired
         if ("vcat.dav1d".equalsIgnoreCase(av1Decoder)) {
@@ -95,9 +86,21 @@ public final class StrictRenderersFactoryV2 extends DefaultRenderersFactory {
                     throw new IllegalStateException("Selected AV1 decoder not available for vcat.dav1d");
                 }
                 out.add(provider.build(allowedVideoJoiningTimeMs, eventHandler, eventListener));
+                return;
             } catch (Exception e) {
                 Log.w("RenderersFactory", "Libdav1dVideoRenderer not available: " + e.getMessage());
             }
         }
+
+        // Always add MediaCodec renderer for fallback/default
+        out.add(new MediaCodecVideoRenderer(
+                context,
+                customSelector,
+                allowedVideoJoiningTimeMs,
+                enableDecoderFallback,
+                eventHandler,
+                eventListener,
+                MAX_DROPPED_VIDEO_FRAME_COUNT_TO_NOTIFY
+        ));
     }
 }

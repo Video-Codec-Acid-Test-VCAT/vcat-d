@@ -1,6 +1,7 @@
 package com.roncatech.extension_dav1d;
 
 import android.os.Handler;
+import android.util.Log;
 import android.view.Surface;
 
 import com.google.android.exoplayer2.C;
@@ -17,6 +18,8 @@ import com.google.android.exoplayer2.video.DecoderVideoRenderer;
 import com.google.android.exoplayer2.video.VideoRendererEventListener;
 
 public final class Dav1dVideoRenderer extends DecoderVideoRenderer {
+
+    private final static String TAG = "Dav1dVideoRenderer";
 
     private static final int MAX_DROPPED_FRAMES_TO_NOTIFY = 50;
 
@@ -72,9 +75,13 @@ public final class Dav1dVideoRenderer extends DecoderVideoRenderer {
     }
     @Override
     protected void setDecoderOutputMode(int outputMode) {
+
+        Log.d(TAG,"setDecoderOutputMode="+outputMode);
+
         switch (outputMode) {
             case com.google.android.exoplayer2.C.VIDEO_OUTPUT_MODE_YUV:
             case com.google.android.exoplayer2.C.VIDEO_OUTPUT_MODE_SURFACE_YUV:
+            case C.VIDEO_OUTPUT_MODE_NONE:
                 // dav1d always outputs YUV planes. If your Dav1dDecoder exposes setOutputMode(),
                 // set it to YUV; otherwise you can ignore this call.
                 // example: decoder.setOutputMode(com.google.android.exoplayer2.C.VIDEO_OUTPUT_MODE_YUV);

@@ -15,15 +15,13 @@ android {
         applicationId "com.roncatech.vcat"
         minSdk 30
         targetSdk 35
-        versionCode 59
-        versionName "0.2.0.29"
+        versionCode 60
+        versionName "0.2.0.30"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField "String", "VERSION_NAME", "\"${versionName}\""
         buildConfigField "int", "VERSION_CODE", "${versionCode}"
         buildConfigField "String", "BUILD_TIME", "\"${new Date().format("yyyy-MM-dd HH:mm:ss")}\""
-        buildConfigField "boolean", "HAS_LIDAV1D_EXTENSION", "${av1Aar.exists()}"
-        println "Setting BuildConfig.HAS_LIDAV1D_EXTENSION to ${av1Aar.exists()}"
     }
 
     buildTypes {
@@ -80,9 +78,4 @@ dependencies {
     testImplementation "org.robolectric:robolectric:4.11.1"
     // OkHttp dependency
     implementation 'com.squareup.okhttp3:okhttp:4.9.1'
-    if (av1Aar.exists()) {
-        implementation files("$rootDir/libs/extension-av1-release.aar")   // covers all variants
-    } else {
-        println "extension-av1-release.aar not found in libs/"
-    }
 }

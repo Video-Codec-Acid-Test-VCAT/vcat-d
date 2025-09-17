@@ -19,6 +19,8 @@ import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
+import com.google.android.exoplayer2.C;
+import com.google.android.exoplayer2.ExoPlayer;
 import com.google.android.exoplayer2.PlaybackException;
 import com.google.android.exoplayer2.RenderersFactory;
 import com.google.android.exoplayer2.mediacodec.MediaCodecRenderer;
@@ -57,7 +59,7 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
     private static final String TAG = "FullScreenPlayerActivity";
 
     private SharedViewModel viewModel;
-    private SimpleExoPlayer exoPlayer;
+    private ExoPlayer exoPlayer;
 
     private PlayerView playerView;
     LinearLayout buttonRow;
@@ -277,6 +279,7 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
 
             @Override
             public void onVideoSizeChanged(VideoSize videoSize) {
+                Log.i(TAG, "Video size Changed" + videoSize.width + "x" + videoSize.height);
                 if (!orientationCommittedForClip && hasValidVideoSize(videoSize)) {
                     maybeApplyOrientationForClip(mode, videoSize);
                 }
@@ -315,6 +318,7 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
                 FullScreenPlayerActivity.this.curDecoder = decoderName;
             }
         };
+
     }
 
 
@@ -393,10 +397,11 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
         final RunConfig.VideoOrientation mode = viewModel.getRunConfig().videoOrientation;
 
         // Keep a handle to the old player so we can release it after swap
-        SimpleExoPlayer old = exoPlayer;
+        ExoPlayer old = exoPlayer;
 
         // Build a new player using your existing RenderersFactory (dav1d, etc.)
-        SimpleExoPlayer newPlayer = new SimpleExoPlayer.Builder(this, renderersFactory).build();
+        ExoPlayer newPlayer = new ExoPlayer.Builder(this, renderersFactory).setVideoChangeFrameRateStrategy(
+                C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_OFF).build();
         newPlayer.setRepeatMode(Player.REPEAT_MODE_OFF);
 
         // Wire listeners you already use
@@ -453,9 +458,17 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
         if (hasFocus) hideSystemUi();
     }
 
+    @Override protected void onStart() {
+        super.onStart();
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+    }
+
     @Override
     protected void onStop() {
         super.onStop();
+
+        super.onStop();
+        getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 
         // restore screen brightness if set
         if(this.originalWindowBrightness > 0){

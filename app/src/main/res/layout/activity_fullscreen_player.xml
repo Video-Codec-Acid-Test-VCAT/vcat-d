@@ -17,7 +17,7 @@
         app:show_timeout="3000"
         app:hide_on_touch="true"
         app:resize_mode="fit"
-        app:surface_type="texture_view" />
+        app:surface_type="surface_view" />
 
     <!-- FULLSCREEN OVERLAY SIBLING (always above video) -->
     <TextView
