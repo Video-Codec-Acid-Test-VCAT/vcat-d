@@ -9,6 +9,7 @@ import com.roncatech.vcat.tools.UriUtils;
 
 import java.net.URI;
 import java.time.Instant;
+import java.util.Locale;
 
 public class TestStatus {
     public static final CurrentTestVideo emptyTestVideo = new CurrentTestVideo();
@@ -50,6 +51,23 @@ public class TestStatus {
     public long getStartTimeAsEpoch(){
         Instant instant = Instant.parse(this.startTime);
         return instant.toEpochMilli();
+    }
+
+
+    public String getElapsedSinceStartHms() {
+        long startEpoch = getStartTimeAsEpoch(); // ms or s?
+        // Normalize to ms if the start time looks like seconds since epoch
+        if (startEpoch < 1_000_000_000_000L) startEpoch *= 1000L;
+
+        long nowMs = System.currentTimeMillis();
+        long elapsedMs = Math.max(0L, nowMs - startEpoch);
+
+        long totalSec = elapsedMs / 1000L;
+        long hours    = totalSec / 3600L;
+        long minutes  = (totalSec % 3600L) / 60L;
+        long seconds  = totalSec % 60L;
+
+        return String.format(Locale.US, "%02d:%02d:%02d", hours, minutes, seconds);
     }
 
 

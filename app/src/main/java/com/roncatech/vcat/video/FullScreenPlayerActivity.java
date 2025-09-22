@@ -671,7 +671,10 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
                             "Codec: %s\n" +
                             "Decoder: %s\n" +
                             "Framerate: %.2f fps\n"+
-                            "Battery Level: %d%%",
+                            "Display: %d%%\n" +
+                            "Run Mode: %s\n" +
+                            "Battery Level: %d%%\n"+
+                            "Run Duration: %s",
                     UriUtils.fileNameFromURI(vi.fileName),
                     vi.width,
                     vi.height,
@@ -680,7 +683,10 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
                     vi.codec,
                     vi.decoderName,
                     vi.fps,
-                    (int) BatteryInfo.getBatteryLevel(this)
+                    this.viewModel.getRunConfig().screenBrightness,
+                    this.viewModel.getRunConfig().runModeStr(),
+                    (int) BatteryInfo.getBatteryLevel(this),
+                    this.viewModel.curTestDetails.getElapsedSinceStartHms()
             ));
         }
     }

@@ -42,6 +42,18 @@ public class RunConfig {
     public RunMode runMode;
     public int runLimit; // battery %or total minutes
 
+    public String runModeStr(){
+        switch (runMode){
+            case ONCE:
+                return "Run Once";
+            case BATTERY:
+                return String.format("Until Battery <= %d%%", this.runLimit);
+            case TIME:
+                return String.format("Run for %d minutes", this.runLimit);
+        }
+        return "Run mode undefined";
+    }
+
     public DecoderConfig decoderCfg = new DecoderConfig();
 
     public static final int defaultBattery = 15;
