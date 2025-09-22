@@ -81,7 +81,7 @@
             android:text="@string/url_ittiam"
             android:autoLink="web"
             android:textColor="@android:color/holo_blue_dark"
-            android:layout_marginTop="4dp" />n
+            android:layout_marginTop="4dp" />
 
     </LinearLayout>
 </ScrollView>

@@ -1,7 +1,8 @@
 // extension-dav1d/src/main/cpp/dav1d_jni.cc
 //
 // Minimal JNI bridge for dav1d with a scalar I420 -> RGBA converter.
-// Fixes the blue shift by writing RGBA (R,G,B,A) into WINDOW_FORMAT_RGBA_8888 buffers.
+// Writes RGBA (R,G,B,A) into WINDOW_FORMAT_RGBA_8888 buffers and surfaces
+// fatal decoder errors to Java to avoid sticky stalls.
 
 #include <jni.h>
 #include <android/log.h>
@@ -12,6 +13,8 @@
 #include <cstdlib>
 #include <cstring>
 #include <deque>
+#include <algorithm>
+#include <errno.h>
 
 extern "C" {
 #include "dav1d/dav1d.h"
@@ -25,31 +28,42 @@ extern "C" {
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO , LOG_TAG, __VA_ARGS__)
 #define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG, __VA_ARGS__)
 
-/**
- * Extract version components from the value returned by
- * dav1d_version_int()
- */
+/** dav1d_version_int() helpers */
 #define DAV1D_API_MAJOR(v) (((v) >> 16) & 0xFF)
 #define DAV1D_API_MINOR(v) (((v) >>  8) & 0xFF)
 #define DAV1D_API_PATCH(v) (((v) >>  0) & 0xFF)
 
-// Android YUV format. See:
-// https://developer.android.com/reference/android/graphics/ImageFormat.html#YV12.
-const int kImageFormatYV12 = 0x32315659;
+static constexpr size_t kMaxPendingPackets = 16; // capacity guard (tune as needed)
 
-constexpr int AlignTo16(int value) { return (value + 15) & (~15); }
+struct InputNode {
+    Dav1dData data;        // dav1d takes ownership when dav1d_send_data == 0
+    int64_t pts_us = -1;
+    InputNode() = default;
+    InputNode(const InputNode&) = delete;
+    InputNode& operator=(const InputNode&) = delete;
+};
 
-void CopyPlane(const uint8_t* source, int source_stride, uint8_t* destination,
-               int destination_stride, int width, int height) {
-    while (height--) {
-        std::memcpy(destination, source, width);
-        //std::memset(destination, 0, width);
-        source += source_stride;
-        destination += destination_stride;
-    }
-}
+struct NativeCtx {
+    Dav1dContext* c = nullptr;
+    std::deque<InputNode*> pending;
 
-// --------------------------- Helpers ---------------------------
+    // Counters/telemetry
+    uint32_t pkts_in_total = 0;
+    uint32_t pkts_send_ok = 0;
+    uint32_t pkts_send_eagain = 0;
+    uint32_t pkts_send_err = 0;
+    uint32_t pics_out = 0;
+    uint32_t pics_eagain = 0;
+    uint32_t dropped_at_flush = 0;
+
+    int64_t last_in_pts  = -1;  // us
+    int64_t last_out_pts = -1;  // us
+
+    // Simple stats
+    int num_frames_decoded   = 0; // accepted by dav1d_send_data
+    int num_frames_displayed = 0; // nativeRenderToSurface posted
+    int num_frames_not_decoded = 0; // dropped before send
+};
 
 static inline uint8_t clamp8(int v) {
     if (v < 0) return 0;
@@ -57,12 +71,12 @@ static inline uint8_t clamp8(int v) {
     return static_cast<uint8_t>(v);
 }
 
-// Simple (not optimized) I420 → RGBA8888 (writes R,G,B,A)
+// I420 → RGBA8888 (writes R,G,B,A)
 static void I420ToRGBA8888(
         uint8_t* dst, int dstStridePixels, // stride in pixels
         const uint8_t* y, int yStride,
         const uint8_t* u, const uint8_t* v, int uvStride,
-        int w, int h, int bpc /*8 or 10/12/16*/) {
+        int w, int h, int bpc) {
 
     const int dstStrideBytes = dstStridePixels * 4;
 
@@ -76,15 +90,11 @@ static void I420ToRGBA8888(
                 int Y = int(yrow[i]) - 16; if (Y < 0) Y = 0;
                 int U = int(urow[i >> 1]) - 128;
                 int V = int(vrow[i >> 1]) - 128;
-
-                // BT.601-ish coefficients (good enough for now)
                 int C = 298 * Y;
                 int R = (C + 409 * V + 128) >> 8;
                 int G = (C - 100 * U - 208 * V + 128) >> 8;
                 int B = (C + 516 * U + 128) >> 8;
-
                 uint8_t* px = drow + i * 4;
-                // WRITE RGBA (fixes previous BGR swap)
                 px[0] = clamp8(R);
                 px[1] = clamp8(G);
                 px[2] = clamp8(B);
@@ -94,7 +104,7 @@ static void I420ToRGBA8888(
         return;
     }
 
-    // Fallback for >8bpc: downshift to 8-bit then same math.
+    // >8bpc fallback: downshift to 8-bit then same math
     const int shift = (bpc >= 10) ? (bpc - 8) : 0;
     for (int j = 0; j < h; ++j) {
         uint8_t* drow = dst + j * dstStrideBytes;
@@ -105,12 +115,10 @@ static void I420ToRGBA8888(
             int Y = (int(yrow[i]) >> shift) - 16; if (Y < 0) Y = 0;
             int U = (int(urow[i >> 1]) >> shift) - 128;
             int V = (int(vrow[i >> 1]) >> shift) - 128;
-
             int C = 298 * Y;
             int R = (C + 409 * V + 128) >> 8;
             int G = (C - 100 * U - 208 * V + 128) >> 8;
             int B = (C + 516 * U + 128) >> 8;
-
             uint8_t* px = drow + i * 4;
             px[0] = clamp8(R);
             px[1] = clamp8(G);
@@ -120,20 +128,11 @@ static void I420ToRGBA8888(
     }
 }
 
-// --------------------------- Native state ---------------------------
-
-struct InputNode {
-    Dav1dData data; // owns its buffer via dav1d_data_create()
-};
-
 struct PictureHolder {
     Dav1dPicture pic; // must be unref'd with dav1d_picture_unref()
 };
 
-struct NativeCtx {
-    Dav1dContext* c = nullptr;
-    std::deque<InputNode*> pending; // queue of inputs not yet accepted by dav1d
-};
+// ------------------- Pending queue helpers -------------------
 
 static void release_all_pending(NativeCtx* ctx) {
     while (!ctx->pending.empty()) {
@@ -141,6 +140,7 @@ static void release_all_pending(NativeCtx* ctx) {
         ctx->pending.pop_front();
         dav1d_data_unref(&n->data);
         delete n;
+        ctx->num_frames_not_decoded++;
     }
 }
 
@@ -149,16 +149,18 @@ static void flush_pending_to_decoder(NativeCtx* ctx) {
         InputNode* n = ctx->pending.front();
         int rc = dav1d_send_data(ctx->c, &n->data);
         if (rc == 0) {
-            // dav1d now owns the buffer; do NOT unref here.
-            ctx->pending.pop_front();
-            delete n;
+            ctx->pkts_send_ok++;
+            ctx->num_frames_decoded++;
+            ctx->last_in_pts = n->data.m.timestamp;
+            ctx->pending.pop_front();     // dav1d now owns the data
+            delete n;                     // do not dav1d_data_unref here
         } else if (rc == -EAGAIN) {
-            // Decoder wants us to drain pictures first.
-            break;
+            ctx->pkts_send_eagain++;
+            break; // need to drain pictures first
         } else {
+            ctx->pkts_send_err++;
             LOGE("dav1d_send_data fatal: %d (dropping packet)", rc);
-            // Drop: free our buffer.
-            dav1d_data_unref(&n->data);
+            dav1d_data_unref(&n->data);   // drop & free
             ctx->pending.pop_front();
             delete n;
         }
@@ -174,7 +176,7 @@ Java_com_roncatech_extension_1dav1d_NativeDav1d_nativeCreate(
 
     Dav1dSettings s;
     dav1d_default_settings(&s);
-    s.n_threads = frameThreads > 0 ? frameThreads : 1;
+    s.n_threads = (frameThreads > 0) ? frameThreads : 1;
 
     int rc = dav1d_open(&ctx->c, &s);
     if (rc != 0) {
@@ -191,6 +193,7 @@ Java_com_roncatech_extension_1dav1d_NativeDav1d_nativeFlush(
         JNIEnv* /*env*/, jclass /*clazz*/, jlong handle) {
     auto* ctx = reinterpret_cast<NativeCtx*>(handle);
     if (!ctx) return;
+    ctx->dropped_at_flush += static_cast<uint32_t>(ctx->pending.size());
     release_all_pending(ctx);
     dav1d_flush(ctx->c);
 }
@@ -205,6 +208,9 @@ Java_com_roncatech_extension_1dav1d_NativeDav1d_nativeClose(
         dav1d_close(&ctx->c);
         ctx->c = nullptr;
     }
+    LOGD("CLOSE stats: decoded=%d displayed=%d not_decoded=%d send_ok=%u eagain=%u err=%u pics_out=%u dropped_at_flush=%u",
+         ctx->num_frames_decoded, ctx->num_frames_displayed, ctx->num_frames_not_decoded,
+         ctx->pkts_send_ok, ctx->pkts_send_eagain, ctx->pkts_send_err, ctx->pics_out, ctx->dropped_at_flush);
     delete ctx;
 }
 
@@ -213,31 +219,46 @@ Java_com_roncatech_extension_1dav1d_NativeDav1d_nativeQueueInput(
         JNIEnv* env, jclass /*clazz*/, jlong handle,
         jobject byteBuffer, jint offset, jint size, jlong ptsUs) {
     auto* ctx = reinterpret_cast<NativeCtx*>(handle);
-    if (!ctx || !ctx->c || !byteBuffer || size <= 0) return -22; // EINVAL
+    if (!ctx || !ctx->c || !byteBuffer || size <= 0) return -EINVAL;
+
+    // Capacity guard (soft); Java will usually check nativeHasCapacity first.
+    if (ctx->pending.size() >= kMaxPendingPackets) {
+        return -EAGAIN;
+    }
 
     uint8_t* src = static_cast<uint8_t*>(env->GetDirectBufferAddress(byteBuffer));
     if (!src) {
         LOGE("Input buffer is not a direct ByteBuffer");
-        return -22;
+        return -EINVAL;
     }
     src += offset;
 
     auto* node = new InputNode();
-
-    // dav1d allocates and returns a writable pointer.
     uint8_t* dst = dav1d_data_create(&node->data, static_cast<size_t>(size));
     if (!dst) {
         LOGE("dav1d_data_create returned null");
         delete node;
-        return -12; // -ENOMEM
+        return -ENOMEM;
     }
 
     std::memcpy(dst, src, static_cast<size_t>(size));
     node->data.m.timestamp = static_cast<int64_t>(ptsUs);
+    node->pts_us = static_cast<int64_t>(ptsUs);
 
+    ctx->pkts_in_total++;
     ctx->pending.push_back(node);
+
+    // Try to feed immediately (non-blocking)
     flush_pending_to_decoder(ctx);
     return 0;
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_roncatech_extension_1dav1d_NativeDav1d_nativeHasCapacity(
+        JNIEnv* /*env*/, jclass /*clazz*/, jlong handle) {
+    auto* ctx = reinterpret_cast<NativeCtx*>(handle);
+    if (!ctx || !ctx->c) return JNI_FALSE;
+    return (ctx->pending.size() < kMaxPendingPackets) ? JNI_TRUE : JNI_FALSE;
 }
 
 extern "C" JNIEXPORT jlong JNICALL
@@ -247,128 +268,122 @@ Java_com_roncatech_extension_1dav1d_NativeDav1d_nativeDequeueFrame(
     auto* ctx = reinterpret_cast<NativeCtx*>(handle);
     if (!ctx || !ctx->c) return 0;
 
-    // Try to feed any pending packets first (handles prior EAGAIN).
+    // Always attempt to feed pending before draining pictures.
     flush_pending_to_decoder(ctx);
 
     Dav1dPicture pic;
     std::memset(&pic, 0, sizeof(pic));
     int rc = dav1d_get_picture(ctx->c, &pic);
     if (rc == -EAGAIN) {
+        ctx->pics_eagain++;
         return 0; // no frame available yet
     }
     if (rc < 0) {
+        // *** Propagate fatal to Java via sentinel ***
         LOGE("dav1d_get_picture failed: %d", rc);
-        return 0;
+        if (outWH && env->GetArrayLength(outWH) >= 2) {
+            jint wh_err[2] = { -1, rc }; // wh[0] == -1 => fatal; wh[1] carries rc
+            env->SetIntArrayRegion(outWH, 0, 2, wh_err);
+        }
+        return 0; // handle==0 but flagged fatal through outWH
     }
 
-    // Prepare holder to hand ownership to Java side.
+    // Success
     auto* hold = new PictureHolder();
-    hold->pic = pic; // shallow copy; we now own this reference
+    hold->pic = pic; // we now own this reference
 
-    // Fill outs
-    jint wh[2];
-    wh[0] = static_cast<jint>(pic.p.w);
-    wh[1] = static_cast<jint>(pic.p.h);
+    jint wh[2] = { static_cast<jint>(pic.p.w), static_cast<jint>(pic.p.h) };
     env->SetIntArrayRegion(outWH, 0, 2, wh);
 
-    jlong pts[1];
-    pts[0] = static_cast<jlong>(pic.m.timestamp);
+    jlong pts[1] = { static_cast<jlong>(pic.m.timestamp) };
     env->SetLongArrayRegion(outPtsUs, 0, 1, pts);
+
+    ctx->pics_out++;
+    ctx->last_out_pts = pic.m.timestamp;
 
     return reinterpret_cast<jlong>(hold);
 }
 
+static inline int alignTo16(int v){ return (v + 15) & ~15; }
+
+static inline void copyPlanePad(const uint8_t* src, int srcStrideBytes,
+                                uint8_t* dst, int dstStrideBytes,
+                                int rowBytes, int rows) {
+    for (int j = 0; j < rows; ++j) {
+        memcpy(dst + j*dstStrideBytes, src + j*srcStrideBytes, rowBytes);
+        if (dstStrideBytes > rowBytes) {
+            memset(dst + j*dstStrideBytes + rowBytes, 0, dstStrideBytes - rowBytes);
+        }
+    }
+}
+
 extern "C" JNIEXPORT jint JNICALL
 Java_com_roncatech_extension_1dav1d_NativeDav1d_nativeRenderToSurface(
-        JNIEnv* env, jclass /*clazz*/, jlong handle, jlong nativePic, jobject surface) {
-    auto* ctx = reinterpret_cast<NativeCtx*>(handle);
-    auto* hold = reinterpret_cast<PictureHolder*>(nativePic);
-    if (!ctx || !ctx->c || !hold || !surface) return -22;
+        JNIEnv* env, jclass, jlong handle, jlong nativePic, jobject surface) {
 
-    ANativeWindow* win = ANativeWindow_fromSurface(env, surface);
-    if (!win) {
-        LOGE("ANativeWindow_fromSurface failed");
-        return -1;
-    }
+    auto* ctx  = reinterpret_cast<NativeCtx*>(handle);
+    auto* hold = reinterpret_cast<PictureHolder*>(nativePic);
+    if (!ctx || !ctx->c || !hold || !surface) return -EINVAL;
 
     const Dav1dPicture& pic = hold->pic;
     const int w = pic.p.w;
     const int h = pic.p.h;
 
-    // Use YV12 window buffers.
-    ANativeWindow_setBuffersGeometry(win, w, h, kImageFormatYV12);
+    // Only support 8-bit 4:2:0 in this YV12 fast path.
+    if (pic.p.bpc != 8 || pic.p.layout != DAV1D_PIXEL_LAYOUT_I420) {
+        return -ENOSYS;
+    }
+
+    ANativeWindow* win = ANativeWindow_fromSurface(env, surface);
+    if (!win) return -1;
+
+    // Cache geometry (per-process). If you can render to multiple surfaces, move this cache.
+    static int lastW = 0, lastH = 0;
+    if (w != lastW || h != lastH) {
+        const int kYV12 = 0x32315659; // 'YV12' (HAL_PIXEL_FORMAT_YV12)
+#ifdef HAL_PIXEL_FORMAT_YV12
+        ANativeWindow_setBuffersGeometry(win, w, h, HAL_PIXEL_FORMAT_YV12);
+#else
+        ANativeWindow_setBuffersGeometry(win, w, h, kYV12);
+#endif
+        lastW = w; lastH = h;
+    }
 
     ANativeWindow_Buffer buf;
     if (ANativeWindow_lock(win, &buf, nullptr) != 0) {
-        LOGE("ANativeWindow_lock failed");
         ANativeWindow_release(win);
         return -1;
     }
 
-    uint8_t* dst = static_cast<uint8_t*>(buf.bits);
-    const int dstStridePixels = buf.stride; // pixels
+    // Dest strides (bytes). In YV12, Y stride = buf.stride (1B/sample).
+    uint8_t* dstY = static_cast<uint8_t*>(buf.bits);
+    const int dstYStrideBytes  = buf.stride;
+    const int dstUVStrideBytes = alignTo16(dstYStrideBytes >> 1);
 
-    // Source planes/strides
-    const int bpc = pic.p.bpc; // 8 or 10/12
-    const int layout = pic.p.layout; // Dav1dPixelLayout
-    const uint8_t* y = static_cast<const uint8_t*>(pic.data[0]);
-    const uint8_t* u = static_cast<const uint8_t*>(pic.data[1]);
-    const uint8_t* v = static_cast<const uint8_t*>(pic.data[2]);
+    // Dest plane pointers (Y, then V, then U for YV12)
+    uint8_t* dstV = dstY + dstYStrideBytes * h;
+    const int uvH = (h + 1) / 2;
+    const int uvW = (w + 1) / 2;
+    uint8_t* dstU = dstV + dstUVStrideBytes * uvH;
 
-    const int yStride  = static_cast<int>(pic.stride[0]);
-    const int uvStride = static_cast<int>(pic.stride[1]);
+    // Sources
+    const uint8_t* srcY = static_cast<const uint8_t*>(pic.data[0]);
+    const uint8_t* srcU = static_cast<const uint8_t*>(pic.data[1]);
+    const uint8_t* srcV = static_cast<const uint8_t*>(pic.data[2]);
+    const int srcYStride  = static_cast<int>(pic.stride[0]);
+    const int srcUVStride = static_cast<int>(pic.stride[1]);
 
-    // Y plane
-    CopyPlane(y, yStride,
-              dst,
-              dstStridePixels,
-              w,
-              h);
-
-    const int y_plane_size = dstStridePixels * h;
-
-    const int32_t native_window_buffer_uv_height = (h + 1) / 2;
-
-    const int native_window_buffer_uv_stride = AlignTo16(dstStridePixels / 2);
-
-    // V plane
-    // Since the format for ANativeWindow is YV12, V plane is being processed
-    // before U plane.
-    const int v_plane_height = std::min(native_window_buffer_uv_height,
-                                        (h / 2));
-
-    CopyPlane(
-            v, uvStride,
-            dst + y_plane_size,
-            native_window_buffer_uv_stride,
-            w / 2,
-            v_plane_height);
-
-    const int v_plane_size = v_plane_height * native_window_buffer_uv_stride;
-
-    // U plane
-    CopyPlane(u, uvStride,
-              dst +
-              y_plane_size + v_plane_size,
-              native_window_buffer_uv_stride,
-              w / 2,
-              std::min(native_window_buffer_uv_height,
-                       (h / 2)));
-
-#if 0
-    // Implement correct 4:2:0; other layouts fallback to treating as 4:2:0.
-    I420ToRGBA8888(
-            dst, dstStridePixels,
-            y, yStride,
-            u, v, uvStride,
-            w, h, bpc);
-#endif
+    // Copy with padding zeroed
+    copyPlanePad(srcY, srcYStride,  dstY, dstYStrideBytes,  w,   h);
+    copyPlanePad(srcV, srcUVStride, dstV, dstUVStrideBytes, uvW, uvH); // YV12: V first
+    copyPlanePad(srcU, srcUVStride, dstU, dstUVStrideBytes, uvW, uvH);
 
     ANativeWindow_unlockAndPost(win);
     ANativeWindow_release(win);
+
+    ctx->num_frames_displayed++;
     return 0;
 }
-
 extern "C" JNIEXPORT void JNICALL
 Java_com_roncatech_extension_1dav1d_NativeDav1d_nativeReleasePicture(
         JNIEnv* /*env*/, jclass /*clazz*/, jlong /*handle*/, jlong nativePic) {
@@ -379,13 +394,11 @@ Java_com_roncatech_extension_1dav1d_NativeDav1d_nativeReleasePicture(
 }
 
 extern "C" JNIEXPORT jstring JNICALL
-Java_com_roncatech_extension_1dav1d_NativeDav1d_dav1dGetVersion(JNIEnv* env)
-{
+Java_com_roncatech_extension_1dav1d_NativeDav1d_dav1dGetVersion(JNIEnv* env) {
     const unsigned version = dav1d_version_api();
     const int major = DAV1D_API_MAJOR(version);
     const int minor = DAV1D_API_MINOR(version);
     const int patch = DAV1D_API_PATCH(version);
-
     char buffer[32];
     snprintf(buffer, sizeof(buffer), "%d.%d.%d", major, minor, patch);
     return env->NewStringUTF(buffer);

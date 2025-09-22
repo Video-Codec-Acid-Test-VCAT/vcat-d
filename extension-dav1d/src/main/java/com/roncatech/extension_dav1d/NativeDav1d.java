@@ -20,6 +20,9 @@ public final class NativeDav1d {
     // Destroys the decoder context and frees resources.
     public static native void nativeClose(long ctx);
 
+    static native boolean nativeHasCapacity(long ctx);
+    static native void    nativeSignalEof(long ctx);
+
     // Queues one compressed sample (direct ByteBuffer required).
     // Returns 0 on success; negative errno on error (e.g. -22 for EINVAL).
     public static native int nativeQueueInput(

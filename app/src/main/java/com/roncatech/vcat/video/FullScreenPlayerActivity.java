@@ -10,6 +10,7 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.util.Log;
 import android.view.Gravity;
 import android.view.View;
@@ -23,6 +24,8 @@ import com.google.android.exoplayer2.C;
 import com.google.android.exoplayer2.ExoPlayer;
 import com.google.android.exoplayer2.PlaybackException;
 import com.google.android.exoplayer2.RenderersFactory;
+import com.google.android.exoplayer2.decoder.DecoderCounters;
+import com.google.android.exoplayer2.decoder.DecoderReuseEvaluation;
 import com.google.android.exoplayer2.mediacodec.MediaCodecRenderer;
 import com.google.android.exoplayer2.ui.PlayerControlView;
 
@@ -70,6 +73,7 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
 
     private TelemetryLogger tl;
 
+    @Nullable private DecoderCounters videoCounters = null;
     private AnalyticsListener analyticsListener;
 
     private Player.Listener playbackStateListener;
@@ -92,6 +96,45 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
     private float originalWindowBrightness = -1;
 
     private boolean orientationCommittedForClip = false;
+
+    private static String stateName(int s) {
+        switch (s) {
+            case Player.STATE_IDLE: return "IDLE";
+            case Player.STATE_BUFFERING: return "BUFFERING";
+            case Player.STATE_READY: return "READY";
+            case Player.STATE_ENDED: return "ENDED";
+            default: return "UNKNOWN(" + s + ")";
+        }
+    }
+
+    private final Handler hb = new Handler(Looper.getMainLooper());
+    private long lastPos = -1, lastBeatUptime = 0;
+    private final Runnable heartbeat = new Runnable() {
+        @Override public void run() {
+            if (exoPlayer != null) {
+                long pos = exoPlayer.getCurrentPosition();
+                int state = exoPlayer.getPlaybackState();
+                boolean playing = exoPlayer.getPlayWhenReady() && state == Player.STATE_READY;
+
+                // poll counters if we have them
+                if (videoCounters != null) {
+                    videoCounters.ensureUpdated();
+                    Log.d(TAG, "COUNTERS rendered=" + videoCounters.renderedOutputBufferCount
+                            + " dropped=" + videoCounters.droppedBufferCount
+                            + " skipped=" + videoCounters.skippedOutputBufferCount);
+                }
+
+                long dPos = (lastPos < 0) ? 0 : (pos - lastPos);
+                Log.d(TAG, "HB state=" + stateName(state) + " pos=" + pos + "ms Δpos=" + dPos + "ms");
+                if (playing && lastPos >= 0 && dPos < 5 && (SystemClock.uptimeMillis() - lastBeatUptime) > 1500) {
+                    Log.w(TAG, "HB STALL: READY+playing but position not advancing");
+                }
+                lastPos = pos;
+                lastBeatUptime = SystemClock.uptimeMillis();
+            }
+            hb.postDelayed(this, 1000);
+        }
+    };
 
     private static boolean hasValidVideoSize(@Nullable VideoSize vs) {
         return vs != null && vs.width > 0 && vs.height > 0;
@@ -295,30 +338,75 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
         };
 
         this.analyticsListener = new AnalyticsListener() {
+
+            // ---- High-signal lifecycle / state ----
             @Override
-            public void onDroppedVideoFrames(AnalyticsListener.EventTime eventTime, int droppedFrameCount, long elapsedMs) {
-                // This is the number of frames dropped *since the last callback*,
-                // and elapsedMs is the time window in which that drop occurred.
+            public void onPlaybackStateChanged(EventTime et, int state) {
+                long pos = exoPlayer == null ? -1 : exoPlayer.getCurrentPosition();
+                Log.d(TAG, "state=" + stateName(state) + " pos=" + pos);
+            }
 
-                Log.i(TAG, "Dropped " + droppedFrameCount
-                        + " frames over " + elapsedMs + " ms");
+            @Override
+            public void onIsPlayingChanged(EventTime et, boolean isPlaying) {
+                Log.d(TAG, "isPlaying=" + isPlaying);
+            }
 
+            @Override
+            public void onPlayerError(EventTime et, PlaybackException error) {
+                Log.e(TAG, "playerError code=" + error.errorCode + " pos=" + exoPlayer.getCurrentPosition(), error);
+            }
+
+            // ---- Decoder / format info ----
+            @Override
+            public void onVideoDecoderInitialized(
+                    EventTime et, String decoderName, long initializationDurationMs, long initializationDelayMs) {
+                Log.i(TAG, "Video decoder initialized: " + decoderName
+                        + " initMs=" + initializationDurationMs + " delayMs=" + initializationDelayMs);
+                FullScreenPlayerActivity.this.curDecoder = decoderName;
+            }
+
+            @Override
+            public void onVideoInputFormatChanged(
+                    EventTime et, Format format, @Nullable DecoderReuseEvaluation reuse) {
+                Log.i(TAG, "format " + format.sampleMimeType + " "
+                        + format.width + "x" + format.height + " @" + format.frameRate
+                        + " color=" + format.colorInfo);
+            }
+            @Override
+            public void onVideoEnabled(EventTime et, DecoderCounters counters) {
+                videoCounters = counters;                    // keep reference to poll later
+                Log.d(TAG, "videoEnabled: counters attached");
+            }
+
+            @Override
+            public void onVideoDisabled(EventTime et, DecoderCounters counters) {
+                counters.ensureUpdated();
+                Log.i(TAG, "videoDisabled rendered=" + counters.renderedOutputBufferCount
+                        + " dropped=" + counters.droppedBufferCount
+                        + " skipped=" + counters.skippedOutputBufferCount);
+                videoCounters = null;
+            }
+
+            // ---- First frame / output target ----
+            @Override
+            public void onRenderedFirstFrame(EventTime et, Object output, long renderTimeMs) {
+                String out = (output == null) ? "null" : output.getClass().getSimpleName();
+                Log.i(TAG, "firstFrame output=" + out + " t=" + renderTimeMs + "ms");
+            }
+
+            @Override
+            public void onVideoSizeChanged(EventTime et, VideoSize size) {
+                Log.d(TAG, "videoSize=" + size.width + "x" + size.height
+                        + " pxAspect=" + size.pixelWidthHeightRatio);
+            }
+
+            @Override
+            public void onDroppedVideoFrames(EventTime et, int droppedFrameCount, long elapsedMs) {
+                Log.w(TAG, "Dropped " + droppedFrameCount + " frames in " + elapsedMs + "ms");
                 FullScreenPlayerActivity.this.fd.elapsedMs += elapsedMs;
                 FullScreenPlayerActivity.this.fd.frameDrops += droppedFrameCount;
             }
-
-            @Override
-            public void onVideoDecoderInitialized(
-                    AnalyticsListener.EventTime eventTime,
-                    String decoderName,
-                    long initializationDurationMs,
-                    long initializationDelayMs) {
-                Log.i(TAG, "Video decoder initialized: " + decoderName);
-                // Save or log decoderName as needed
-                FullScreenPlayerActivity.this.curDecoder = decoderName;
-            }
         };
-
     }
 
 
@@ -384,6 +472,18 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
         startClipWithFreshPlayer();
     }
 
+    private static String rendererTypeName(int t) {
+        switch (t) {
+            case com.google.android.exoplayer2.C.TRACK_TYPE_VIDEO: return "VIDEO";
+            case com.google.android.exoplayer2.C.TRACK_TYPE_AUDIO: return "AUDIO";
+            case com.google.android.exoplayer2.C.TRACK_TYPE_TEXT: return "TEXT";
+            case com.google.android.exoplayer2.C.TRACK_TYPE_METADATA: return "METADATA";
+            case com.google.android.exoplayer2.C.TRACK_TYPE_CAMERA_MOTION: return "CAMERA_MOTION";
+            case com.google.android.exoplayer2.C.TRACK_TYPE_NONE: return "NONE";
+            default: return "UNKNOWN(" + t + ")";
+        }
+    }
+
     @Override
     protected void onDestroy() {
         super.onDestroy();
@@ -410,6 +510,9 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
             newPlayer.addAnalyticsListener(this.analyticsListener);
         }
 
+        hb.removeCallbacks(heartbeat);
+        hb.post(heartbeat);
+
         if (mode != RunConfig.VideoOrientation.MATCH_VIDEO) {
             maybeApplyOrientationForClip(mode, /*vs=*/null);
         }
@@ -426,12 +529,21 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
         // Make the new player current
         exoPlayer = newPlayer;
 
+        int videoRenderers = 0;
+        for (int i = 0; i < exoPlayer.getRendererCount(); i++) {
+            int type = exoPlayer.getRendererType(i);
+            Log.d(TAG, "renderer[" + i + "] type=" + rendererTypeName(type));
+            if (type == com.google.android.exoplayer2.C.TRACK_TYPE_VIDEO) videoRenderers++;
+        }
+        Log.d(TAG, "videoRendererCount=" + videoRenderers);
+
         // Release the old one after we've fully switched the view
         if (old != null) {
             // Defensive: clear media & listeners before release
             old.clearMediaItems();
             old.removeListener(this.playbackStateListener);
             if (this.analyticsListener != null) old.removeAnalyticsListener(this.analyticsListener);
+            hb.removeCallbacks(heartbeat);
             old.release();
         }
     }

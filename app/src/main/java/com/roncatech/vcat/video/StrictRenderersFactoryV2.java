@@ -14,6 +14,7 @@ import com.google.android.exoplayer2.mediacodec.MediaCodecInfo;
 import com.google.android.exoplayer2.mediacodec.MediaCodecSelector;
 import com.google.android.exoplayer2.mediacodec.MediaCodecUtil;
 import com.google.android.exoplayer2.util.MimeTypes;
+import com.google.android.exoplayer2.video.DecoderVideoRenderer;
 import com.google.android.exoplayer2.video.MediaCodecVideoRenderer;
 import com.google.android.exoplayer2.video.VideoRendererEventListener;
 import com.roncatech.extension_dav1d.Dav1dAv1Provider;
@@ -31,6 +32,8 @@ public final class StrictRenderersFactoryV2 extends DefaultRenderersFactory {
 
     private final SharedViewModel viewModel;
     private final MediaCodecSelector customSelector;
+
+    @Nullable private DecoderVideoRenderer dav1dRenderer;
 
     public StrictRenderersFactoryV2(Context ctx,
                                     SharedViewModel viewModel) {
@@ -85,7 +88,10 @@ public final class StrictRenderersFactoryV2 extends DefaultRenderersFactory {
                 if (!provider.isAvailable(context)) {
                     throw new IllegalStateException("Selected AV1 decoder not available for vcat.dav1d");
                 }
-                out.add(provider.build(allowedVideoJoiningTimeMs, eventHandler, eventListener));
+                Renderer r = provider.build(allowedVideoJoiningTimeMs, eventHandler, eventListener);
+                out.add(r);
+                if (r instanceof DecoderVideoRenderer) this.dav1dRenderer = (DecoderVideoRenderer) r;
+                android.util.Log.i("RenderersFactory", "Added dav1d-only renderer and returning.");
                 return;
             } catch (Exception e) {
                 Log.w("RenderersFactory", "Libdav1dVideoRenderer not available: " + e.getMessage());

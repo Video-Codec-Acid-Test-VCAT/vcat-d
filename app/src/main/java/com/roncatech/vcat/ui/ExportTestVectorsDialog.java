@@ -1,5 +1,6 @@
 package com.roncatech.vcat.ui;
 
+import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.app.Dialog;
@@ -123,6 +124,7 @@ public class ExportTestVectorsDialog extends DialogFragment {
     }
 
     @Override
+    @SuppressLint("WrongConstant")
     public void onActivityResult(int requestCode, int resultCode, @Nullable Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
         if (requestCode == REQUEST_CODE_PICK_FOLDER && resultCode == Activity.RESULT_OK) {
@@ -131,6 +133,7 @@ public class ExportTestVectorsDialog extends DialogFragment {
 
                 // Persist permissions
                 final int takeFlags = data.getFlags() & (Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+
                 requireContext().getContentResolver().takePersistableUriPermission(treeUri, takeFlags);
 
                 // Convert Uri to a full path (if possible)

@@ -26,6 +26,8 @@ final class Dav1dDecoder
     private long nativeCtx; // 0 when released
     private Format inputFormat;
 
+    private boolean eosSignaled = false;
+
     Dav1dDecoder(int frameThreads, int tileThreads) throws Dav1dDecoderException {
         super(
                 new DecoderInputBuffer[NUM_INPUT_BUFFERS],
@@ -90,56 +92,75 @@ final class Dav1dDecoder
     }
 
     @Override
-    protected Dav1dDecoderException decode(
-            DecoderInputBuffer in, Dav1dOutputBuffer out, boolean reset) {
+    protected Dav1dDecoderException decode(DecoderInputBuffer in, Dav1dOutputBuffer out, boolean reset) {
+        if (nativeCtx == 0) return new Dav1dDecoderException("Decoder released");
+        if (reset) { NativeDav1d.nativeFlush(nativeCtx); eosSignaled = false; }
+        final boolean decodeOnly = in.isDecodeOnly();
 
-        if (nativeCtx == 0) {
-            return new Dav1dDecoderException("Decoder released");
-        }
-
-        if (reset) {
-            NativeDav1d.nativeFlush(nativeCtx);
-        }
-
+        // EOS: signal, try one drain, else EOS flag
         if (in.isEndOfStream()) {
+            NativeDav1d.nativeSignalEof(nativeCtx);
+            eosSignaled = true;
+            int[] wh = new int[2]; long[] pts = new long[1];
+            long h = NativeDav1d.nativeDequeueFrame(nativeCtx, wh, pts);
+            if (wh[0] == -1) return new Dav1dDecoderException("dav1d_get_picture failed: " + wh[1]);
+            if (h != 0) {
+                out.mode=C.VIDEO_OUTPUT_MODE_SURFACE_YUV; out.timeUs=pts[0];
+                out.width=wh[0]; out.height=wh[1]; out.format=inputFormat; out.nativePic=h;
+                if (decodeOnly) out.addFlag(FLAG_DECODE_ONLY);
+                return null;
+            }
             out.addFlag(FLAG_END_OF_STREAM);
             return null;
         }
 
-        if (in.data == null) {
-            return new Dav1dDecoderException("Input buffer has no data");
-        }
+        if (in.data == null) return new Dav1dDecoderException("Input buffer has no data");
 
-        // Queue compressed AV1 sample to native
-        int rc =
-                NativeDav1d.nativeQueueInput(
-                        nativeCtx, in.data, in.data.position(), in.data.remaining(), in.timeUs);
-        if (rc < 0) {
-            return new Dav1dDecoderException("nativeQueueInput failed: " + rc);
-        }
-
-        // Try to dequeue a decoded frame
-        int[]  wh  = new int[2];
-        long[] pts = new long[1];
-        long handle = NativeDav1d.nativeDequeueFrame(nativeCtx, wh, pts);
-        if (handle == 0) {
-            if (in.isDecodeOnly()) {
-                out.addFlag(FLAG_DECODE_ONLY);
+        // If full: try one drain; if none, hold input (back-pressure)
+        if (!NativeDav1d.nativeHasCapacity(nativeCtx)) {
+            int[] wh = new int[2]; long[] pts = new long[1];
+            long h = NativeDav1d.nativeDequeueFrame(nativeCtx, wh, pts);
+            if (wh[0] == -1) return new Dav1dDecoderException("dav1d_get_picture failed: " + wh[1]);
+            if (h != 0) {
+                out.mode=C.VIDEO_OUTPUT_MODE_SURFACE_YUV; out.timeUs=pts[0];
+                out.width=wh[0]; out.height=wh[1]; out.format=inputFormat; out.nativePic=h;
+                if (decodeOnly) out.addFlag(FLAG_DECODE_ONLY);
+                return null;
             }
-            // No frame ready yet
             return null;
         }
 
-        // Populate output for surface rendering
-        out.mode   = C.VIDEO_OUTPUT_MODE_SURFACE_YUV; // DecoderVideoRenderer will call renderOutputBufferToSurface()
-        out.timeUs = pts[0];
-        out.width  = wh[0];
-        out.height = wh[1];
-        out.format = inputFormat;
+        // Enqueue current input
+        int rc = NativeDav1d.nativeQueueInput(nativeCtx, in.data, in.data.position(), in.data.remaining(), in.timeUs);
+        if (rc == -11) { // EAGAIN: needs drain first
+            int[] wh = new int[2]; long[] pts = new long[1];
+            long h = NativeDav1d.nativeDequeueFrame(nativeCtx, wh, pts);
+            if (wh[0] == -1) return new Dav1dDecoderException("dav1d_get_picture failed: " + wh[1]);
+            if (h != 0) {
+                out.mode=C.VIDEO_OUTPUT_MODE_SURFACE_YUV; out.timeUs=pts[0];
+                out.width=wh[0]; out.height=wh[1]; out.format=inputFormat; out.nativePic=h;
+                if (decodeOnly) out.addFlag(FLAG_DECODE_ONLY);
+                return null;
+            }
+            return null;
+        }
+        if (rc != 0) return new Dav1dDecoderException("nativeQueueInput failed: " + rc);
 
-        out.nativePic = handle;
+        // After enqueue, try one non-blocking drain
+        {
+            int[] wh = new int[2]; long[] pts = new long[1];
+            long h = NativeDav1d.nativeDequeueFrame(nativeCtx, wh, pts);
+            if (wh[0] == -1) return new Dav1dDecoderException("dav1d_get_picture failed: " + wh[1]);
+            if (h != 0) {
+                out.mode=C.VIDEO_OUTPUT_MODE_SURFACE_YUV; out.timeUs=pts[0];
+                out.width=wh[0]; out.height=wh[1]; out.format=inputFormat; out.nativePic=h;
+                if (decodeOnly) out.addFlag(FLAG_DECODE_ONLY);
+                return null;
+            }
+        }
         return null;
     }
+
 
     /** Called by the renderer to blit the decoded frame to a Surface. */
     void renderToSurface(Dav1dOutputBuffer out, Surface surface) throws Dav1dDecoderException {
@@ -149,4 +170,5 @@ final class Dav1dDecoder
             throw new Dav1dDecoderException("nativeRenderToSurface failed: " + rc);
         }
     }
+
 }
