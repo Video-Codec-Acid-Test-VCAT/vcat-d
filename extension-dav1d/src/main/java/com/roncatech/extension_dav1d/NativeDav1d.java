@@ -37,13 +37,15 @@ public final class NativeDav1d {
     // Renders a decoded frame to the given Surface (RGBA8888 blit).
     // Returns 0 on success; negative on error.
     public static native int nativeRenderToSurface(
-            long ctx, long nativePic, Surface surface);
+            long ctx, long nativePic);
 
     // Releases a previously dequeued native picture handle.
     public static native void nativeReleasePicture(long ctx, long nativePic);
 
     // Get the dav1d decoder version.
     public static native String dav1dGetVersion();
+
+    public static native void nativeSetSurface(long handle, Surface surface);
 
     private NativeDav1d() {}
 }

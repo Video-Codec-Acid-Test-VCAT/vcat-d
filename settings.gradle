@@ -23,5 +23,5 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "vcat"
-include ':app'
-include ':extension-dav1d'
+include(":app", ":extension-dav1d")
+project(":extension-dav1d").projectDir = file("./extension-dav1d")

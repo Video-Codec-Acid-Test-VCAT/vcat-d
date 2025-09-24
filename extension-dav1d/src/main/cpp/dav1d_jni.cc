@@ -63,70 +63,16 @@ struct NativeCtx {
     int num_frames_decoded   = 0; // accepted by dav1d_send_data
     int num_frames_displayed = 0; // nativeRenderToSurface posted
     int num_frames_not_decoded = 0; // dropped before send
+
+    // --- Cached window & geometry ---
+    ANativeWindow* win = nullptr;     // +1 ref when set, release on unset/destroy
+    int win_w = 0;
+    int win_h = 0;
+    int win_fmt = 0;
+
+    std::mutex win_mtx;
+    bool eos = false;
 };
-
-static inline uint8_t clamp8(int v) {
-    if (v < 0) return 0;
-    if (v > 255) return 255;
-    return static_cast<uint8_t>(v);
-}
-
-// I420 → RGBA8888 (writes R,G,B,A)
-static void I420ToRGBA8888(
-        uint8_t* dst, int dstStridePixels, // stride in pixels
-        const uint8_t* y, int yStride,
-        const uint8_t* u, const uint8_t* v, int uvStride,
-        int w, int h, int bpc) {
-
-    const int dstStrideBytes = dstStridePixels * 4;
-
-    if (bpc == 8) {
-        for (int j = 0; j < h; ++j) {
-            uint8_t* drow = dst + j * dstStrideBytes;
-            const uint8_t* yrow = y + j * yStride;
-            const uint8_t* urow = u + (j >> 1) * uvStride;
-            const uint8_t* vrow = v + (j >> 1) * uvStride;
-            for (int i = 0; i < w; ++i) {
-                int Y = int(yrow[i]) - 16; if (Y < 0) Y = 0;
-                int U = int(urow[i >> 1]) - 128;
-                int V = int(vrow[i >> 1]) - 128;
-                int C = 298 * Y;
-                int R = (C + 409 * V + 128) >> 8;
-                int G = (C - 100 * U - 208 * V + 128) >> 8;
-                int B = (C + 516 * U + 128) >> 8;
-                uint8_t* px = drow + i * 4;
-                px[0] = clamp8(R);
-                px[1] = clamp8(G);
-                px[2] = clamp8(B);
-                px[3] = 255;
-            }
-        }
-        return;
-    }
-
-    // >8bpc fallback: downshift to 8-bit then same math
-    const int shift = (bpc >= 10) ? (bpc - 8) : 0;
-    for (int j = 0; j < h; ++j) {
-        uint8_t* drow = dst + j * dstStrideBytes;
-        const uint16_t* yrow = reinterpret_cast<const uint16_t*>(y + j * yStride);
-        const uint16_t* urow = reinterpret_cast<const uint16_t*>(u + (j >> 1) * uvStride);
-        const uint16_t* vrow = reinterpret_cast<const uint16_t*>(v + (j >> 1) * uvStride);
-        for (int i = 0; i < w; ++i) {
-            int Y = (int(yrow[i]) >> shift) - 16; if (Y < 0) Y = 0;
-            int U = (int(urow[i >> 1]) >> shift) - 128;
-            int V = (int(vrow[i >> 1]) >> shift) - 128;
-            int C = 298 * Y;
-            int R = (C + 409 * V + 128) >> 8;
-            int G = (C - 100 * U - 208 * V + 128) >> 8;
-            int B = (C + 516 * U + 128) >> 8;
-            uint8_t* px = drow + i * 4;
-            px[0] = clamp8(R);
-            px[1] = clamp8(G);
-            px[2] = clamp8(B);
-            px[3] = 255;
-        }
-    }
-}
 
 struct PictureHolder {
     Dav1dPicture pic; // must be unref'd with dav1d_picture_unref()
@@ -304,86 +250,97 @@ Java_com_roncatech_extension_1dav1d_NativeDav1d_nativeDequeueFrame(
     return reinterpret_cast<jlong>(hold);
 }
 
-static inline int alignTo16(int v){ return (v + 15) & ~15; }
+extern "C" JNIEXPORT void JNICALL
+Java_com_roncatech_extension_1dav1d_NativeDav1d_nativeSetSurface(
+        JNIEnv* env, jclass, jlong handle, jobject surface) {
 
-static inline void copyPlanePad(const uint8_t* src, int srcStrideBytes,
-                                uint8_t* dst, int dstStrideBytes,
-                                int rowBytes, int rows) {
-    for (int j = 0; j < rows; ++j) {
-        memcpy(dst + j*dstStrideBytes, src + j*srcStrideBytes, rowBytes);
-        if (dstStrideBytes > rowBytes) {
-            memset(dst + j*dstStrideBytes + rowBytes, 0, dstStrideBytes - rowBytes);
-        }
+    auto* ctx = reinterpret_cast<NativeCtx*>(handle);
+    if (!ctx) return;
+    std::lock_guard<std::mutex> lk(ctx->win_mtx);
+
+    if (ctx->win) {                       // drop old window (if any)
+        ANativeWindow_release(ctx->win);
+        ctx->win = nullptr;
+        ctx->win_w = ctx->win_h = ctx->win_fmt = 0;
+    }
+    if (surface) {
+        ctx->win = ANativeWindow_fromSurface(env, surface); // +1 ref
+        // Optional: declare intended usage
+        // ANativeWindow_setUsage(ctx->win, AHARDWAREBUFFER_USAGE_CPU_WRITE_OFTEN);
+    }
+}
+
+static inline void ensureWindowConfigured(NativeCtx* ctx, int w, int h, int fmt) {
+    if (!ctx->win) return;
+    if (ctx->win_w != w || ctx->win_h != h || ctx->win_fmt != fmt) {
+        // Either split setters or legacy geometry are fine
+        // ANativeWindow_setBuffersDimensions(ctx->win, w, h);
+        // ANativeWindow_setBuffersFormat(ctx->win, fmt);
+        ANativeWindow_setBuffersGeometry(ctx->win, w, h, fmt);
+        ctx->win_w = w; ctx->win_h = h; ctx->win_fmt = fmt;
     }
 }
 
 extern "C" JNIEXPORT jint JNICALL
 Java_com_roncatech_extension_1dav1d_NativeDav1d_nativeRenderToSurface(
-        JNIEnv* env, jclass, jlong handle, jlong nativePic, jobject surface) {
+        JNIEnv*, jclass, jlong handle, jlong nativePic, jobject /*unused*/) {
 
     auto* ctx  = reinterpret_cast<NativeCtx*>(handle);
     auto* hold = reinterpret_cast<PictureHolder*>(nativePic);
-    if (!ctx || !ctx->c || !hold || !surface) return -EINVAL;
+    if (!ctx || !ctx->c || !hold) return -EINVAL;
 
     const Dav1dPicture& pic = hold->pic;
-    const int w = pic.p.w;
-    const int h = pic.p.h;
+    if (pic.p.bpc != 8 || pic.p.layout != DAV1D_PIXEL_LAYOUT_I420) return -ENOSYS;
 
-    // Only support 8-bit 4:2:0 in this YV12 fast path.
-    if (pic.p.bpc != 8 || pic.p.layout != DAV1D_PIXEL_LAYOUT_I420) {
-        return -ENOSYS;
-    }
+    const int w = pic.p.w, h = pic.p.h;
+    const int YV12 = 0x32315659; // 'YV12'
 
-    ANativeWindow* win = ANativeWindow_fromSurface(env, surface);
-    if (!win) return -1;
+    std::lock_guard<std::mutex> lk(ctx->win_mtx);
+    if (!ctx->win) return -ENODEV;
 
-    // Cache geometry (per-process). If you can render to multiple surfaces, move this cache.
-    static int lastW = 0, lastH = 0;
-    if (w != lastW || h != lastH) {
-        const int kYV12 = 0x32315659; // 'YV12' (HAL_PIXEL_FORMAT_YV12)
-#ifdef HAL_PIXEL_FORMAT_YV12
-        ANativeWindow_setBuffersGeometry(win, w, h, HAL_PIXEL_FORMAT_YV12);
-#else
-        ANativeWindow_setBuffersGeometry(win, w, h, kYV12);
-#endif
-        lastW = w; lastH = h;
-    }
+    ensureWindowConfigured(ctx, w, h, YV12);
 
     ANativeWindow_Buffer buf;
-    if (ANativeWindow_lock(win, &buf, nullptr) != 0) {
-        ANativeWindow_release(win);
-        return -1;
-    }
+    if (ANativeWindow_lock(ctx->win, &buf, nullptr) != 0) return -1;
 
-    // Dest strides (bytes). In YV12, Y stride = buf.stride (1B/sample).
-    uint8_t* dstY = static_cast<uint8_t*>(buf.bits);
-    const int dstYStrideBytes  = buf.stride;
-    const int dstUVStrideBytes = alignTo16(dstYStrideBytes >> 1);
+    // Compute dest planes (YV12: Y then V then U)
+    auto* dstY = static_cast<uint8_t*>(buf.bits);
+    const int dstYStride = buf.stride;                 // pixels == bytes for 8-bit Y
+    const int dstUVStride = ((dstYStride >> 1) + 15) & ~15; // align16
+    const int uvW = (w + 1) / 2, uvH = (h + 1) / 2;
+    uint8_t* dstV = dstY + dstYStride * h;
+    uint8_t* dstU = dstV + dstUVStride * uvH;
 
-    // Dest plane pointers (Y, then V, then U for YV12)
-    uint8_t* dstV = dstY + dstYStrideBytes * h;
-    const int uvH = (h + 1) / 2;
-    const int uvW = (w + 1) / 2;
-    uint8_t* dstU = dstV + dstUVStrideBytes * uvH;
+    const uint8_t* srcY = (const uint8_t*)pic.data[0];
+    const uint8_t* srcU = (const uint8_t*)pic.data[1];
+    const uint8_t* srcV = (const uint8_t*)pic.data[2];
+    const int srcYStride  = (int)pic.stride[0];
+    const int srcUVStride = (int)pic.stride[1];
 
-    // Sources
-    const uint8_t* srcY = static_cast<const uint8_t*>(pic.data[0]);
-    const uint8_t* srcU = static_cast<const uint8_t*>(pic.data[1]);
-    const uint8_t* srcV = static_cast<const uint8_t*>(pic.data[2]);
-    const int srcYStride  = static_cast<int>(pic.stride[0]);
-    const int srcUVStride = static_cast<int>(pic.stride[1]);
+    // Tight vs padded copy (skip memset when tight)
+    auto copyPlanePad = [](const uint8_t* s, int ss, uint8_t* d, int ds, int rb, int rows) {
+        if (ds == rb) {
+            for (int j = 0; j < rows; ++j) { memcpy(d, s, rb); s += ss; d += ds; }
+        } else {
+            const int pad = ds - rb;
+            for (int j = 0; j < rows; ++j) {
+                memcpy(d, s, rb);
+                memset(d + rb, 0, pad);
+                s += ss; d += ds;
+            }
+        }
+    };
 
-    // Copy with padding zeroed
-    copyPlanePad(srcY, srcYStride,  dstY, dstYStrideBytes,  w,   h);
-    copyPlanePad(srcV, srcUVStride, dstV, dstUVStrideBytes, uvW, uvH); // YV12: V first
-    copyPlanePad(srcU, srcUVStride, dstU, dstUVStrideBytes, uvW, uvH);
+    copyPlanePad(srcY, srcYStride,  dstY, dstYStride,  w,   h);
+    copyPlanePad(srcV, srcUVStride, dstV, dstUVStride, uvW, uvH); // V first in YV12
+    copyPlanePad(srcU, srcUVStride, dstU, dstUVStride, uvW, uvH);
 
-    ANativeWindow_unlockAndPost(win);
-    ANativeWindow_release(win);
-
+    ANativeWindow_unlockAndPost(ctx->win);
     ctx->num_frames_displayed++;
     return 0;
 }
+
+
 extern "C" JNIEXPORT void JNICALL
 Java_com_roncatech_extension_1dav1d_NativeDav1d_nativeReleasePicture(
         JNIEnv* /*env*/, jclass /*clazz*/, jlong /*handle*/, jlong nativePic) {
@@ -402,4 +359,16 @@ Java_com_roncatech_extension_1dav1d_NativeDav1d_dav1dGetVersion(JNIEnv* env) {
     char buffer[32];
     snprintf(buffer, sizeof(buffer), "%d.%d.%d", major, minor, patch);
     return env->NewStringUTF(buffer);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_roncatech_extension_1dav1d_NativeDav1d_nativeSignalEof(
+        JNIEnv* /*env*/, jclass /*clazz*/, jlong handle) {
+    auto* ctx = reinterpret_cast<NativeCtx*>(handle);
+    if (!ctx || !ctx->c) return;
+
+    // dav1d convention: passing NULL drains (signals end-of-stream)
+    // https://code.videolan.org/videolan/dav1d/-/blob/master/include/dav1d/dav1d.h
+    dav1d_send_data(ctx->c, nullptr);
+    ctx->eos = true;
 }

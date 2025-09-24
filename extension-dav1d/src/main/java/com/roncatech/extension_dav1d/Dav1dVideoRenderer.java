@@ -27,6 +27,7 @@ public final class Dav1dVideoRenderer extends DecoderVideoRenderer {
     private final int tileThreads;
 
     private Dav1dDecoder decoder;
+    private Surface currentSurface;
 
     public Dav1dVideoRenderer(
             long allowedJoiningTimeMs,
@@ -49,6 +50,10 @@ public final class Dav1dVideoRenderer extends DecoderVideoRenderer {
         this.decoder = new Dav1dDecoder(
                 frameThreads,
                 tileThreads);
+
+        if(this.currentSurface != null){
+            this.decoder.setOutputSurface(this.currentSurface);
+        }
         return this.decoder;
     }
 
@@ -59,7 +64,13 @@ public final class Dav1dVideoRenderer extends DecoderVideoRenderer {
             throw new Dav1dDecoderException(
                     "Failed to render output buffer to surface: decoder is not initialized.");
         }
-        decoder.renderToSurface((Dav1dOutputBuffer)outputBuffer, surface);
+        // Only notify native when the Surface actually changes.
+        if (surface != currentSurface) {
+            currentSurface = surface;                  // may be null
+            decoder.setOutputSurface(currentSurface);  // JNI caches/release ANativeWindow
+        }
+
+        decoder.renderToSurface((Dav1dOutputBuffer)outputBuffer);
         outputBuffer.release();
     }
 
@@ -137,6 +148,17 @@ public final class Dav1dVideoRenderer extends DecoderVideoRenderer {
     }
 
 
+    @Override
+    protected void onDisabled() {
+        try {
+            if (decoder != null) {
+                decoder.setOutputSurface(null);
+            }
+            currentSurface = null;
+        } finally {
+            super.onDisabled();
+        }
+    }
 
 
 }

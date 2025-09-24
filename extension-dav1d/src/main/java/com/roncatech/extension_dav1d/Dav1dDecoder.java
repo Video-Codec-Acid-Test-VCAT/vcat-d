@@ -9,6 +9,7 @@ import com.google.android.exoplayer2.decoder.DecoderInputBuffer;
 import com.google.android.exoplayer2.decoder.DecoderOutputBuffer;
 import com.google.android.exoplayer2.decoder.SimpleDecoder;
 import com.google.android.exoplayer2.decoder.VideoDecoderOutputBuffer;
+import androidx.annotation.Nullable;
 
 final class Dav1dDecoder
         extends SimpleDecoder<DecoderInputBuffer, Dav1dOutputBuffer, Dav1dDecoderException> {
@@ -41,6 +42,13 @@ final class Dav1dDecoder
             throw new Dav1dDecoderException("nativeCreate failed");
         }
     }
+
+    // Dav1dDecoder.java (add this)
+    void setOutputSurface(@androidx.annotation.Nullable Surface surface) {
+        if (nativeCtx == 0) return;
+        NativeDav1d.nativeSetSurface(nativeCtx, surface); // caches/replaces ANativeWindow in native
+    }
+
 
     @Override
     public String getName() {
@@ -84,6 +92,9 @@ final class Dav1dDecoder
 
     @Override
     public void release() {
+        if (nativeCtx != 0) {
+            NativeDav1d.nativeSetSurface(nativeCtx, null);
+        }
         super.release();
         if (nativeCtx != 0) {
             NativeDav1d.nativeClose(nativeCtx);
@@ -163,9 +174,9 @@ final class Dav1dDecoder
 
 
     /** Called by the renderer to blit the decoded frame to a Surface. */
-    void renderToSurface(Dav1dOutputBuffer out, Surface surface) throws Dav1dDecoderException {
+    void renderToSurface(Dav1dOutputBuffer out) throws Dav1dDecoderException {
         if (nativeCtx == 0 || out.nativePic == 0) return;
-        int rc = NativeDav1d.nativeRenderToSurface(nativeCtx, out.nativePic, surface);
+        int rc = NativeDav1d.nativeRenderToSurface(nativeCtx, out.nativePic);
         if (rc < 0) {
             throw new Dav1dDecoderException("nativeRenderToSurface failed: " + rc);
         }

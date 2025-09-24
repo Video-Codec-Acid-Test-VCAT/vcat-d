@@ -29,10 +29,37 @@ android {
     }
 
     buildTypes {
-        debug { debuggable true }
-        release {
-            minifyEnabled false
-            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        buildTypes {
+            debug {
+                debuggable true
+                // Keep debug friendly (symbols, logging)
+                externalNativeBuild {
+                    cmake {
+                        arguments "-DCMAKE_BUILD_TYPE=Debug"
+                        // (optional) make verbose: cFlags "-O0 -g3", cppFlags "-O0 -g3"
+                    }
+                }
+                ndk { debugSymbolLevel 'FULL' }
+            }
+
+            release {
+                minifyEnabled false
+                proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+
+                // *** KEY PART: force true Release flags for native code ***
+                externalNativeBuild {
+                    cmake {
+                        arguments "-DCMAKE_BUILD_TYPE=Release"
+                        // Belt & suspenders: ensure optimization + no asserts/logging in C/C++
+                        cFlags "-O3 -DNDEBUG"
+                        cppFlags "-O3 -DNDEBUG"
+                    }
+                }
+
+                // Keep a lightweight symbol table for crash decoding (no runtime cost)
+                // Use 'NONE' if you want absolutely no native symbol file output.
+                ndk { debugSymbolLevel 'SYMBOL_TABLE' }
+            }
         }
     }
 
@@ -56,8 +83,11 @@ android {
 
 
 dependencies {
-    // ExoPlayer core (stick with 2.19.x unless you’re on Media3)
-    implementation "com.google.android.exoplayer:exoplayer-core:2.19.1"
+    // Don’t package these into the AAR; they’re just for compile-time hints
+    compileOnly "androidx.annotation:annotation:1.7.1"
+
+    // ExoPlayer should also be compileOnly in the extension (app will provide it)
+    compileOnly "com.google.android.exoplayer:exoplayer-core:2.19.1"
 
     // You don’t need appcompat/material in this headless extension; removing them keeps the AAR slim.
     testImplementation libs.junit
