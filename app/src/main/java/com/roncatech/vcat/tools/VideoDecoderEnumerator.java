@@ -6,6 +6,7 @@ import android.media.MediaCodec;
 import androidx.annotation.NonNull;
 
 import com.google.android.exoplayer2.mediacodec.MediaCodecUtil;
+import com.roncatech.vcat.video.StrictRenderersFactoryV2;
 
 import org.jetbrains.annotations.Contract;
 
@@ -78,7 +79,7 @@ public class VideoDecoderEnumerator {
         List<String> decoders = new ArrayList<>();
 
         if(mimeType == MimeType.AV1){
-            decoders.add("vcat.dav1d");
+            decoders.add(StrictRenderersFactoryV2.vcatDav1dName);
         }
 
         for (com.google.android.exoplayer2.mediacodec.MediaCodecInfo codecInfo : codecInfos) {

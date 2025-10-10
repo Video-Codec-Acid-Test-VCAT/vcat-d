@@ -8,6 +8,7 @@ import com.google.gson.GsonBuilder;
 
 import com.roncatech.vcat.BuildConfig;
 import com.roncatech.vcat.tools.VideoDecoderEnumerator;
+import com.roncatech.vcat.video.StrictRenderersFactoryV2;
 
 import java.util.Collections;
 import java.util.HashMap;
@@ -21,7 +22,7 @@ public class DecoderConfig {
     public final Map<VideoDecoderEnumerator.MimeType, String> decoderConfig = new HashMap<>();
 
     public DecoderConfig(){
-
+        decoderConfig.put(VideoDecoderEnumerator.MimeType.AV1, StrictRenderersFactoryV2.vcatDav1dName);
     }
     public DecoderConfig(DecoderConfig copyFrom){
         this.decoderConfig.putAll(copyFrom.decoderConfig);

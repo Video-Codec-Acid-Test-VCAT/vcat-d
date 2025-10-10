@@ -33,6 +33,8 @@ public final class StrictRenderersFactoryV2 extends DefaultRenderersFactory {
     private final SharedViewModel viewModel;
     private final MediaCodecSelector customSelector;
 
+    public final static String vcatDav1dName = "vcat.dav1d";
+
     @Nullable private DecoderVideoRenderer dav1dRenderer;
 
     public StrictRenderersFactoryV2(Context ctx,
@@ -78,7 +80,7 @@ public final class StrictRenderersFactoryV2 extends DefaultRenderersFactory {
 
 
         // Conditionally add Libdav1d renderer only for AV1 and if libdav1d is desired
-        if ("vcat.dav1d".equalsIgnoreCase(av1Decoder)) {
+        if (vcatDav1dName.equalsIgnoreCase(av1Decoder)) {
             try {
                 Dav1dAv1Provider provider = new Dav1dAv1Provider(this.viewModel.getRunConfig().threads, 4);
 
