@@ -244,11 +244,6 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
     // In FullScreenPlayerActivity
     private static boolean useOld = false;
     private com.google.android.exoplayer2.DefaultRenderersFactory getRendersFactory() {
-
-        if(useOld){
-            return new StrictRenderersFactoryV1(this, this.viewModel);
-        }
-
         // forcedJoinMs = 500 (tweak as you like)
         return new StrictRenderersFactoryV2(this, this.viewModel);
     }
