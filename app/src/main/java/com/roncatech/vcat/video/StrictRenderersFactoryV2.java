@@ -94,7 +94,6 @@ public final class StrictRenderersFactoryV2 extends DefaultRenderersFactory {
                 out.add(r);
                 if (r instanceof DecoderVideoRenderer) this.dav1dRenderer = (DecoderVideoRenderer) r;
                 android.util.Log.i("RenderersFactory", "Added dav1d-only renderer and returning.");
-                return;
             } catch (Exception e) {
                 Log.w("RenderersFactory", "Libdav1dVideoRenderer not available: " + e.getMessage());
             }

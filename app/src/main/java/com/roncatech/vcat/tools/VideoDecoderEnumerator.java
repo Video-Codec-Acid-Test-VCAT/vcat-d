@@ -88,6 +88,7 @@ public class VideoDecoderEnumerator {
 
         return new DecoderSet(mimeType, decoders);
     }
+
     public static List<DecoderSet> getAllDecoders(List<MimeType> mimeTypes) {
         List<DecoderSet> ret = new ArrayList<>();
 

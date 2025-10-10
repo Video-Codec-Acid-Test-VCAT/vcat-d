@@ -27,6 +27,9 @@ import com.google.android.exoplayer2.RenderersFactory;
 import com.google.android.exoplayer2.decoder.DecoderCounters;
 import com.google.android.exoplayer2.decoder.DecoderReuseEvaluation;
 import com.google.android.exoplayer2.mediacodec.MediaCodecRenderer;
+import com.google.android.exoplayer2.source.TrackGroupArray;
+import com.google.android.exoplayer2.trackselection.TrackSelection;
+import com.google.android.exoplayer2.trackselection.TrackSelectionArray;
 import com.google.android.exoplayer2.ui.PlayerControlView;
 
 
@@ -191,7 +194,11 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
                 displayHeight = ViewGroup.LayoutParams.MATCH_PARENT;
             }
         }
-        double videoAspectRatio = Double.parseDouble(vi.width) / Double.parseDouble(vi.height);
+        double videoAspectRatio = -1;
+
+        if(vi.width != null && !vi.width.isEmpty() && vi.height != null && !vi.height.isEmpty()){
+            videoAspectRatio = Double.parseDouble(vi.width) / Double.parseDouble(vi.height);
+        }
         int scaledVideoWidth = (displayHeight == ViewGroup.LayoutParams.MATCH_PARENT)
                 ? ViewGroup.LayoutParams.MATCH_PARENT
                 : (int) (displayHeight * videoAspectRatio);
@@ -241,14 +248,10 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
         finish();
     }
 
-    // In FullScreenPlayerActivity
-    private static boolean useOld = false;
     private com.google.android.exoplayer2.DefaultRenderersFactory getRendersFactory() {
         // forcedJoinMs = 500 (tweak as you like)
         return new StrictRenderersFactoryV2(this, this.viewModel);
     }
-
-
 
     private void initialize(){
         this.viewModel = new ViewModelProvider(this).get(SharedViewModel.class);
@@ -686,6 +689,33 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
         }
     }
 
+    private int getVideoBitrate(){
+        int bitrate = com.google.android.exoplayer2.Format.NO_VALUE;
+
+        com.google.android.exoplayer2.trackselection.TrackSelectionArray sels =
+                exoPlayer.getCurrentTrackSelections();
+
+        // find the video renderer index
+        int vidIdx = -1;
+        for (int i = 0; i < exoPlayer.getRendererCount(); i++) {
+            if (exoPlayer.getRendererType(i) == com.google.android.exoplayer2.C.TRACK_TYPE_VIDEO) {
+                vidIdx = i; break;
+            }
+        }
+
+        if (vidIdx >= 0) {
+            com.google.android.exoplayer2.trackselection.TrackSelection sel = sels.get(vidIdx);
+            if (sel != null && sel.length() > 0) {
+                com.google.android.exoplayer2.Format f = sel.getFormat(0); // fallback heuristic
+                if (f != null) {
+                    bitrate = f.bitrate;
+                }
+            }
+        }
+
+        return bitrate;
+    }
+
     public TelemetryLogger.VideoInfo getTlVideoInfo(
             Uri videoFileUri,
             TestStatus testStatus) {
@@ -707,7 +737,7 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
 
         // Bitrate → human-readable string
         // (assumes formatBitrate takes a String; adjust if you have a long overload)
-        String bitrate = formatBitrate(String.valueOf(fmt.bitrate));
+        String bitrate = formatBitrate(String.valueOf(getVideoBitrate()));
 
         // Mime type and codec name
         String mime  = fmt.sampleMimeType;                     // e.g. "video/av1"

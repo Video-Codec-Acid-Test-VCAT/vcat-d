@@ -12,6 +12,7 @@ import com.roncatech.vcat.video.StrictRenderersFactoryV2;
 
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
@@ -21,8 +22,28 @@ public class DecoderConfig {
     // Decoder Configuration Map (Empty = Use App Default)
     public final Map<VideoDecoderEnumerator.MimeType, String> decoderConfig = new HashMap<>();
 
-    public DecoderConfig(){
+    public DecoderConfig() {
+        // default all decoders to the first provided by ExoPlayer except AV1 is vcat-dav1d
+
         decoderConfig.put(VideoDecoderEnumerator.MimeType.AV1, StrictRenderersFactoryV2.vcatDav1dName);
+        VideoDecoderEnumerator.DecoderSet vp9Set = VideoDecoderEnumerator.getDecodersForMimeType(VideoDecoderEnumerator.MimeType.VP9);
+
+        if (vp9Set.decoders.size() > 0) {
+            decoderConfig.put(VideoDecoderEnumerator.MimeType.VP9, vp9Set.decoders.get(0));
+        }
+
+        VideoDecoderEnumerator.DecoderSet hevcSet = VideoDecoderEnumerator.getDecodersForMimeType(VideoDecoderEnumerator.MimeType.H265);
+
+        if(hevcSet.decoders.size() > 0){
+            decoderConfig.put(VideoDecoderEnumerator.MimeType.H265, hevcSet.decoders.get(0));
+        }
+
+        VideoDecoderEnumerator.DecoderSet h264Set = VideoDecoderEnumerator.getDecodersForMimeType(VideoDecoderEnumerator.MimeType.H264);
+
+        if(h264Set.decoders.size() > 0){
+            decoderConfig.put(VideoDecoderEnumerator.MimeType.H264, h264Set.decoders.get(0));
+        }
+
     }
     public DecoderConfig(DecoderConfig copyFrom){
         this.decoderConfig.putAll(copyFrom.decoderConfig);
