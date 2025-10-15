@@ -1,0 +1,24 @@
+[binaries]
+c = "@CMAKE_C_COMPILER@"
+cpp = "@CMAKE_CXX_COMPILER@"
+ar = "llvm-ar"
+strip = "llvm-strip"
+pkgconfig = "pkg-config"
+cmake = "cmake"
+
+[host_machine]
+system = "android"
+cpu_family = "aarch64"
+cpu = "arm64"
+endian = "little"
+
+[paths]
+sys_root = "@ANDROID_SYSROOT@"
+
+[built-in options]
+c_std = "c11"
+cpp_std = "c++17"
+c_args = ["--sysroot=@ANDROID_SYSROOT@", "@DAV1D_CFLAGS@"]
+cpp_args = ["--sysroot=@ANDROID_SYSROOT@", "@DAV1D_CXXFLAGS@"]
+c_link_args = ["--sysroot=@ANDROID_SYSROOT@", "@DAV1D_LDFLAGS@"]
+cpp_link_args = ["--sysroot=@ANDROID_SYSROOT@", "@DAV1D_LDFLAGS@"]

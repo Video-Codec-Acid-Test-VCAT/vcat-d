@@ -3,23 +3,24 @@ plugins {
 }
 
 android {
-    // Use this namespace to match the package names in the Java snippets I gave you.
-    // If you prefer to keep your old one, keep it — just make sure the Java package
-    // declarations match whatever you set here.
-    namespace 'com.roncatech.exoplayer.dav1d'
-
+    namespace 'com.roncatech.extension_dav1d'
     compileSdk 35
 
     defaultConfig {
         minSdk 29
         targetSdk 35
 
-        // Enable CMake build for the JNI wrapper (libdav1d_jni.so)
+        // CMake will fetch & build dav1d automatically (no manual headers/libs).
         externalNativeBuild {
-            cmake { }
+            cmake {
+                // You can override these via gradle.properties or CI:
+                //   -Pdav1dTag=1.4.2  -Pdav1dRepo=https://code.videolan.org/videolan/dav1d.git
+                arguments "-DDAV1D_GIT_TAG=${project.findProperty('dav1dTag') ?: '1.5.1'}",
+                        "-DDAV1D_GIT_REPO=${project.findProperty('dav1dRepo') ?: 'https://code.videolan.org/videolan/dav1d.git'}"
+            }
         }
 
-        // Ship only the ABIs you need. arm64-v8a is the must-have.
+        // Ship only the ABIs you need.
         ndk {
             abiFilters "arm64-v8a", "armeabi-v7a"
         }
@@ -29,67 +30,59 @@ android {
     }
 
     buildTypes {
-        buildTypes {
-            debug {
-                debuggable true
-                // Keep debug friendly (symbols, logging)
-                externalNativeBuild {
-                    cmake {
-                        arguments "-DCMAKE_BUILD_TYPE=Debug"
-                        // (optional) make verbose: cFlags "-O0 -g3", cppFlags "-O0 -g3"
-                    }
+        debug {
+            debuggable true
+            externalNativeBuild {
+                cmake {
+                    arguments "-DCMAKE_BUILD_TYPE=Debug"
+                    // cFlags "-O0 -g3"
+                    // cppFlags "-O0 -g3"
                 }
-                ndk { debugSymbolLevel 'FULL' }
             }
+            ndk { debugSymbolLevel 'FULL' }
+        }
 
-            release {
-                minifyEnabled false
-                proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
 
-                // *** KEY PART: force true Release flags for native code ***
-                externalNativeBuild {
-                    cmake {
-                        arguments "-DCMAKE_BUILD_TYPE=Release"
-                        // Belt & suspenders: ensure optimization + no asserts/logging in C/C++
-                        cFlags "-O3 -DNDEBUG"
-                        cppFlags "-O3 -DNDEBUG"
-                    }
+            externalNativeBuild {
+                cmake {
+                    arguments "-DCMAKE_BUILD_TYPE=Release"
+                    cFlags "-O3 -DNDEBUG"
+                    cppFlags "-O3 -DNDEBUG"
                 }
-
-                // Keep a lightweight symbol table for crash decoding (no runtime cost)
-                // Use 'NONE' if you want absolutely no native symbol file output.
-                ndk { debugSymbolLevel 'SYMBOL_TABLE' }
             }
+            ndk { debugSymbolLevel 'SYMBOL_TABLE' }
         }
     }
 
-    // Java 11 is perfect
+    // Java 11 is fine
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_11
         targetCompatibility JavaVersion.VERSION_11
     }
 
-    // Point to your CMakeLists for the JNI build
+    // Point to your CMakeLists that includes cmake/BuildDav1d.cmake
     externalNativeBuild {
         cmake {
             path "src/main/cpp/CMakeLists.txt"
+            version "3.22.1" // or your project’s configured CMake version
         }
     }
 
-    // (Optional) If you’ll ever use Prefab to consume prebuilt C/C++ deps:
-    // buildFeatures { prefab true }
+    // (Optional) avoid duplicate license files in AAR
+    packagingOptions {
+        resources {
+            excludes += [ "META-INF/**", "LICENSE*", "LICENSES/**" ]
+        }
+    }
 }
 
-
-
 dependencies {
-    // Don’t package these into the AAR; they’re just for compile-time hints
     compileOnly "androidx.annotation:annotation:1.7.1"
-
-    // ExoPlayer should also be compileOnly in the extension (app will provide it)
     compileOnly "com.google.android.exoplayer:exoplayer-core:2.19.1"
 
-    // You don’t need appcompat/material in this headless extension; removing them keeps the AAR slim.
     testImplementation libs.junit
     androidTestImplementation libs.ext.junit
     androidTestImplementation libs.espresso.core
