@@ -22,6 +22,36 @@ dependencyResolutionManagement {
     }
 }
 
+// ---- SDK sanity check (do not put above pluginManagement {}) ----
+def readLocalSdkDir = {
+    def file = new File(rootDir, "local.properties")
+    if (!file.exists()) return null
+    def p = new Properties()
+    file.withInputStream { p.load(it) }
+    return p.getProperty("sdk.dir")
+}
+
+def envSdk = System.getenv("ANDROID_SDK_ROOT") ?: System.getenv("ANDROID_HOME")
+def localSdk = readLocalSdkDir()
+def sdkDir = localSdk ?: envSdk
+
+if (!sdkDir || !new File(sdkDir).exists()) {
+    def home = System.getProperty("user.home")
+    throw new GradleException('''
+SDK location not found.
+
+Define a valid SDK location with ANDROID_HOME or ANDROID_SDK_ROOT,
+or by setting the sdk.dir path in your project's local properties file at:
+  '<project>/local.properties'
+
+Try one of these:
+  export ANDROID_SDK_ROOT="$HOME/Library/Android/sdk"
+  # or
+  echo "sdk.dir=$HOME/Library/Android/sdk" > local.properties
+''')
+}
+
+
 rootProject.name = "vcat"
 include(":app", ":extension-dav1d")
 project(":extension-dav1d").projectDir = file("./extension-dav1d")
