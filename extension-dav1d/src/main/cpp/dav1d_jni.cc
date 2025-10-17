@@ -28,11 +28,6 @@ extern "C" {
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO , LOG_TAG, __VA_ARGS__)
 #define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG, __VA_ARGS__)
 
-/** dav1d_version_int() helpers */
-#define DAV1D_API_MAJOR(v) (((v) >> 16) & 0xFF)
-#define DAV1D_API_MINOR(v) (((v) >>  8) & 0xFF)
-#define DAV1D_API_PATCH(v) (((v) >>  0) & 0xFF)
-
 static constexpr size_t kMaxPendingPackets = 16; // capacity guard (tune as needed)
 
 struct InputNode {
@@ -352,13 +347,11 @@ Java_com_roncatech_extension_1dav1d_NativeDav1d_nativeReleasePicture(
 
 extern "C" JNIEXPORT jstring JNICALL
 Java_com_roncatech_extension_1dav1d_NativeDav1d_dav1dGetVersion(JNIEnv* env) {
-    const unsigned version = dav1d_version_api();
-    const int major = DAV1D_API_MAJOR(version);
-    const int minor = DAV1D_API_MINOR(version);
-    const int patch = DAV1D_API_PATCH(version);
+    const char *src = dav1d_version();
     char buffer[32];
-    snprintf(buffer, sizeof(buffer), "%d.%d.%d", major, minor, patch);
-    return env->NewStringUTF(buffer);
+    snprintf(buffer, sizeof(buffer), "%s", src);
+    char *token = strtok(buffer, "-");
+    return env->NewStringUTF(token);
 }
 
 extern "C" JNIEXPORT void JNICALL
