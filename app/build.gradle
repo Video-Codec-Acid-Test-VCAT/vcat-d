@@ -1,117 +1,117 @@
-plugins {
-    alias(libs.plugins.android.application)
-}
-
-def av1Aar = rootProject.file("libs/extension-av1-release.aar")
-android {
-    namespace 'com.roncatech.vcat'
-    compileSdk 35
-
-    buildFeatures {
-        buildConfig = true
+    plugins {
+        alias(libs.plugins.android.application)
     }
 
-    defaultConfig {
-        applicationId "com.roncatech.vcat"
-        minSdk 30
-        targetSdk 35
-        versionCode 65
-        versionName "0.2.0.35"
+    android {
+        namespace 'com.roncatech.vcat'
+        compileSdk 35
 
-        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
-        buildConfigField "String", "VERSION_NAME", "\"${versionName}\""
-        buildConfigField "int", "VERSION_CODE", "${versionCode}"
-        buildConfigField "String", "BUILD_TIME", "\"${new Date().format("yyyy-MM-dd HH:mm:ss")}\""
-    }
+        buildFeatures {
+            buildConfig = true
+        }
 
-    // Add this to customize the filename for all build types
-    archivesBaseName = "VCAT-${defaultConfig.versionName}"
+        defaultConfig {
+            applicationId "com.roncatech.vcat"
+            minSdk 30
+            targetSdk 35
+            versionCode 65
+            versionName "0.2.0.35"
 
-    buildTypes {
-        release {
-            minifyEnabled false
-            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+            buildConfigField "String", "VERSION_NAME", "\"${versionName}\""
+            buildConfigField "int", "VERSION_CODE", "${versionCode}"
+            buildConfigField "String", "BUILD_TIME", "\"${new Date().format("yyyy-MM-dd HH:mm:ss")}\""
+        }
 
-            // Add this block to modify the output APK filename
-       }
-    }
+        // Add this to customize the filename for all build types
+        archivesBaseName = "VCAT-${defaultConfig.versionName}"
 
-    android.applicationVariants.all { variant ->
-        // Handle APK file renaming
-        if (variant.buildType.name == "release") {
-            variant.outputs.all { output ->
-                def formattedVersionName = variant.versionName
-                outputFileName = "VCAT-${formattedVersionName}-v${variant.versionCode}.apk"
+        buildTypes {
+            release {
+                minifyEnabled false
+                proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+
+                // Add this block to modify the output APK filename
+           }
+        }
+
+        android.applicationVariants.all { variant ->
+            // Handle APK file renaming
+            if (variant.buildType.name == "release") {
+                variant.outputs.all { output ->
+                    def formattedVersionName = variant.versionName
+                    outputFileName = "VCAT-${formattedVersionName}-v${variant.versionCode}.apk"
+                }
             }
         }
-    }
-    compileOptions {
-        sourceCompatibility JavaVersion.VERSION_11
-        targetCompatibility JavaVersion.VERSION_11
-    }
+        compileOptions {
+            sourceCompatibility JavaVersion.VERSION_11
+            targetCompatibility JavaVersion.VERSION_11
+        }
 
-    testOptions {
-        unitTests.includeAndroidResources = true
-    }
-}
-
-// Use afterEvaluate to ensure all tasks are created before adding dependencies
-afterEvaluate {
-
-    // Add a specific task to clean custom-named release files from the custom directory
-    task cleanCustomRelease(type: Delete) {
-        description "Deletes custom-named APK and AAB files from the custom release directory."
-        group "build"
-        def customReleaseDir = file("${project.projectDir}/release")
-
-        // Delete custom-named files from the custom output folder
-        if (customReleaseDir.exists()) {
-            delete fileTree(customReleaseDir) {
-                include 'VCAT-*.apk'
-                include 'VCAT-*.aab'
-            }
+        testOptions {
+            unitTests.includeAndroidResources = true
         }
     }
 
-    // Ensure the custom clean task runs before the standard build tasks
-    tasks.named('assembleRelease').configure {
-        dependsOn cleanCustomRelease
+    // Use afterEvaluate to ensure all tasks are created before adding dependencies
+    afterEvaluate {
+
+        // Add a specific task to clean custom-named release files from the custom directory
+        task cleanCustomRelease(type: Delete) {
+            description "Deletes custom-named APK and AAB files from the custom release directory."
+            group "build"
+            def customReleaseDir = file("${project.projectDir}/release")
+
+            // Delete custom-named files from the custom output folder
+            if (customReleaseDir.exists()) {
+                delete fileTree(customReleaseDir) {
+                    include 'VCAT-*.apk'
+                    include 'VCAT-*.aab'
+                }
+            }
+        }
+
+        // Ensure the custom clean task runs before the standard build tasks
+        tasks.named('assembleRelease').configure {
+            dependsOn cleanCustomRelease
+        }
+
+        tasks.named('bundleRelease').configure {
+            dependsOn cleanCustomRelease
+        }
+
+        // Also ensure it runs before the main clean task, for a complete wipe
+        tasks.named('clean').configure {
+            dependsOn cleanCustomRelease
+        }
     }
 
-    tasks.named('bundleRelease').configure {
-        dependsOn cleanCustomRelease
+    dependencies {
+
+        implementation libs.appcompat
+        implementation libs.material
+        testImplementation libs.junit
+        androidTestImplementation libs.ext.junit
+        androidTestImplementation libs.espresso.core
+        implementation libs.appcompat
+        implementation libs.material
+        testImplementation libs.junit
+        androidTestImplementation libs.ext.junit
+        androidTestImplementation libs.espresso.core
+
+        implementation 'com.google.code.gson:gson:2.10.1'
+        implementation 'org.nanohttpd:nanohttpd:2.3.1'
+        implementation 'com.opencsv:opencsv:5.6'
+        implementation 'com.google.android.exoplayer:exoplayer:2.19.1'
+        implementation "com.google.android.exoplayer:exoplayer-ui:2.19.1"
+        implementation 'com.google.android.material:material:1.9.0'
+        implementation "androidx.appcompat:appcompat:1.6.1"
+        testImplementation "org.robolectric:robolectric:4.11.1"
+        // OkHttp dependency
+        implementation 'com.squareup.okhttp3:okhttp:4.9.1'
+
+        debugImplementation("com.roncatech.vcat:libvcat-debug:0.0.1.3") // has JNI
+        releaseImplementation("com.roncatech.vcat:libvcat:0.0.1.3")
+
     }
-
-    // Also ensure it runs before the main clean task, for a complete wipe
-    tasks.named('clean').configure {
-        dependsOn cleanCustomRelease
-    }
-}
-
-dependencies {
-
-    implementation libs.appcompat
-    implementation libs.material
-    testImplementation libs.junit
-    androidTestImplementation libs.ext.junit
-    androidTestImplementation libs.espresso.core
-    implementation libs.appcompat
-    implementation libs.material
-    testImplementation libs.junit
-    androidTestImplementation libs.ext.junit
-    androidTestImplementation libs.espresso.core
-
-    implementation project(':extension-dav1d')
-    implementation 'com.google.code.gson:gson:2.10.1'
-    implementation 'org.nanohttpd:nanohttpd:2.3.1'
-    implementation 'com.opencsv:opencsv:5.6'
-    implementation 'com.google.android.exoplayer:exoplayer:2.19.1'
-    implementation "com.google.android.exoplayer:exoplayer-ui:2.19.1"
-    implementation 'com.google.android.material:material:1.9.0'
-    implementation "androidx.appcompat:appcompat:1.6.1"
-    testImplementation "org.robolectric:robolectric:4.11.1"
-    // OkHttp dependency
-    implementation 'com.squareup.okhttp3:okhttp:4.9.1'
-    implementation project(":extension-dav1d")
-
-}

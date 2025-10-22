@@ -17,8 +17,8 @@ import com.google.android.exoplayer2.util.MimeTypes;
 import com.google.android.exoplayer2.video.DecoderVideoRenderer;
 import com.google.android.exoplayer2.video.MediaCodecVideoRenderer;
 import com.google.android.exoplayer2.video.VideoRendererEventListener;
-import com.roncatech.extension_dav1d.Dav1dAv1Provider;
-import com.roncatech.extension_dav1d.Dav1dAv1RendererProvider;
+import com.roncatech.libvcat.Dav1dAv1Provider;
+import com.roncatech.libvcat.Dav1dAv1RendererProvider;
 import com.roncatech.vcat.models.SharedViewModel;
 import com.roncatech.vcat.tools.VideoDecoderEnumerator;
 
@@ -83,6 +83,12 @@ public final class StrictRenderersFactoryV2 extends DefaultRenderersFactory {
         if (vcatDav1dName.equalsIgnoreCase(av1Decoder)) {
             try {
                 Dav1dAv1Provider provider = new Dav1dAv1Provider(this.viewModel.getRunConfig().threads, 4);
+
+                if (!provider.isAvailable(context)) {
+                    throw new IllegalStateException(
+                            "Selected AV1 decoder not available for vcat.dav1d"
+                    );
+                }
 
                 if(provider == null){
                     throw new IllegalStateException("Unable to instantiate Dav1dAv1Provider");

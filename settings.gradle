@@ -11,6 +11,13 @@ pluginManagement {
         gradlePluginPortal()
     }
 }
+
+// Read creds from gradle.properties if present; fall back to env vars
+def ghUser = providers.gradleProperty('gpr.user')
+        .getOrElse(System.getenv('GITHUB_ACTOR') ?: '')
+def ghKey  = providers.gradleProperty('gpr.key')
+        .getOrElse(System.getenv('GITHUB_TOKEN') ?: '')
+
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
@@ -18,6 +25,14 @@ dependencyResolutionManagement {
         mavenCentral()
         flatDir {
             dirs 'libs'
+        }
+
+        maven {
+            name = "GitHubPackages"
+            url = uri("https://maven.pkg.github.com/jonathannah/lib_vcat_decoders")
+            credentials {
+                username = ghUser
+                password = ghKey            }
         }
     }
 }
@@ -51,7 +66,7 @@ Try one of these:
 ''')
 }
 
-
 rootProject.name = "vcat"
-include(":app", ":extension-dav1d")
-project(":extension-dav1d").projectDir = file("./extension-dav1d")
+include(":app")
+
+
