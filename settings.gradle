@@ -13,26 +13,38 @@ pluginManagement {
 }
 
 // Read creds from gradle.properties if present; fall back to env vars
-def ghUser = providers.gradleProperty('gpr.user')
-        .getOrElse(System.getenv('GITHUB_ACTOR') ?: '')
-def ghKey  = providers.gradleProperty('gpr.key')
-        .getOrElse(System.getenv('GITHUB_TOKEN') ?: '')
+def ghUser = providers.gradleProperty("gpr.user")
+        .orElse(System.getenv("GITHUB_ACTOR") ?: "")
+        .get()
+def ghKey  = providers.gradleProperty("gpr.key")   // <-- was gpr.token
+        .orElse(System.getenv("GITHUB_TOKEN") ?: "")
+        .get()
+
+// (Optional) quick visibility during Sync
+println "[GPR] user=" + (ghUser.isEmpty() ? "(empty)" : "(set)")
+println "[GPR] key="  + (ghKey.isEmpty()  ? "(empty)" : "(set)")
 
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
         google()
         mavenCentral()
-        flatDir {
-            dirs 'libs'
-        }
+        mavenLocal()
+        flatDir { dirs "libs" } // local fallback if you drop an AAR
 
-        maven {
-            name = "GitHubPackages"
-            url = uri("https://maven.pkg.github.com/jonathannah/lib_vcat_decoders")
-            credentials {
-                username = ghUser
-                password = ghKey            }
+        // Only add GitHub Packages when we actually have creds
+        if (!ghUser.isEmpty() && !ghKey.isEmpty()) {
+            maven {
+                name = "GitHubPackages"
+                url = uri("https://maven.pkg.github.com/jonathannah/lib_vcat_decoders")
+                credentials {
+                    username = ghUser
+                    password = ghKey
+                }
+                authentication { basic(BasicAuthentication) } // helpful on some Gradle versions
+            }
+        } else {
+            println "[GPR] GitHubPackages repo skipped (missing creds)"
         }
     }
 }
