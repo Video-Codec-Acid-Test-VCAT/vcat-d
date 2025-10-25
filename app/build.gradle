@@ -111,7 +111,7 @@
         // OkHttp dependency
         implementation 'com.squareup.okhttp3:okhttp:4.9.1'
 
-        debugImplementation("com.roncatech.vcat:libvcat-debug:0.0.1.3") // has JNI
-        releaseImplementation("com.roncatech.vcat:libvcat:0.0.1.3")
+        implementation 'com.roncatech.vcat:libvcat:0.0.2.0'
 
     }
+  ` `
