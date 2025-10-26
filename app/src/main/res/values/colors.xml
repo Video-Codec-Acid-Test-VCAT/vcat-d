@@ -13,5 +13,7 @@
     <color name="download_failure">#EF9A9A</color>
     <color name="download_warning">#FFA726</color>
     <color name="playlist_highlight">#FFD54F</color>
+    <color name="splash_bg">#121212</color>
+
 
 </resources>

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- letterbox color around the image -->
+    <item android:drawable="@android:color/black"/>
+    <!-- center the PNG at intrinsic size (no width/height => no scaling) -->
+    <item android:gravity="center">
+        <bitmap
+            android:src="@drawable/vcat_splash_screen_v"
+            android:filter="false"
+            android:antialias="false"/>
+    </item>
+</layer-list>

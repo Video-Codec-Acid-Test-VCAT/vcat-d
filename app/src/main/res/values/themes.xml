@@ -54,5 +54,12 @@
         <item name="android:textColor">@android:color/black</item> <!-- optional -->
     </style>
 
+    <style name="Theme.VCAT.Splash" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <!-- Pre-Android 12 fallback: draw our own background -->
+        <item name="android:windowBackground">@drawable/splash_noscale</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowFullscreen">true</item>
+    </style>
+
 
 </resources>

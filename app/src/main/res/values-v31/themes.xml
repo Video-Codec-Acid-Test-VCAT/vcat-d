@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.VCAT.Splash" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="android:windowSplashScreenBackground">@drawable/splash_noscale</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/transparent</item>
+        <item name="android:windowSplashScreenAnimationDuration">200</item>
+         <!-- Keep a windowBackground too (used briefly after the system splash) -->
+        <item name="android:windowBackground">@drawable/splash_noscale</item>
+    </style>
+</resources>
