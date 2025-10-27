@@ -15,22 +15,22 @@ It is designed to evaluate real-world decode performance and platform stability 
 
 ## Key Capabilities
 
-- ✅ **Built on the ExoPlayer framework**  
+- **Built on the ExoPlayer framework**  
   – stable, modern media pipeline with full Android platform support
 
-- ✅ **Supports all system video decoders**  
+- **Supports all system video decoders**  
   – hardware-accelerated H.264, HEVC, VP9, AV1 (where available)
 
-- ✅ **Bundled dav1d software decoder for AV1**  
+- **Bundled dav1d software decoder for AV1**  
   – raises a consistent performance baseline across devices
 
-- ✅ **Long-running decode workloads**  
+- **Long-running decode workloads**  
   – e.g., battery drain testing, thermal behavior, performance throttling studies
 
-- ✅ **Detailed telemetry logging**  
+- **Detailed telemetry logging**  
   – battery / CPU usage / CPU frequency / memory / frame drops
 
-- ✅ **Open Source — GPL-3.0-or-later**  
+- **Open Source — GPL-3.0-or-later**  
   – free to use, modify, and improve
 
 ---
@@ -45,11 +45,14 @@ VCAT’s mission is to enable users, developers, and OEMs to understand **how we
 
 VCAT is currently in active development and preparing for its **first public open-source release**.
 
-✅ Source code  
-✅ Telemetry pipeline  
-✅ dav1d integration  
-🚧 Continuous UI improvements  
-🚧 Additional test vector libraries
+* Source code  
+* Telemetry pipeline  
+* dav1d integration
+
+### Help needed
+# Continuous UI improvements  
+# Additional test vector libraries
+# H264, H265, VP9, and VVC bundled decoders.
 
 Feedback is welcome — issues and PRs encouraged!
 
