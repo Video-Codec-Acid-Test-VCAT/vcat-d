@@ -34,6 +34,7 @@ package com.roncatech.vcat.ui;
 
 import android.content.Intent;
 import android.os.Bundle;
+import android.widget.ImageView;
 
 import androidx.appcompat.app.AppCompatActivity;
 
@@ -42,29 +43,34 @@ import com.roncatech.vcat.legal.TermsRepository;
 
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import com.roncatech.vcat.tools.SplashPicker;
+import com.roncatech.vcat.R;
 
 public class SplashActivity extends AppCompatActivity {
 
     private final ExecutorService exec = Executors.newSingleThreadExecutor();
 
-
-
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
+        // 1) Show the splash art immediately
+        setContentView(R.layout.activity_splash);
+        ImageView img = findViewById(R.id.splashImage);
+        int resId = SplashPicker.bestPortraitResId(this); // considers 360x640, 540x960, 720x1280, 1080x1920, 1440x2560
+        if (resId != 0) img.setImageResource(resId);
+
+        // 2) Do your terms check in background as you already had
         exec.submit(() -> {
             TermsRepository repo = new TermsRepository(SplashActivity.this);
             TermsPayload latest = repo.fetchLatestOrFallback();
             int accepted = repo.getAcceptedVersion();
-
             boolean needs = TermsRepository.needsAcceptance(latest.version, accepted);
+
             runOnUiThread(() -> {
                 if (needs) {
-                    // Route to LicenseActivity which hosts your LicenseFragment
                     Intent i = new Intent(SplashActivity.this, LicenseActivity.class);
                     i.putExtra(LicenseActivity.EXTRA_REQUIRE_ACCEPT, true);
-                    // Optionally pass the latest version via extras if you like
                     startActivity(i);
                 } else {
                     startActivity(new Intent(SplashActivity.this, MainActivity.class));
