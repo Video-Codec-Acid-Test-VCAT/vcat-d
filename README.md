@@ -1,4 +1,3 @@
-# vcat
 <p align="center">
   <img src="app/src/main/res/drawable/vcat_logo_tnsp.png" alt="VCAT Logo" width="260">
 </p>
