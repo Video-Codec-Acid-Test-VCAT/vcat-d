@@ -50,9 +50,13 @@ VCAT is currently in active development and preparing for its **first public ope
 * dav1d integration
 
 ### Help needed
-# Continuous UI improvements  
-# Additional test vector libraries
-# H264, H265, VP9, and VVC bundled decoders.
+* Continuous UI improvements  
+* Additional test vector libraries
+* H264, H265, VP9, and VVC bundled decoders (in libvcat).
+
+Please contribute!
+
+Contributions are handled through merge requests on the VCAT project.
 
 Feedback is welcome — issues and PRs encouraged!
 
