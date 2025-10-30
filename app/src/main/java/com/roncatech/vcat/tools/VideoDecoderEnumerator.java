@@ -111,7 +111,10 @@ public class VideoDecoderEnumerator {
         List<String> decoders = new ArrayList<>();
 
         if(mimeType == MimeType.AV1){
-            decoders.add(StrictRenderersFactoryV2.vcatDav1dName);
+            decoders.add(StrictRenderersFactoryV2.VCAT_DAV1D);
+        }
+        else if(mimeType == MimeType.VVC){
+            decoders.add(StrictRenderersFactoryV2.VCAT_VVDEC);
         }
 
         for (com.google.android.exoplayer2.mediacodec.MediaCodecInfo codecInfo : codecInfos) {
