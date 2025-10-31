@@ -38,7 +38,14 @@ It is designed to evaluate real-world decode performance and platform stability 
 
 VCAT’s mission is to enable users, developers, and OEMs to understand **how well devices handle modern video standards under real conditions**, not just short synthetic tests.
 
----
+## Components
+| Component | Role |
+|-----------|------|
+| **VCAT (app)** | Benchmarking UI, telemetry collection, test orchestration, reporting |
+| **[libvcat](https://github.com/jonathannah/libvcat)** | Core media stack: decoder adapters (e.g., dav1d AV1, optional vvdec VVC), parsers/extractors, JNI/native glue, capability probes |
+
+This separation keeps the app lightweight and lets media-layer work (decoders, parsing, performance hooks) evolve independently from UI and workflow code.
+
 
 ## Project Status
 
@@ -59,6 +66,13 @@ Please contribute!
 Contributions are handled through merge requests on the VCAT project.
 
 Feedback is welcome — issues and PRs encouraged!
+
+### Feedback
+- [Use the discord channel for VCAT conversations](https://discord.gg/36XQYATF)
+
+### Bugs
+- Open issues on VCAT or libvcat github projects.  If unsure which to use, use VCAT.
+- Include: **steps to reproduce**, **expected vs actual behavior**, **timestamp & timezone**, **browser/app version**, and **screenshots**.
 
 ---
 
