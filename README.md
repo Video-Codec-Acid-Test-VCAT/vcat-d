@@ -42,7 +42,7 @@ VCAT’s mission is to enable users, developers, and OEMs to understand **how we
 
 ## Project Status
 
-VCAT is currently in active development and preparing for its **first public open-source release**.
+VCAT is currently in active development and work is ongoing.
 
 * Source code  
 * Telemetry pipeline  
@@ -52,6 +52,7 @@ VCAT is currently in active development and preparing for its **first public ope
 * Continuous UI improvements  
 * Additional test vector libraries
 * H264, H265, VP9, and VVC bundled decoders (in libvcat).
+* VCAT-Neg mode to use VLC as the video player to prevent unscrupulous vendors from gaming their system when VCAT is running.
 
 Please contribute!
 
@@ -66,7 +67,6 @@ Feedback is welcome — issues and PRs encouraged!
 VCAT is licensed under **GPL-3.0-or-later**.  
 See: https://www.gnu.org/licenses/gpl-3.0.html
 
-Use of the VCAT logo and artwork is permitted when discussing, documenting, demonstrating, or promoting VCAT itself.  
-Any other usage requires prior written permission from RoncaTech LLC.
+Use of the VCAT logo and artwork is permitted when discussing, documenting, demonstrating, or promoting VCAT itself.  Any other usage requires prior written permission from RoncaTech LLC.
 
 Contact: legal@roncatech.com • https://roncatech.com/legal
