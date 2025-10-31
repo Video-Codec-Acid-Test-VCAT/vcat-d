@@ -4,8 +4,6 @@
 
 <h1 align="center">VCAT — Video Codec Acid Test</h1>
 
----
-
 ## About VCAT
 
 VCAT (Video Codec Acid Test) is a video decoder benchmarking tool for Android devices.
@@ -32,8 +30,6 @@ It is designed to evaluate real-world decode performance and platform stability 
 - **Open Source — GPL-3.0-or-later**  
   – free to use, modify, and improve
 
----
-
 ## Vision
 
 VCAT’s mission is to enable users, developers, and OEMs to understand **how well devices handle modern video standards under real conditions**, not just short synthetic tests.
@@ -45,7 +41,6 @@ VCAT’s mission is to enable users, developers, and OEMs to understand **how we
 | **[libvcat](https://github.com/jonathannah/libvcat)** | Core media stack: decoder adapters (e.g., dav1d AV1, optional vvdec VVC), parsers/extractors, JNI/native glue, capability probes |
 
 This separation keeps the app lightweight and lets media-layer work (decoders, parsing, performance hooks) evolve independently from UI and workflow code.
-
 
 ## Project Status
 
@@ -73,8 +68,6 @@ Feedback is welcome — issues and PRs encouraged!
 ### Bugs
 - Open issues on VCAT or libvcat github projects.  If unsure which to use, use VCAT.
 - Include: **steps to reproduce**, **expected vs actual behavior**, **timestamp & timezone**, **browser/app version**, and **screenshots**.
-
----
 
 ## License
 
