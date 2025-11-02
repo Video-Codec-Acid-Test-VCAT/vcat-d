@@ -74,6 +74,7 @@ VCAT is provided for general benchmarking and evaluation purposes only. RoncaTec
 
 ## Limitation of Liability
 TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, IN NO EVENT WILL RONCATECH, LLC OR ITS AFFILIATES, CONTRIBUTORS, OR SUPPLIERS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, OR PUNITIVE DAMAGES, INCLUDING BUT NOT LIMITED TO LOSS OF PROFITS, REVENUE, DATA, OR USE, ARISING OUT OF OR IN CONNECTION WITH YOUR USE OF VCAT, EVEN IF RONCATECH HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH DAMAGES.  
+
 You agree that your sole and exclusive remedy for any claim under or related to VCAT will be to discontinue use of the software.
 
 ## Patent Notice (No Patent Rights Granted)
