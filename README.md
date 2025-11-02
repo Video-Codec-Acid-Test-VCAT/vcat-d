@@ -1,4 +1,4 @@
-<img src="app/src/main/res/drawable/vcat_logo_tnsp_with_tm.png" alt="VCAT Logo" width="260">
+  <img src="https://github.com/jonathannah/vcat/blob/main/app/src/main/res/drawable/vcat_logo_tnsp_with_tm.png" alt="VCAT Logo" width="260"> 
 
 <h1 align="center">VCAT™ — Video Codec Acid Test™</h1>
 
