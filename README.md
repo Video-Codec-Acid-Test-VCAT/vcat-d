@@ -5,7 +5,7 @@
     style="
       position:absolute;
       bottom:4px;          /* tweak */
-      right:6px;           /* tweak */
+      right:26px;           /* tweak */
       font-size:60%;
       font-weight:700;
       text-shadow:0 0 2px #fff, 0 0 2px #fff;  /* keeps it legible on dark bits */
