@@ -1,12 +1,4 @@
-<svg width="260" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="VCAT logo">
-  <!-- Logo image fills the SVG box -->
-  <image href="app/src/main/res/drawable/vcat_logo_tnsp.png"
-         x="0" y="0" width="100%" height="100%" preserveAspectRatio="xMidYMid meet"/>
-  <!-- ™ anchored to bottom-right, nudged 26px left and 4px up -->
-  <text x="100%" y="100%" dx="-26" dy="-4"
-        font-size="16" font-weight="700" text-anchor="end"
-        style="paint-order:stroke; stroke:#fff; stroke-width:2px">™</text>
-</svg>
+<img src="app/src/main/res/drawable/vcat_logo_tnsp.png" alt="VCAT Logo" width="260"> <sup style="font-size:65%">™</sup>
 
 <h1 align="center">VCAT™ — Video Codec Acid Test™</h1>
 
