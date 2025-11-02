@@ -69,6 +69,19 @@ Feedback is welcome — issues and PRs encouraged!
 - Open issues on VCAT or libvcat github projects.  If unsure which to use, use VCAT.
 - Include: **steps to reproduce**, **expected vs actual behavior**, **timestamp & timezone**, **browser/app version**, and **screenshots**.
 
+## Disclaimer of Suitability
+VCAT is provided for general benchmarking and evaluation purposes only. RoncaTech makes no representations or guarantees that VCAT is suitable for any particular purpose, environment, or workflow. You are solely responsible for determining whether VCAT meets your needs. Under no circumstances should reliance on VCAT substitute for your own testing, validation, or professional judgment.
+
+## Limitation of Liability
+TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, IN NO EVENT WILL RONCATECH, LLC OR ITS AFFILIATES, CONTRIBUTORS, OR SUPPLIERS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, OR PUNITIVE DAMAGES, INCLUDING BUT NOT LIMITED TO LOSS OF PROFITS, REVENUE, DATA, OR USE, ARISING OUT OF OR IN CONNECTION WITH YOUR USE OF VCAT, EVEN IF RONCATECH HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH DAMAGES.  
+You agree that your sole and exclusive remedy for any claim under or related to VCAT will be to discontinue use of the software.
+
+## Patent Notice (No Patent Rights Granted)
+VCAT and libvcat are distributed under GPL-3.0-or-later. Nothing in this README, the source code, or the license grants you any rights under third-party patents, including without limitation patents essential to implement or use media codecs and container formats (e.g., AVC/H.264, HEVC/H.265, VVC/H.266, MPEG-2, AAC, etc.).  
+- You are solely responsible for determining whether your use, distribution, or deployment of VCAT/libvcat requires patent licenses from any third party (including patent pools or individual patent holders) and for obtaining any such licenses.  
+- Contributions to this project may include a limited patent grant from contributors as specified by GPL-3.0-or-later, but no additional patent rights are provided, and no rights are granted on behalf of any third party.  
+- Use of bundled or integrated decoders/parsers does not imply or provide patent clearance for any jurisdiction. Your compliance with all applicable intellectual property laws remains your responsibility.
+
 ## License
 
 VCAT is licensed under **GPL-3.0-or-later**.  
