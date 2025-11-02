@@ -1,5 +1,18 @@
 <p align="center">
- <img src="app/src/main/res/drawable/vcat_logo_tnsp.png" alt="VCAT Logo" width="260"> <sup style="font-size:65%">™</sup>
+ <span style="position:relative; display:inline-block; line-height:0;">
+  <img src="app/src/main/res/drawable/vcat_logo_tnsp.png" alt="VCAT logo" width="260">
+  <span
+    style="
+      position:absolute;
+      bottom:4px;          /* tweak */
+      right:6px;           /* tweak */
+      font-size:60%;
+      font-weight:700;
+      text-shadow:0 0 2px #fff, 0 0 2px #fff;  /* keeps it legible on dark bits */
+      user-select:none;
+    "
+  >™</span>
+</span>
 </p>
 
 <h1 align="center">VCAT™ — Video Codec Acid Test™</h1>
