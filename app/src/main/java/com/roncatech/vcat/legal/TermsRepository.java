@@ -155,48 +155,83 @@ public class TermsRepository {
     // If you materially change LOCAL_TERMS_HTML, bump this local version
     private static final int LOCAL_VERSION = 1;
 
-    private static final String LOCAL_TERMS_HTML =
-            ("<h2>IMPORTANT \u2013 ACCEPTANCE OF TERMS</h2>"
-                    + "<p>By downloading, installing, or using VCAT (the \"Software\"), you acknowledge that you have read, "
-                    + "understood, and agree to be bound by the terms set forth in these Release Notes, the LICENSE "
-                    + "(GPL-3.0-only with commercial-waiver option), and any accompanying documentation "
-                    + "(including limitations of liability and disclaimers).</p>"
-
-                    + "<h3>License</h3>"
-                    + "<p><strong>VCAT is released under the GNU General Public License, version 3 (GPL-3.0-only).</strong> "
-                    + "By installing or using VCAT, you agree to comply with the GPL-3.0 terms. Any use outside the GPL-3.0 "
-                    + "\u2014 e.g., <em>proprietary use</em> such as distributing VCAT or derivative works without providing source "
-                    + "code under the GPL, re-licensing under more restrictive terms, or embedding it into closed-source products "
-                    + "for distribution \u2014 requires a prior <strong>written GPL-3.0 waiver or commercial license</strong> from RoncaTech, LLC.</p>"
-                    + "<p>Full license: <a href=\"https://www.gnu.org/licenses/gpl-3.0.html\" target=\"_blank\" rel=\"noopener\">GPL\u20113.0 License (gnu.org)</a><br>"
-                    + "Licensing inquiries: <a href=\"mailto:legal@roncatech.com\">Contact RoncaTech Legal</a></p>"
-
-                    + "<h3>Privacy</h3>"
-                    + "<p><strong>VCAT does not collect, store, or transmit personal data or usage analytics.</strong> "
-                    + "No telemetry, no tracking, no crash analytics, and no advertising identifiers are gathered by VCAT.</p>"
-                    + "<p>The only network requests VCAT performs are:</p>"
-                    + "<ul>"
-                    + "<li><strong>Fetching updated Terms text</strong> from a public URL (e.g., a public Gist) to notify you of changes.</li>"
-                    + "<li><strong>Importing VCAT Test Vector sets</strong> consisting solely of <em>video assets and playlists</em> "
-                    + "from sources you choose/configure. These requests fetch media files and playlist metadata only; they do not include user-identifying information.</li>"
-                    + "</ul>"
-                    + "<p>VCAT does not send any data to RoncaTech servers. Network calls go directly to the sources you configure or the public Terms host. "
-                    + "If a source requires authentication, any credentials are used only to access that source and are not transmitted to RoncaTech.</p>"
-                    + "<p><em>Third-party platforms</em> (e.g., Google Play, device OEM services, or your configured content hosts) may process data independently under their own terms. "
-                    + "VCAT does not receive that data.<br>"
-                    + "Privacy questions: <a href=\"mailto:privacy@roncatech.com\">Contact Privacy</a></p>"
-
-                    + "<h3>Disclaimer of Suitability</h3>"
-                    + "<p>VCAT is provided for general benchmarking and evaluation purposes only. RoncaTech makes no representations or guarantees that VCAT is suitable for any "
-                    + "particular purpose, environment, or workflow. You are solely responsible for determining whether VCAT meets your needs. "
-                    + "Under no circumstances should reliance on VCAT substitute for your own testing, validation, or professional judgment.</p>"
-
-                    + "<h3>Limitation of Liability</h3>"
-                    + "<p><strong>TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW</strong>, IN NO EVENT WILL RONCATECH, LLC OR ITS AFFILIATES, CONTRIBUTORS, OR SUPPLIERS "
-                    + "BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, OR PUNITIVE DAMAGES, INCLUDING BUT NOT LIMITED TO LOSS OF PROFITS, REVENUE, DATA, OR USE, "
-                    + "ARISING OUT OF OR IN CONNECTION WITH YOUR USE OF VCAT, EVEN IF RONCATECH HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH DAMAGES.</p>"
-                    + "<p>You agree that your sole and exclusive remedy for any claim under or related to VCAT will be to discontinue using the software. "
-                    + "No claim may be brought more than one (1) year after the cause of action arises.</p>");
+    public static final String LOCAL_TERMS_HTML =
+            "<h2>IMPORTANT – ACCEPTANCE OF TERMS</h2>\n" +
+                    "<p>\n" +
+                    "  By downloading, installing, or using VCAT (the “Software”), you acknowledge that you have read,\n" +
+                    "  understood, and agree to be bound by the terms set forth in these Release Notes, the LICENSE\n" +
+                    "  (GPL-3.0-only with commercial-waiver option), and any accompanying documentation\n" +
+                    "  (including limitations of liability and disclaimers).\n" +
+                    "</p>\n" +
+                    "\n" +
+                    "<h3>License</h3>\n" +
+                    "<p>\n" +
+                    "  <strong>VCAT is released under the GNU General Public License, version 3 (GPL-3.0-only).</strong>\n" +
+                    "  By installing or using VCAT, you agree to comply with the GPL-3.0 terms. Any use outside the GPL-3.0\n" +
+                    "  — <em>e.g., “proprietary use” such as distributing VCAT or derivative works without providing source\n" +
+                    "  code under the GPL, re-licensing under more restrictive terms, or embedding it into closed-source\n" +
+                    "  products for distribution</em> — requires a prior <strong>written GPL-3.0 waiver or commercial license</strong>\n" +
+                    "  from RoncaTech, LLC.\n" +
+                    "</p>\n" +
+                    "<p>\n" +
+                    "  Full license: <a href=\"https://www.gnu.org/licenses/gpl-3.0.html\" target=\"_blank\" rel=\"noopener\">GPL-3.0 License (gnu.org)</a><br>\n" +
+                    "  Licensing inquiries: <a href=\"mailto:legal@roncatech.com\">Contact RoncaTech Legal</a>\n" +
+                    "</p>\n" +
+                    "\n" +
+                    "<h3>Privacy</h3>\n" +
+                    "<p>\n" +
+                    "  <strong>VCAT does not collect, store, or transmit personal data or usage analytics.</strong>\n" +
+                    "  No telemetry, no tracking, no crash analytics, and no advertising identifiers are gathered by VCAT.\n" +
+                    "</p>\n" +
+                    "<p>The only network requests VCAT performs are:</p>\n" +
+                    "<ul>\n" +
+                    "  <li><strong>Fetching updated Terms text</strong> from a public host (e.g.,\n" +
+                    "      <a href=\"https://gist.github.com/\" target=\"_blank\" rel=\"noopener\">GitHub Gist</a>) to notify you of changes.</li>\n" +
+                    "  <li><strong>Importing VCAT Test Vector sets</strong> consisting solely of <em>video assets and playlists</em>\n" +
+                    "      from sources you choose/configure. These requests fetch media files and playlist metadata only; they do not\n" +
+                    "      include user-identifying information.</li>\n" +
+                    "</ul>\n" +
+                    "<p>\n" +
+                    "  VCAT does not send any data to RoncaTech servers. Network calls go directly to the sources you configure or the public\n" +
+                    "  Terms host. If a source requires authentication, any credentials are used only to access that source and are not\n" +
+                    "  transmitted to RoncaTech.\n" +
+                    "</p>\n" +
+                    "<p>\n" +
+                    "  <em>Third-party platforms</em> (e.g., Google Play, device OEM services, or your configured content hosts) may process\n" +
+                    "  data independently under their own terms. VCAT does not receive that data.<br>\n" +
+                    "  Privacy questions: <a href=\"mailto:privacy@roncatech.com\">Contact Privacy</a>\n" +
+                    "</p>\n" +
+                    "\n" +
+                    "<h3>Disclaimer of Suitability</h3>\n" +
+                    "<p>\n" +
+                    "  VCAT is provided for general benchmarking and evaluation purposes only. RoncaTech makes no representations or\n" +
+                    "  guarantees that VCAT is suitable for any particular purpose, environment, or workflow. You are solely responsible\n" +
+                    "  for determining whether VCAT meets your needs. Under no circumstances should reliance on VCAT substitute for your\n" +
+                    "  own testing, validation, or professional judgment.\n" +
+                    "</p>\n" +
+                    "\n" +
+                    "<h3>Limitation of Liability</h3>\n" +
+                    "<p>\n" +
+                    "  <strong>TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW</strong>, IN NO EVENT WILL RONCATECH, LLC OR ITS\n" +
+                    "  AFFILIATES, CONTRIBUTORS, OR SUPPLIERS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL,\n" +
+                    "  OR PUNITIVE DAMAGES, INCLUDING BUT NOT LIMITED TO LOSS OF PROFITS, REVENUE, DATA, OR USE, ARISING OUT OF OR IN\n" +
+                    "  CONNECTION WITH YOUR USE OF VCAT, EVEN IF RONCATECH HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH DAMAGES.\n" +
+                    "</p>\n" +
+                    "<p>\n" +
+                    "  You agree that your sole and exclusive remedy for any claim under or related to VCAT will be to discontinue\n" +
+                    "  using the software. \n" +
+                    "</p>\n" +
+                    "\n" +
+                    "<h3>Patent Notice (No Patent Rights Granted)</h3>\n" +
+                    "<p>\n" +
+                    "VCAT and libvcat are distributed under GPL-3.0-or-later. Nothing in this README, the source code, or the license grants you any rights under third-party patents, including without limitation patents essential to implement or use media codecs and container formats (e.g., AVC/H.264, HEVC/H.265, VVC/H.266, MPEG-2, AAC, etc.).\n" +
+                    "\n" +
+                    " <ul>\n" +
+                    "  <li>You are solely responsible for determining whether your use, distribution, or deployment of VCAT/libvcat requires patent licenses from any third party (including patent pools or individual patent holders) and for obtaining any such licenses.</li>\n" +
+                    "  <li>Contributions to this project may include a limited patent grant from contributors as specified by GPL-3.0-or-later, but no additional patent rights are provided, and no rights are granted on behalf of any third party.</li>\n" +
+                    "  <li>Use of bundled or integrated decoders/parsers does not imply or provide patent clearance for any jurisdiction. Your compliance with all applicable intellectual property laws remains your responsibility.</li>\n" +
+                    "</ul>\n" +
+                    "</p>\n";
 
 
     private final SharedPreferences prefs;
