@@ -87,6 +87,7 @@ VCAT and libvcat are distributed under GPL-3.0-or-later. Nothing in this README,
 
 VCAT is licensed under **GPL-3.0-or-later**.  
 See: https://www.gnu.org/licenses/gpl-3.0.html
+
 “Contact us for commercial licensing if you can’t use GPL”)
 
 Use of the VCAT logo and artwork is permitted when discussing, documenting, demonstrating, or promoting VCAT itself.  Any other usage requires prior written permission from RoncaTech LLC.
