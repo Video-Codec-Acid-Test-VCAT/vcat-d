@@ -8,13 +8,17 @@ import androidx.annotation.Nullable;
 
 import com.google.android.exoplayer2.DefaultRenderersFactory;
 import com.google.android.exoplayer2.Renderer;
+import com.google.android.exoplayer2.decoder.DecoderException;
 import com.google.android.exoplayer2.mediacodec.MediaCodecInfo;
 import com.google.android.exoplayer2.mediacodec.MediaCodecSelector;
 import com.google.android.exoplayer2.mediacodec.MediaCodecUtil;
 import com.google.android.exoplayer2.video.DecoderVideoRenderer;
 import com.google.android.exoplayer2.video.MediaCodecVideoRenderer;
 import com.google.android.exoplayer2.video.VideoRendererEventListener;
-import com.roncatech.libvcat.dav1d.Dav1dAv1Provider;
+import com.roncatech.libvcat.dav1d.VcatDav1dPlugin;
+import com.roncatech.libvcat.decoder.VcatDecoderManager;
+import com.roncatech.libvcat.decoder.VcatDecoderPlugin;
+import com.roncatech.libvcat.vvdec.VcatVvcdecPlugin;
 import com.roncatech.libvcat.vvdec.VvdecProvider;
 import com.roncatech.vcat.models.SharedViewModel;
 import com.roncatech.vcat.tools.VideoDecoderEnumerator;
@@ -76,43 +80,29 @@ public final class StrictRenderersFactoryV2 extends DefaultRenderersFactory {
         // --- vvdec (VVC) ---
         try {
             boolean wantVvdec = VCAT_VVDEC.equalsIgnoreCase(selVvc) || selVvc == null || selVvc.isEmpty();
-            if (wantVvdec && false) {
-                VvdecProvider vvdec = new VvdecProvider(this.viewModel.getRunConfig().threads);
-                if (vvdec.isAvailable(context)) {
-                    Renderer r = vvdec.build(allowedVideoJoiningTimeMs, eventHandler, eventListener);
-                    out.add(r);
-                    if (r instanceof DecoderVideoRenderer) {
-                        this.vvdecRenderer = (DecoderVideoRenderer) r;
-                    }
-                    Log.i(TAG, "Added vvdec renderer.");
-                } else {
-                    Log.i(TAG, "vvdec not available (skipped).");
-                }
+            if (wantVvdec) {
+                VcatDecoderPlugin vvc = VcatDecoderManager.getInstance().getDecoder(selVvc);
+                Renderer vvcRenderer = vvc.createVideoRenderer(context, allowedVideoJoiningTimeMs, eventHandler, eventListener, this.viewModel.getRunConfig().threads);
+                out.add(vvcRenderer);
             } else {
                 Log.i(TAG, "vvdec explicitly not selected (selVvc=" + selVvc + ").");
             }
-        } catch (Throwable t) {
-            Log.w(TAG, "vvdec renderer not added", t);
+        } catch (DecoderException e) {
+            Log.e(TAG, "vvdec renderer not added", e);
         }
 
         // --- dav1d (AV1) ---
         try {
             boolean wantDav1d = VCAT_DAV1D.equalsIgnoreCase(selAv1) || selAv1 == null || selAv1.isEmpty();
             if (wantDav1d) {
-                Dav1dAv1Provider dav1d = new Dav1dAv1Provider(this.viewModel.getRunConfig().threads, /*tileThreads=*/4);
-                if (dav1d.isAvailable(context)) {
-                    Renderer r = dav1d.build(allowedVideoJoiningTimeMs, eventHandler, eventListener);
-                    out.add(r);
-                    if (r instanceof DecoderVideoRenderer) this.dav1dRenderer = (DecoderVideoRenderer) r;
-                    Log.i(TAG, "Added dav1d renderer.");
-                } else {
-                    Log.i(TAG, "dav1d not available (skipped).");
-                }
+                VcatDecoderPlugin dav1d = VcatDecoderManager.getInstance().getDecoder(selAv1);
+                Renderer davidRenderer = dav1d.createVideoRenderer(context, allowedVideoJoiningTimeMs, eventHandler, eventListener, this.viewModel.getRunConfig().threads);
+                out.add(davidRenderer);
             } else {
                 Log.i(TAG, "dav1d explicitly not selected (selAv1=" + selAv1 + ").");
             }
-        } catch (Throwable t) {
-            Log.w(TAG, "dav1d renderer not added", t);
+        } catch (DecoderException e) {
+            Log.w(TAG, "dav1d renderer not added", e);
         }
 
         // 2) Always add MediaCodec as a fallback/default (after extensions).

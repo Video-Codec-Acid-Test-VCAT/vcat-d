@@ -131,6 +131,8 @@
         // OkHttp dependency
         implementation 'com.squareup.okhttp3:okhttp:4.12.0'
         implementation "androidx.core:core-splashscreen:1.0.1"
+        implementation "org.checkerframework:checker-compat-qual:2.5.5" // provides @NullableType
+        implementation "com.google.guava:guava:32.1.3-android"           // AtomParsers uses ImmutableList/Ints
 
         implementation 'com.roncatech.vcat:libvcat:0.0.2.3'
 

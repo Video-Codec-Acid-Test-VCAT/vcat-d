@@ -38,6 +38,8 @@ import android.media.MediaCodec;
 import androidx.annotation.NonNull;
 
 import com.google.android.exoplayer2.mediacodec.MediaCodecUtil;
+import com.roncatech.libvcat.decoder.VcatDecoderManager;
+import com.roncatech.libvcat.decoder.VcatDecoderPlugin;
 import com.roncatech.vcat.video.StrictRenderersFactoryV2;
 
 import org.jetbrains.annotations.Contract;
@@ -99,6 +101,15 @@ public class VideoDecoderEnumerator {
         }
     }
 
+    public static String firstRegisteredDecoder(String mimeType){
+        List<VcatDecoderPlugin> decoders = VcatDecoderManager.getInstance().getDecodersForMimeType(mimeType.toString());
+        if(decoders.size() > 0){
+            return decoders.get(0).getId();
+        }
+
+        return "";
+    }
+
     public static DecoderSet getDecodersForMimeType(MimeType mimeType){
 
         List<com.google.android.exoplayer2.mediacodec.MediaCodecInfo> codecInfos;
@@ -110,11 +121,8 @@ public class VideoDecoderEnumerator {
 
         List<String> decoders = new ArrayList<>();
 
-        if(mimeType == MimeType.AV1){
-            decoders.add(StrictRenderersFactoryV2.VCAT_DAV1D);
-        }
-        else if(mimeType == MimeType.VVC){
-            decoders.add(StrictRenderersFactoryV2.VCAT_VVDEC);
+        for(VcatDecoderPlugin cur : VcatDecoderManager.getInstance().getDecodersForMimeType(mimeType.toString())){
+            decoders.add(cur.getId());
         }
 
         for (com.google.android.exoplayer2.mediacodec.MediaCodecInfo codecInfo : codecInfos) {

@@ -58,7 +58,9 @@ import com.google.android.exoplayer2.PlaybackException;
 import com.google.android.exoplayer2.RenderersFactory;
 import com.google.android.exoplayer2.decoder.DecoderCounters;
 import com.google.android.exoplayer2.decoder.DecoderReuseEvaluation;
+import com.google.android.exoplayer2.extractor.Extractor;
 import com.google.android.exoplayer2.mediacodec.MediaCodecRenderer;
+import com.google.android.exoplayer2.source.DefaultMediaSourceFactory;
 import com.google.android.exoplayer2.source.TrackGroupArray;
 import com.google.android.exoplayer2.trackselection.TrackSelection;
 import com.google.android.exoplayer2.trackselection.TrackSelectionArray;
@@ -88,6 +90,7 @@ import com.roncatech.vcat.tools.UriUtils;
 import com.roncatech.vcat.tools.VideoDecoderEnumerator;
 import com.roncatech.vcat.tools.XspfParser;
 import com.roncatech.vcat.R;
+import com.roncatech.libvcat.extractor.mp4.VcatMp4Extractor;
 
 import java.util.List;
 import java.util.Locale;
@@ -530,9 +533,16 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
         ExoPlayer old = exoPlayer;
 
         // Build a new player using your existing RenderersFactory (dav1d, etc.)
-        ExoPlayer newPlayer = new ExoPlayer.Builder(this, renderersFactory).setVideoChangeFrameRateStrategy(
-                C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_OFF).build();
-        newPlayer.setRepeatMode(Player.REPEAT_MODE_OFF);
+        ExoPlayer newPlayer =
+                new ExoPlayer.Builder(this, renderersFactory)
+                        .setMediaSourceFactory(
+                                new DefaultMediaSourceFactory(
+                                        this,
+                                        () -> new Extractor[] { new VcatMp4Extractor(/* flags if any */) } // ONLY your extractor
+                                )
+                        )
+                        .setVideoChangeFrameRateStrategy(C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_OFF)
+                        .build();        newPlayer.setRepeatMode(Player.REPEAT_MODE_OFF);
 
         // Wire listeners you already use
         newPlayer.addListener(this.playbackStateListener);
