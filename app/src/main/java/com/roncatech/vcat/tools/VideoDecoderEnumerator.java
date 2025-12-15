@@ -31,13 +31,12 @@
  */
 
 package com.roncatech.vcat.tools;
-import android.media.MediaCodecInfo;
-import android.media.MediaCodecList;
-import android.media.MediaCodec;
+import androidx.media3.exoplayer.mediacodec.MediaCodecInfo;
 
 import androidx.annotation.NonNull;
+import androidx.media3.common.util.UnstableApi;
+import androidx.media3.exoplayer.mediacodec.MediaCodecUtil;
 
-import com.google.android.exoplayer2.mediacodec.MediaCodecUtil;
 import com.roncatech.libvcat.decoder.VcatDecoderManager;
 import com.roncatech.libvcat.decoder.VcatDecoderPlugin;
 import com.roncatech.vcat.video.StrictRenderersFactoryV2;
@@ -47,6 +46,7 @@ import org.jetbrains.annotations.Contract;
 import java.util.ArrayList;
 import java.util.List;
 
+@UnstableApi
 public class VideoDecoderEnumerator {
 
     // Enum to define supported MIME types
@@ -112,7 +112,7 @@ public class VideoDecoderEnumerator {
 
     public static DecoderSet getDecodersForMimeType(MimeType mimeType){
 
-        List<com.google.android.exoplayer2.mediacodec.MediaCodecInfo> codecInfos;
+        List<MediaCodecInfo> codecInfos;
         try {
             codecInfos = MediaCodecUtil.getDecoderInfos(mimeType.toString(), false, false);
         } catch (MediaCodecUtil.DecoderQueryException e) {
@@ -125,7 +125,7 @@ public class VideoDecoderEnumerator {
             decoders.add(cur.getId());
         }
 
-        for (com.google.android.exoplayer2.mediacodec.MediaCodecInfo codecInfo : codecInfos) {
+        for (MediaCodecInfo codecInfo : codecInfos) {
             decoders.add(codecInfo.name);
         }
 

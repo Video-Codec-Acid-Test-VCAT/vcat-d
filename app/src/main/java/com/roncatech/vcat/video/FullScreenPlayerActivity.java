@@ -52,49 +52,49 @@ import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
-import com.google.android.exoplayer2.C;
-import com.google.android.exoplayer2.ExoPlayer;
-import com.google.android.exoplayer2.PlaybackException;
-import com.google.android.exoplayer2.RenderersFactory;
-import com.google.android.exoplayer2.decoder.DecoderCounters;
-import com.google.android.exoplayer2.decoder.DecoderReuseEvaluation;
-import com.google.android.exoplayer2.extractor.Extractor;
-import com.google.android.exoplayer2.mediacodec.MediaCodecRenderer;
-import com.google.android.exoplayer2.source.DefaultMediaSourceFactory;
-import com.google.android.exoplayer2.source.TrackGroupArray;
-import com.google.android.exoplayer2.trackselection.TrackSelection;
-import com.google.android.exoplayer2.trackselection.TrackSelectionArray;
-import com.google.android.exoplayer2.ui.PlayerControlView;
-
-
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.lifecycle.ViewModelProvider;
 
-import com.google.android.exoplayer2.Format;
-import com.google.android.exoplayer2.MediaItem;
-import com.google.android.exoplayer2.Player;
-import com.google.android.exoplayer2.SimpleExoPlayer;
-import com.google.android.exoplayer2.analytics.AnalyticsListener;
-import com.google.android.exoplayer2.ui.PlayerView;
+import androidx.media3.common.C;
+import androidx.media3.common.Format;
+import androidx.media3.common.MediaItem;
+import androidx.media3.common.PlaybackException;
+import androidx.media3.common.Player;
+import androidx.media3.common.VideoSize;
+import androidx.media3.common.util.UnstableApi;
+import androidx.media3.exoplayer.DecoderReuseEvaluation;
+import androidx.media3.exoplayer.ExoPlayer;
+import androidx.media3.exoplayer.Renderer;
+import androidx.media3.exoplayer.RenderersFactory;
+import androidx.media3.exoplayer.DefaultRenderersFactory;
+import androidx.media3.exoplayer.analytics.AnalyticsListener;
+import androidx.media3.exoplayer.mediacodec.MediaCodecRenderer;
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
+import androidx.media3.exoplayer.trackselection.TrackSelection;
+import androidx.media3.exoplayer.trackselection.TrackSelectionArray;
+import androidx.media3.extractor.Extractor;
+import androidx.media3.ui.PlayerControlView;
+import androidx.media3.ui.PlayerView;
+import androidx.media3.exoplayer.DecoderCounters;
 
-import com.google.android.exoplayer2.video.VideoSize;
-import com.roncatech.vcat.models.TestStatus;
+import com.roncatech.libvcat.extractor3.mp4.VcatMp4Extractor3;
+import com.roncatech.vcat.R;
 import com.roncatech.vcat.models.RunConfig;
 import com.roncatech.vcat.models.SharedViewModel;
+import com.roncatech.vcat.models.TestStatus;
 import com.roncatech.vcat.service.PlayerCommandBus;
 import com.roncatech.vcat.telemetry.TelemetryLogger;
 import com.roncatech.vcat.tools.BatteryInfo;
 import com.roncatech.vcat.tools.UriUtils;
 import com.roncatech.vcat.tools.VideoDecoderEnumerator;
 import com.roncatech.vcat.tools.XspfParser;
-import com.roncatech.vcat.R;
-import com.roncatech.libvcat.extractor.mp4.VcatMp4Extractor;
 
 import java.util.List;
 import java.util.Locale;
 
+@UnstableApi
 public class FullScreenPlayerActivity extends AppCompatActivity implements PlayerCommandBus.Listener {
 
     private static final String TAG = "FullScreenPlayerActivity";
@@ -118,12 +118,13 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
 
     RenderersFactory renderersFactory;
 
-
-    private static class FrameDrops{
+    private static class FrameDrops {
         private int elapsedMs = 0;
         private int frameDrops = 0;
 
-        private void reset(){this.elapsedMs = this.frameDrops = 0;}
+        private void reset() {
+            this.elapsedMs = this.frameDrops = 0;
+        }
     }
 
     private static final String emptyDecoder = "{none}";
@@ -178,24 +179,23 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
         return vs != null && vs.width > 0 && vs.height > 0;
     }
 
-    private boolean shouldStopTesting(){
+    private boolean shouldStopTesting() {
         boolean shouldStop = false;
 
         int batteryLevel = BatteryInfo.getBatteryLevel(FullScreenPlayerActivity.this);
         RunConfig rc = FullScreenPlayerActivity.this.viewModel.getRunConfig();
 
-        if(rc.runMode == RunConfig.RunMode.BATTERY && batteryLevel < rc.runLimit){
+        if (rc.runMode == RunConfig.RunMode.BATTERY && batteryLevel < rc.runLimit) {
             Log.i(TAG, String.format("Stopping test because battery level %d is < run limit", batteryLevel));
             shouldStop = true;
-        } else if(rc.runMode == RunConfig.RunMode.TIME){
+        } else if (rc.runMode == RunConfig.RunMode.TIME) {
             long elapsedTime = (System.currentTimeMillis() - FullScreenPlayerActivity.this.viewModel.curTestDetails.getStartTimeAsEpoch()) / (1000 * 60);
-            if(elapsedTime >= rc.runLimit){
+            if (elapsedTime >= rc.runLimit) {
                 Log.i(TAG, "Stopping test because test run has exceeded run limit time");
                 shouldStop = true;
             }
-        }
-        else if(rc.runMode == RunConfig.RunMode.ONCE &&
-                FullScreenPlayerActivity.this.curFileIndex +1 == FullScreenPlayerActivity.this.testClips.size()){
+        } else if (rc.runMode == RunConfig.RunMode.ONCE &&
+                FullScreenPlayerActivity.this.curFileIndex + 1 == FullScreenPlayerActivity.this.testClips.size()) {
             Log.i(TAG, "Stopping test because playlist is complete");
             shouldStop = true;
         }
@@ -203,35 +203,35 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
         return shouldStop;
     }
 
-    private void advanceToNextClip(){
+    private void advanceToNextClip() {
         if (++this.curFileIndex >= this.testClips.size()) {
             this.curFileIndex = 0;
         }
     }
 
     @Override
-    public void onStopTest(){
+    public void onStopTest() {
         stopTestAndCleanup();
     }
+
     public void onToggleVideoInfo() {
         if (videoOverlay.getVisibility() == View.VISIBLE) {
             videoOverlay.setVisibility(View.GONE);
             return;
         }
 
-        // calculate size (fall back if height is not laid out yet)
-        TelemetryLogger.VideoInfo vi = getTlVideoInfo(this.testClips.get(this.curFileIndex), this.viewModel.curTestDetails);
+        TelemetryLogger.VideoInfo vi =
+                getTlVideoInfo(this.testClips.get(this.curFileIndex), this.viewModel.curTestDetails);
         int displayHeight = playerView.getHeight();
         if (displayHeight == 0) {
             displayHeight = playerView.getMeasuredHeight();
             if (displayHeight == 0) {
-                // final fallback: just use MATCH_PARENT width if we can't compute yet
                 displayHeight = ViewGroup.LayoutParams.MATCH_PARENT;
             }
         }
         double videoAspectRatio = -1;
 
-        if(vi.width != null && !vi.width.isEmpty() && vi.height != null && !vi.height.isEmpty()){
+        if (vi.width != null && !vi.width.isEmpty() && vi.height != null && !vi.height.isEmpty()) {
             videoAspectRatio = Double.parseDouble(vi.width) / Double.parseDouble(vi.height);
         }
         int scaledVideoWidth = (displayHeight == ViewGroup.LayoutParams.MATCH_PARENT)
@@ -245,33 +245,21 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
         );
         videoOverlay.setLayoutParams(params);
 
-        // show it ABOVE the video + controller
         videoOverlay.setVisibility(View.VISIBLE);
         videoOverlay.bringToFront();
         videoOverlay.setElevation(1000f);
-
-        // FIX: make sure it’s actually visible (don’t leave alpha at 0)
-        // Simple on/off:
         videoOverlay.setAlpha(1f);
 
-        // (If you prefer a fade-in, use this instead of the line above)
-        // videoOverlay.setAlpha(0f);
-        // videoOverlay.animate().alpha(1f).setDuration(150).start();
-
-        // populate overlay text (your logTelemetry already sets it when overlay is VISIBLE)
         logTelemetry(false);
     }
 
-    public void onPlayPause(){
+    public void onPlayPause() {
         exoPlayer.setPlayWhenReady(!exoPlayer.getPlayWhenReady());
     }
 
     private void stopTestAndCleanup() {
-        // 1) stop your periodic telemetry
         stopTelemetryTimer();
-        // 2) reset the test details
         viewModel.curTestDetails.reset();
-        // 3) tear down playback & exit
         if (exoPlayer != null) {
             exoPlayer.stop();
             exoPlayer.release();
@@ -283,12 +271,11 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
         finish();
     }
 
-    private com.google.android.exoplayer2.DefaultRenderersFactory getRendersFactory() {
-        // forcedJoinMs = 500 (tweak as you like)
+    private DefaultRenderersFactory getRendersFactory() {
         return new StrictRenderersFactoryV2(this, this.viewModel);
     }
 
-    private void initialize(){
+    private void initialize() {
         this.viewModel = new ViewModelProvider(this).get(SharedViewModel.class);
 
         int testScreenBrightness = viewModel.getRunConfig().screenBrightness;
@@ -316,7 +303,8 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
                 }
             }
 
-            final RunConfig.VideoOrientation mode = FullScreenPlayerActivity.this.viewModel.getRunConfig().videoOrientation;
+            final RunConfig.VideoOrientation mode =
+                    FullScreenPlayerActivity.this.viewModel.getRunConfig().videoOrientation;
 
             @Override
             public void onPlayerError(@NonNull PlaybackException error) {
@@ -325,9 +313,8 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
                     MediaCodecRenderer.DecoderInitializationException die =
                             (MediaCodecRenderer.DecoderInitializationException) cause;
 
-                    // public fields on that exception:
-                    String decoderName           = die.codecInfo.name;       // e.g. "c2.unisoc.av1.decoder"
-                    boolean secureDecoderRequired = die.secureDecoderRequired;
+                    String decoderName =
+                            die.codecInfo.name != null ? die.codecInfo.name : "unknown-decoder";
 
                     String msg = new StringBuilder()
                             .append("Failed to init decoder:\n")
@@ -340,29 +327,28 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
                             .setMessage(msg)
                             .setPositiveButton(android.R.string.ok, null)
                             .show();
-                    dlg.setOnDismissListener(d->stopTestAndCleanup());
+                    dlg.setOnDismissListener(d -> stopTestAndCleanup());
 
                 } else {
-                    // fallback for any other playback error
                     AlertDialog dlg = new AlertDialog.Builder(FullScreenPlayerActivity.this)
                             .setTitle("Playback Error")
                             .setMessage(error.getMessage())
                             .setPositiveButton(android.R.string.ok, null)
                             .show();
-                    dlg.setOnDismissListener(d->stopTestAndCleanup());
+                    dlg.setOnDismissListener(d -> stopTestAndCleanup());
                 }
             }
 
             @Override
             public void onVideoSizeChanged(VideoSize videoSize) {
-                Log.i(TAG, "Video size Changed" + videoSize.width + "x" + videoSize.height);
+                Log.i(TAG, "Video size Changed " + videoSize.width + "x" + videoSize.height);
                 if (!orientationCommittedForClip && hasValidVideoSize(videoSize)) {
                     maybeApplyOrientationForClip(mode, videoSize);
                 }
             }
 
             @Override
-            public void onMediaItemTransition(@Nullable com.google.android.exoplayer2.MediaItem mediaItem, int reason) {
+            public void onMediaItemTransition(@Nullable MediaItem mediaItem, int reason) {
                 orientationCommittedForClip = false;
                 if (mode != RunConfig.VideoOrientation.MATCH_VIDEO) {
                     maybeApplyOrientationForClip(mode, /*vs=*/null);
@@ -372,7 +358,6 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
 
         this.analyticsListener = new AnalyticsListener() {
 
-            // ---- High-signal lifecycle / state ----
             @Override
             public void onPlaybackStateChanged(EventTime et, int state) {
                 long pos = exoPlayer == null ? -1 : exoPlayer.getCurrentPosition();
@@ -386,15 +371,19 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
 
             @Override
             public void onPlayerError(EventTime et, PlaybackException error) {
-                Log.e(TAG, "playerError code=" + error.errorCode + " pos=" + exoPlayer.getCurrentPosition(), error);
+                Log.e(TAG, "playerError code=" + error.errorCode
+                        + " pos=" + exoPlayer.getCurrentPosition(), error);
             }
 
-            // ---- Decoder / format info ----
             @Override
             public void onVideoDecoderInitialized(
-                    EventTime et, String decoderName, long initializationDurationMs, long initializationDelayMs) {
+                    EventTime et,
+                    String decoderName,
+                    long initializationDurationMs,
+                    long initializationDelayMs) {
                 Log.i(TAG, "Video decoder initialized: " + decoderName
-                        + " initMs=" + initializationDurationMs + " delayMs=" + initializationDelayMs);
+                        + " initMs=" + initializationDurationMs
+                        + " delayMs=" + initializationDelayMs);
                 FullScreenPlayerActivity.this.curDecoder = decoderName;
             }
 
@@ -405,9 +394,10 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
                         + format.width + "x" + format.height + " @" + format.frameRate
                         + " color=" + format.colorInfo);
             }
+
             @Override
             public void onVideoEnabled(EventTime et, DecoderCounters counters) {
-                videoCounters = counters;                    // keep reference to poll later
+                videoCounters = counters;
                 Log.d(TAG, "videoEnabled: counters attached");
             }
 
@@ -420,7 +410,6 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
                 videoCounters = null;
             }
 
-            // ---- First frame / output target ----
             @Override
             public void onRenderedFirstFrame(EventTime et, Object output, long renderTimeMs) {
                 String out = (output == null) ? "null" : output.getClass().getSimpleName();
@@ -442,7 +431,6 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
         };
     }
 
-
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -452,23 +440,19 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
         playerView = findViewById(R.id.playerView);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 
-        // Lookups for the overlay controls that live OUTSIDE the PlayerView
         LinearLayout buttonRow   = findViewById(R.id.buttonRow);
         View stopButton          = findViewById(R.id.stopButton);
         View infoButton          = findViewById(R.id.toggleVideoInfo);
         this.videoOverlay        = findViewById(R.id.videoOverlay);
 
-        // Ensure the overlay is above the video surface and clickable
         buttonRow.bringToFront();
         buttonRow.setClickable(true);
         buttonRow.setFocusable(true);
 
-        // Make PlayerView controller behavior explicit
         playerView.setUseController(true);
         playerView.setControllerShowTimeoutMs(3000);
         playerView.setControllerHideOnTouch(true);
 
-        // Keep the overlay in lockstep with the controller visibility
         playerView.setControllerVisibilityListener(new PlayerControlView.VisibilityListener() {
             @Override
             public void onVisibilityChange(int visibility) {
@@ -476,28 +460,27 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
             }
         });
 
-        // Optional: start with controller visible so buttons appear initially
         playerView.showController();
 
-        // Wire button actions
         stopButton.setOnClickListener(v -> stopTestAndCleanup());
-        infoButton.setOnClickListener(v -> {
-            onToggleVideoInfo();
-        });
+        infoButton.setOnClickListener(v -> onToggleVideoInfo());
 
-        // setup telemetry file
         long startTime = System.currentTimeMillis();
         String telemetryFileName = "logs_" + startTime + ".csv";
 
         this.tl = new TelemetryLogger(telemetryFileName);
 
-        this.tl.writeHeaderRows(this, viewModel.curTestDetails.getPlaylistFileName(), this.viewModel.getRunConfig(), startTime);
+        this.tl.writeHeaderRows(
+                this,
+                viewModel.curTestDetails.getPlaylistFileName(),
+                this.viewModel.getRunConfig(),
+                startTime);
         this.tl.writeCsvHeader();
 
-        testClips  = XspfParser.parsePlaylist(this, Uri.parse(viewModel.curTestDetails.getPlaylist()));
+        testClips = XspfParser.parsePlaylist(this, Uri.parse(viewModel.curTestDetails.getPlaylist()));
         curFileIndex = 0;
         if (testClips.isEmpty()) {
-            finish();  // nothing to play
+            finish();
             return;
         }
 
@@ -507,12 +490,12 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
 
     private static String rendererTypeName(int t) {
         switch (t) {
-            case com.google.android.exoplayer2.C.TRACK_TYPE_VIDEO: return "VIDEO";
-            case com.google.android.exoplayer2.C.TRACK_TYPE_AUDIO: return "AUDIO";
-            case com.google.android.exoplayer2.C.TRACK_TYPE_TEXT: return "TEXT";
-            case com.google.android.exoplayer2.C.TRACK_TYPE_METADATA: return "METADATA";
-            case com.google.android.exoplayer2.C.TRACK_TYPE_CAMERA_MOTION: return "CAMERA_MOTION";
-            case com.google.android.exoplayer2.C.TRACK_TYPE_NONE: return "NONE";
+            case C.TRACK_TYPE_VIDEO: return "VIDEO";
+            case C.TRACK_TYPE_AUDIO: return "AUDIO";
+            case C.TRACK_TYPE_TEXT: return "TEXT";
+            case C.TRACK_TYPE_METADATA: return "METADATA";
+            case C.TRACK_TYPE_CAMERA_MOTION: return "CAMERA_MOTION";
+            case C.TRACK_TYPE_NONE: return "NONE";
             default: return "UNKNOWN(" + t + ")";
         }
     }
@@ -523,28 +506,28 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
         setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
     }
 
-    // Put this near your other private helpers
     private void startClipWithFreshPlayer() {
 
         orientationCommittedForClip = false;
         final RunConfig.VideoOrientation mode = viewModel.getRunConfig().videoOrientation;
 
-        // Keep a handle to the old player so we can release it after swap
         ExoPlayer old = exoPlayer;
 
-        // Build a new player using your existing RenderersFactory (dav1d, etc.)
+        DefaultMediaSourceFactory mediaSourceFactory =
+                new DefaultMediaSourceFactory(
+                        this,
+                        () -> new Extractor[] {
+                                new VcatMp4Extractor3()
+                        });
+
         ExoPlayer newPlayer =
                 new ExoPlayer.Builder(this, renderersFactory)
-                        .setMediaSourceFactory(
-                                new DefaultMediaSourceFactory(
-                                        this,
-                                        () -> new Extractor[] { new VcatMp4Extractor(/* flags if any */) } // ONLY your extractor
-                                )
-                        )
+                        .setMediaSourceFactory(mediaSourceFactory)
                         .setVideoChangeFrameRateStrategy(C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_OFF)
-                        .build();        newPlayer.setRepeatMode(Player.REPEAT_MODE_OFF);
+                        .build();
 
-        // Wire listeners you already use
+        newPlayer.setRepeatMode(Player.REPEAT_MODE_OFF);
+
         newPlayer.addListener(this.playbackStateListener);
         if (this.analyticsListener != null) {
             newPlayer.addAnalyticsListener(this.analyticsListener);
@@ -557,36 +540,34 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
             maybeApplyOrientationForClip(mode, /*vs=*/null);
         }
 
-        // Attach it to the PlayerView
         playerView.setPlayer(newPlayer);
 
-        // Load & play the current clip
         Uri clip = this.testClips.get(this.curFileIndex);
         newPlayer.setMediaItem(MediaItem.fromUri(clip));
         newPlayer.prepare();
         newPlayer.play();
 
-        // Make the new player current
         exoPlayer = newPlayer;
 
         int videoRenderers = 0;
         for (int i = 0; i < exoPlayer.getRendererCount(); i++) {
             int type = exoPlayer.getRendererType(i);
             Log.d(TAG, "renderer[" + i + "] type=" + rendererTypeName(type));
-            if (type == com.google.android.exoplayer2.C.TRACK_TYPE_VIDEO) videoRenderers++;
+            if (type == C.TRACK_TYPE_VIDEO) videoRenderers++;
         }
         Log.d(TAG, "videoRendererCount=" + videoRenderers);
 
-        // Release the old one after we've fully switched the view
         if (old != null) {
-            // Defensive: clear media & listeners before release
             old.clearMediaItems();
             old.removeListener(this.playbackStateListener);
-            if (this.analyticsListener != null) old.removeAnalyticsListener(this.analyticsListener);
+            if (this.analyticsListener != null) {
+                old.removeAnalyticsListener(this.analyticsListener);
+            }
             hb.removeCallbacks(heartbeat);
             old.release();
         }
     }
+
     private void playCurClip() {
         Uri clip = this.testClips.get(this.curFileIndex);
         exoPlayer.setMediaItem(MediaItem.fromUri(clip));
@@ -594,13 +575,11 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
         exoPlayer.play();
     }
 
-
     private void hideSystemUi() {
         getWindow().getDecorView().setSystemUiVisibility(
                 View.SYSTEM_UI_FLAG_FULLSCREEN
                         | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
                         | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
-                // omit the LAYOUT flags if you don’t need content under the bars
         );
     }
 
@@ -619,11 +598,9 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
     protected void onStop() {
         super.onStop();
 
-        super.onStop();
         getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 
-        // restore screen brightness if set
-        if(this.originalWindowBrightness > 0){
+        if (this.originalWindowBrightness > 0) {
             WindowManager.LayoutParams lp = getWindow().getAttributes();
             lp.screenBrightness = this.originalWindowBrightness;
             getWindow().setAttributes(lp);
@@ -646,24 +623,20 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
             long startTs = viewModel.curTestDetails.getStartTimeAsEpoch();
             long elapsed = now - startTs;
 
-            // 1) log your telemetry (you already have the method)
             logTelemetry(false);
 
-            // 2) compute next delay
             long rampDuration = 60 * 60 * 1000L;  // 1 hour
-            long minDelay    = 30 * 1000L;         //  30 seconds
-            long maxDelay    = 5  * 60 * 1000L;    //  5 minutes
+            long minDelay    = 30 * 1000L;        // 30 seconds
+            long maxDelay    = 5  * 60 * 1000L;   // 5 minutes
 
             float ratio = Math.min(1f, (float) elapsed / rampDuration);
             long delay = minDelay + (long) ((maxDelay - minDelay) * ratio);
 
-            // 3) schedule again
             telemetryHandler.postDelayed(this, delay);
         }
     };
 
     private void startTelemetryTimer() {
-        // kick off immediately
         telemetryHandler.post(telemetryRunnable);
     }
 
@@ -671,37 +644,45 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
         telemetryHandler.removeCallbacks(telemetryRunnable);
     }
 
-    // call this after exoPlayer.play()
     private void onPlaybackStarted() {
         startTelemetryTimer();
     }
 
-    // call this when playback ends or in onStop()
     private void onPlaybackStopped() {
-
+        // no-op hook for now
     }
 
     private void logTelemetry(boolean endOfFile) {
 
-        TelemetryLogger.VideoInfo vi = getTlVideoInfo(this.testClips.get(this.curFileIndex), this.viewModel.curTestDetails);
+        TelemetryLogger.VideoInfo vi =
+                getTlVideoInfo(this.testClips.get(this.curFileIndex), this.viewModel.curTestDetails);
 
         int frameDrops = this.fd.frameDrops;
         this.fd.reset();
 
-        this.tl.logTelemetryRow(this, this.viewModel.curTestDetails.getStartTimeAsEpoch(), vi, frameDrops, false, endOfFile);
+        this.tl.logTelemetryRow(
+                this,
+                this.viewModel.curTestDetails.getStartTimeAsEpoch(),
+                vi,
+                frameDrops,
+                false,
+                endOfFile
+        );
 
-        if(!this.viewModel.curTestDetails.getCurrentTestVideo().getFileName().equals(vi.fileName)){
-            // update test details
-            this.viewModel.curTestDetails.setCurrentTestVideo(new TestStatus.CurrentTestVideo(vi.fileName,
-                    vi.codec,
-                    vi.decoderName,
-                    vi.width + "x" + vi.height,
-                    vi.mimeType,
-                    vi.bitrate,
-                    vi.fps));
+        if (!this.viewModel.curTestDetails.getCurrentTestVideo().getFileName().equals(vi.fileName)) {
+            this.viewModel.curTestDetails.setCurrentTestVideo(
+                    new TestStatus.CurrentTestVideo(
+                            vi.fileName,
+                            vi.codec,
+                            vi.decoderName,
+                            vi.width + "x" + vi.height,
+                            vi.mimeType,
+                            vi.bitrate,
+                            vi.fps
+                    )
+            );
         }
 
-        // if video overlay is vidible, populate
         if (this.videoOverlay != null && this.videoOverlay.getVisibility() == View.VISIBLE) {
             this.videoOverlay.setText(String.format(Locale.US,
                     "Path: %s\n" +
@@ -710,10 +691,10 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
                             "Bitrate: %s\n" +
                             "Codec: %s\n" +
                             "Decoder: %s\n" +
-                            "Framerate: %.2f fps\n"+
+                            "Framerate: %.2f fps\n" +
                             "Display: %d%%\n" +
                             "Run Mode: %s\n" +
-                            "Battery Level: %d%%\n"+
+                            "Battery Level: %d%%\n" +
                             "Run Duration: %s",
                     UriUtils.fileNameFromURI(vi.fileName),
                     vi.width,
@@ -731,24 +712,22 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
         }
     }
 
-    private int getVideoBitrate(){
-        int bitrate = com.google.android.exoplayer2.Format.NO_VALUE;
+    private int getVideoBitrate() {
+        int bitrate = Format.NO_VALUE;
 
-        com.google.android.exoplayer2.trackselection.TrackSelectionArray sels =
-                exoPlayer.getCurrentTrackSelections();
+        TrackSelectionArray sels = exoPlayer.getCurrentTrackSelections();
 
-        // find the video renderer index
         int vidIdx = -1;
         for (int i = 0; i < exoPlayer.getRendererCount(); i++) {
-            if (exoPlayer.getRendererType(i) == com.google.android.exoplayer2.C.TRACK_TYPE_VIDEO) {
+            if (exoPlayer.getRendererType(i) == C.TRACK_TYPE_VIDEO) {
                 vidIdx = i; break;
             }
         }
 
         if (vidIdx >= 0) {
-            com.google.android.exoplayer2.trackselection.TrackSelection sel = sels.get(vidIdx);
+            TrackSelection sel = sels.get(vidIdx);
             if (sel != null && sel.length() > 0) {
-                com.google.android.exoplayer2.Format f = sel.getFormat(0); // fallback heuristic
+                Format f = sel.getFormat(0);
                 if (f != null) {
                     bitrate = f.bitrate;
                 }
@@ -762,44 +741,35 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
             Uri videoFileUri,
             TestStatus testStatus) {
 
-        if(this.exoPlayer == null) {
+        if (this.exoPlayer == null) {
             return TelemetryLogger.VideoInfo.empty;
         }
-        // Grab the video track’s Format from ExoPlayer
+
         Format fmt = exoPlayer.getVideoFormat();
         if (fmt == null) {
-            // No video track info available yet
             return TelemetryLogger.VideoInfo.empty;
         }
 
-
-        // Width & height
         String width  = String.valueOf(fmt.width);
         String height = String.valueOf(fmt.height);
 
-        // Bitrate → human-readable string
-        // (assumes formatBitrate takes a String; adjust if you have a long overload)
         String bitrate = formatBitrate(String.valueOf(getVideoBitrate()));
 
-        // Mime type and codec name
-        String mime  = fmt.sampleMimeType;                     // e.g. "video/av1"
-        String codec = mimeTypeToCodecName(mime);              // your mapping helper
+        String mime  = fmt.sampleMimeType;
+        String codec = mimeTypeToCodecName(mime);
 
-        // Frame rate (may be <= 0 if unspecified in the container)
         float fps = fmt.frameRate > 0 ? fmt.frameRate : -1f;
 
-        TelemetryLogger.VideoInfo vi = new TelemetryLogger.VideoInfo(
-                /* path     = */ videoFileUri.toString(),
-                /* width    = */ width,
-                /* height   = */ height,
-                /* mimeType = */ mime,
-                /* bitrate  = */ bitrate,
-                /* codec    = */ codec,
-                /* decoder  = */ this.curDecoder,    // or whatever decoder name you track
-                /* fps      = */ fps
+        return new TelemetryLogger.VideoInfo(
+                videoFileUri.toString(),
+                width,
+                height,
+                mime,
+                bitrate,
+                codec,
+                this.curDecoder,
+                fps
         );
-
-        return vi;
     }
 
     public static String formatBitrate(String bitrateStr) {
@@ -814,13 +784,10 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
         }
 
         if (bitrate >= 1_000_000L) {
-            // Mbps
             return String.format(Locale.US, "%.2f Mbps", bitrate / 1_000_000.0);
         } else if (bitrate >= 1_000L) {
-            // Kbps
             return String.format(Locale.US, "%.2f Kbps", bitrate / 1_000.0);
         } else {
-            // bps
             return bitrate + " bps";
         }
     }
@@ -846,12 +813,10 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
             case "video/x-ms-wmv":
                 return "WMV";
             default:
-                // fallback to the raw mime type if you like
                 return mimeType;
         }
     }
 
-    // screen orientation
     private void maybeApplyOrientationForClip(RunConfig.VideoOrientation mode, @Nullable VideoSize vs) {
         switch (mode) {
             case MATCH_DEVICE: {
@@ -871,9 +836,11 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
             }
             case MATCH_VIDEO:
             default: {
-                if (!hasValidVideoSize(vs)) return; // don't commit on 0×0
+                if (!hasValidVideoSize(vs)) return;
                 int w = vs.width, h = vs.height;
-                if ((vs.unappliedRotationDegrees % 180) == 90) { int t = w; w = h; h = t; }
+                if ((vs.unappliedRotationDegrees % 180) == 90) {
+                    int t = w; w = h; h = t;
+                }
                 boolean portrait = h >= w;
                 setRequestedOrientation(portrait
                         ? SCREEN_ORIENTATION_SENSOR_PORTRAIT
@@ -882,6 +849,4 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
             }
         }
     }
-
 }
-

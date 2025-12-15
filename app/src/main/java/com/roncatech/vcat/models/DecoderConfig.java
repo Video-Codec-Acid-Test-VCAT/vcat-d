@@ -34,7 +34,8 @@ package com.roncatech.vcat.models;
 
 import android.util.Log;
 
-import com.google.android.exoplayer2.util.MimeTypes;
+import androidx.media3.common.MimeTypes;
+
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 

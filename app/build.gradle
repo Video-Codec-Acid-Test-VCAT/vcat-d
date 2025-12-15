@@ -107,33 +107,36 @@
         }
     }
 
-    dependencies {
+dependencies {
 
-        implementation libs.appcompat
-        implementation libs.material
-        testImplementation libs.junit
-        androidTestImplementation libs.ext.junit
-        androidTestImplementation libs.espresso.core
-        implementation libs.appcompat
-        implementation libs.material
-        testImplementation libs.junit
-        androidTestImplementation libs.ext.junit
-        androidTestImplementation libs.espresso.core
+    implementation libs.appcompat
+    implementation libs.material
+    testImplementation libs.junit
+    androidTestImplementation libs.ext.junit
+    androidTestImplementation libs.espresso.core
 
-        implementation 'com.google.code.gson:gson:2.10.1'
-        implementation 'org.nanohttpd:nanohttpd:2.3.1'
-        implementation 'com.opencsv:opencsv:5.6'
-        implementation 'com.google.android.exoplayer:exoplayer:2.19.1'
-        implementation "com.google.android.exoplayer:exoplayer-ui:2.19.1"
-        implementation 'com.google.android.material:material:1.9.0'
-        implementation "androidx.appcompat:appcompat:1.6.1"
-        testImplementation "org.robolectric:robolectric:4.11.1"
-        // OkHttp dependency
-        implementation 'com.squareup.okhttp3:okhttp:4.12.0'
-        implementation "androidx.core:core-splashscreen:1.0.1"
-        implementation "org.checkerframework:checker-compat-qual:2.5.5" // provides @NullableType
-        implementation "com.google.guava:guava:32.1.3-android"           // AtomParsers uses ImmutableList/Ints
+    implementation 'com.google.code.gson:gson:2.10.1'
+    implementation 'org.nanohttpd:nanohttpd:2.3.1'
+    implementation 'com.opencsv:opencsv:5.6'
 
-        implementation 'com.roncatech.vcat:libvcat:0.0.2.3'
+    // ExoPlayer 2.x → Media3 (ExoPlayer 3)
+    implementation "androidx.media3:media3-exoplayer:1.8.0"
+    implementation "androidx.media3:media3-ui:1.5.1"
+    // add more Media3 modules if you need them (dash, hls, session, etc.):
+    // implementation "androidx.media3:media3-exoplayer-dash:1.5.1"
+    // implementation "androidx.media3:media3-exoplayer-hls:1.5.1"
+    // implementation "androidx.media3:media3-session:1.5.1"
 
-    }
+    implementation 'com.google.android.material:material:1.9.0'
+    implementation "androidx.appcompat:appcompat:1.6.1"
+    testImplementation "org.robolectric:robolectric:4.11.1"
+
+    // OkHttp dependency
+    implementation 'com.squareup.okhttp3:okhttp:4.12.0'
+    implementation "androidx.core:core-splashscreen:1.0.1"
+
+    implementation "org.checkerframework:checker-compat-qual:2.5.5" // provides @NullableType
+    implementation "com.google.guava:guava:32.1.3-android"           // AtomParsers uses ImmutableList/Ints
+
+    implementation 'com.roncatech.vcat:libvcat:0.0.2.3'
+}

@@ -6,26 +6,26 @@ import android.util.Log;
 
 import androidx.annotation.Nullable;
 
-import com.google.android.exoplayer2.DefaultRenderersFactory;
-import com.google.android.exoplayer2.Renderer;
-import com.google.android.exoplayer2.decoder.DecoderException;
-import com.google.android.exoplayer2.mediacodec.MediaCodecInfo;
-import com.google.android.exoplayer2.mediacodec.MediaCodecSelector;
-import com.google.android.exoplayer2.mediacodec.MediaCodecUtil;
-import com.google.android.exoplayer2.video.DecoderVideoRenderer;
-import com.google.android.exoplayer2.video.MediaCodecVideoRenderer;
-import com.google.android.exoplayer2.video.VideoRendererEventListener;
-import com.roncatech.libvcat.dav1d.VcatDav1dPlugin;
+import androidx.media3.common.util.UnstableApi;
+import androidx.media3.exoplayer.DefaultRenderersFactory;
+import androidx.media3.exoplayer.Renderer;
+import androidx.media3.decoder.DecoderException;
+import androidx.media3.exoplayer.mediacodec.MediaCodecInfo;
+import androidx.media3.exoplayer.mediacodec.MediaCodecSelector;
+import androidx.media3.exoplayer.mediacodec.MediaCodecUtil;
+import androidx.media3.exoplayer.video.DecoderVideoRenderer;
+import androidx.media3.exoplayer.video.MediaCodecVideoRenderer;
+import androidx.media3.exoplayer.video.VideoRendererEventListener;
+
 import com.roncatech.libvcat.decoder.VcatDecoderManager;
 import com.roncatech.libvcat.decoder.VcatDecoderPlugin;
-import com.roncatech.libvcat.vvdec.VcatVvcdecPlugin;
-import com.roncatech.libvcat.vvdec.VvdecProvider;
 import com.roncatech.vcat.models.SharedViewModel;
 import com.roncatech.vcat.tools.VideoDecoderEnumerator;
 
 import java.util.ArrayList;
 import java.util.List;
 
+@UnstableApi
 public final class StrictRenderersFactoryV2 extends DefaultRenderersFactory {
     private static final String TAG = "RenderersFactory";
 
@@ -51,7 +51,9 @@ public final class StrictRenderersFactoryV2 extends DefaultRenderersFactory {
             if (selected != null && !selected.isEmpty()) {
                 List<MediaCodecInfo> filtered = new ArrayList<>();
                 for (MediaCodecInfo info : infos) {
-                    if (info.name.equalsIgnoreCase(selected)) filtered.add(info);
+                    if (info.name.equalsIgnoreCase(selected)) {
+                        filtered.add(info);
+                    }
                 }
                 Log.i(TAG, "MediaCodecSelector for " + mimeType + " -> " + selected
                         + " (found=" + filtered.size() + ")");
@@ -65,14 +67,14 @@ public final class StrictRenderersFactoryV2 extends DefaultRenderersFactory {
     @Override
     protected void buildVideoRenderers(
             Context context,
-            int extensionRendererMode,
+            @ExtensionRendererMode int extensionRendererMode,
             MediaCodecSelector ignoredMediaCodecSelector,
             boolean enableDecoderFallback,
             Handler eventHandler,
             VideoRendererEventListener eventListener,
             long allowedVideoJoiningTimeMs,
             ArrayList<Renderer> out
-    )  {
+    ) {
         final String selAv1 = viewModel.getRunConfig().decoderCfg.getDecoder(VideoDecoderEnumerator.MimeType.AV1);
         final String selVvc = viewModel.getRunConfig().decoderCfg.getDecoder(VideoDecoderEnumerator.MimeType.VVC);
 
@@ -82,7 +84,13 @@ public final class StrictRenderersFactoryV2 extends DefaultRenderersFactory {
             boolean wantVvdec = VCAT_VVDEC.equalsIgnoreCase(selVvc) || selVvc == null || selVvc.isEmpty();
             if (wantVvdec) {
                 VcatDecoderPlugin vvc = VcatDecoderManager.getInstance().getDecoder(selVvc);
-                Renderer vvcRenderer = vvc.createVideoRenderer(context, allowedVideoJoiningTimeMs, eventHandler, eventListener, this.viewModel.getRunConfig().threads);
+                Renderer vvcRenderer = vvc.createVideoRenderer(
+                        context,
+                        allowedVideoJoiningTimeMs,
+                        eventHandler,
+                        eventListener,
+                        this.viewModel.getRunConfig().threads
+                );
                 out.add(vvcRenderer);
             } else {
                 Log.i(TAG, "vvdec explicitly not selected (selVvc=" + selVvc + ").");
@@ -96,8 +104,14 @@ public final class StrictRenderersFactoryV2 extends DefaultRenderersFactory {
             boolean wantDav1d = VCAT_DAV1D.equalsIgnoreCase(selAv1) || selAv1 == null || selAv1.isEmpty();
             if (wantDav1d) {
                 VcatDecoderPlugin dav1d = VcatDecoderManager.getInstance().getDecoder(selAv1);
-                Renderer davidRenderer = dav1d.createVideoRenderer(context, allowedVideoJoiningTimeMs, eventHandler, eventListener, this.viewModel.getRunConfig().threads);
-                out.add(davidRenderer);
+                Renderer dav1dRenderer = dav1d.createVideoRenderer(
+                        context,
+                        allowedVideoJoiningTimeMs,
+                        eventHandler,
+                        eventListener,
+                        this.viewModel.getRunConfig().threads
+                );
+                out.add(dav1dRenderer);
             } else {
                 Log.i(TAG, "dav1d explicitly not selected (selAv1=" + selAv1 + ").");
             }
@@ -106,15 +120,17 @@ public final class StrictRenderersFactoryV2 extends DefaultRenderersFactory {
         }
 
         // 2) Always add MediaCodec as a fallback/default (after extensions).
-        out.add(new MediaCodecVideoRenderer(
-                context,
-                customSelector,
-                allowedVideoJoiningTimeMs,
-                enableDecoderFallback,
-                eventHandler,
-                eventListener,
-                MAX_DROPPED_VIDEO_FRAME_COUNT_TO_NOTIFY
-        ));
+        out.add(
+                new MediaCodecVideoRenderer(
+                        context,
+                        customSelector,
+                        allowedVideoJoiningTimeMs,
+                        enableDecoderFallback,
+                        eventHandler,
+                        eventListener,
+                        MAX_DROPPED_VIDEO_FRAME_COUNT_TO_NOTIFY
+                )
+        );
         Log.i(TAG, "Added MediaCodecVideoRenderer.");
     }
 }
