@@ -47,7 +47,7 @@ All VCAT artwork is owned exclusively by RoncaTech LLC. Use of VCAT logos and ar
         android:layout_height="match_parent"
         android:background="@android:color/black"
         android:keepScreenOn="true"
-        app:use_controller="true"
+        app:use_controller="false"
         app:show_timeout="3000"
         app:hide_on_touch="true"
         app:resize_mode="fit"

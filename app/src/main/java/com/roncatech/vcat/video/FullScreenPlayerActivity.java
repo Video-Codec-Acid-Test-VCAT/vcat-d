@@ -449,6 +449,8 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
         buttonRow.setClickable(true);
         buttonRow.setFocusable(true);
 
+        // Keep the controller enabled so we can use its visibility callbacks
+        // to drive the VCAT buttonRow.
         playerView.setUseController(true);
         playerView.setControllerShowTimeoutMs(3000);
         playerView.setControllerHideOnTouch(true);
@@ -456,11 +458,49 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
         playerView.setControllerVisibilityListener(new PlayerControlView.VisibilityListener() {
             @Override
             public void onVisibilityChange(int visibility) {
-                buttonRow.setVisibility(visibility == View.VISIBLE ? View.VISIBLE : View.GONE);
+                buttonRow.setVisibility(
+                        visibility == View.VISIBLE ? View.VISIBLE : View.GONE);
             }
         });
 
+        // Show once so the internal controller view hierarchy is inflated.
         playerView.showController();
+
+        // Hide the default transport controls (play/pause, ffwd, rew, next, prev).
+        playerView.post(() -> {
+            // Combined play/pause.
+            View playPause = playerView.findViewById(
+                    androidx.media3.ui.R.id.exo_play_pause);
+            if (playPause != null) {
+                playPause.setVisibility(View.GONE);
+            }
+
+            // Fast-forward / rewind.
+            View ffwd = playerView.findViewById(
+                    androidx.media3.ui.R.id.exo_ffwd);
+            if (ffwd != null) {
+                ffwd.setVisibility(View.GONE);
+            }
+
+            View rew = playerView.findViewById(
+                    androidx.media3.ui.R.id.exo_rew);
+            if (rew != null) {
+                rew.setVisibility(View.GONE);
+            }
+
+            // Next / previous (if present in this layout).
+            View next = playerView.findViewById(
+                    androidx.media3.ui.R.id.exo_next);
+            if (next != null) {
+                next.setVisibility(View.GONE);
+            }
+
+            View prev = playerView.findViewById(
+                    androidx.media3.ui.R.id.exo_prev);
+            if (prev != null) {
+                prev.setVisibility(View.GONE);
+            }
+        });
 
         stopButton.setOnClickListener(v -> stopTestAndCleanup());
         infoButton.setOnClickListener(v -> onToggleVideoInfo());
@@ -477,16 +517,21 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
                 startTime);
         this.tl.writeCsvHeader();
 
-        testClips = XspfParser.parsePlaylist(this, Uri.parse(viewModel.curTestDetails.getPlaylist()));
+        testClips = XspfParser.parsePlaylist(
+                this,
+                Uri.parse(viewModel.curTestDetails.getPlaylist()));
         curFileIndex = 0;
         if (testClips.isEmpty()) {
             finish();
             return;
         }
 
-        if (curFileIndex < 0) curFileIndex = 0;
+        if (curFileIndex < 0) {
+            curFileIndex = 0;
+        }
         startClipWithFreshPlayer();
     }
+
 
     private static String rendererTypeName(int t) {
         switch (t) {
@@ -695,7 +740,8 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
                             "Display: %d%%\n" +
                             "Run Mode: %s\n" +
                             "Battery Level: %d%%\n" +
-                            "Run Duration: %s",
+                            "Run Duration: %s\n" +
+                            "ExoPlayer 3",
                     UriUtils.fileNameFromURI(vi.fileName),
                     vi.width,
                     vi.height,
