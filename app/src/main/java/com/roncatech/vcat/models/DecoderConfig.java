@@ -57,7 +57,8 @@ public class DecoderConfig {
     public DecoderConfig() {
         // default all decoders to the first provided by ExoPlayer except AV1 is vcat-dav1d
 
-        decoderConfig.put(VideoDecoderEnumerator.MimeType.AV1, StrictRenderersFactoryV2.vcatDav1dName);
+        decoderConfig.put(VideoDecoderEnumerator.MimeType.AV1, StrictRenderersFactoryV2.VCAT_DAV1D);
+        decoderConfig.put(VideoDecoderEnumerator.MimeType.VVC, StrictRenderersFactoryV2.VCAT_VVDEC);
         VideoDecoderEnumerator.DecoderSet vp9Set = VideoDecoderEnumerator.getDecodersForMimeType(VideoDecoderEnumerator.MimeType.VP9);
 
         if (vp9Set.decoders.size() > 0) {

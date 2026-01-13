@@ -1,35 +1,3 @@
-/*
- * VCAT (Video Codec Acid Test)
- *
- * SPDX-FileCopyrightText: Copyright (C) 2020-2025 VCAT authors and RoncaTech
- * SPDX-License-Identifier: GPL-3.0-or-later
- *
- * This file is part of VCAT.
- *
- * VCAT is free software: you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * VCAT is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with VCAT. If not, see <https://www.gnu.org/licenses/gpl-3.0.html>.
- *
- * For proprietary/commercial use cases, a written GPL-3.0 waiver or
- * a separate commercial license is required from RoncaTech LLC.
- *
- * All VCAT artwork is owned exclusively by RoncaTech LLC. Use of VCAT logos
- * and artwork is permitted for the purpose of discussing, documenting,
- * or promoting VCAT itself. Any other use requires prior written permission
- * from RoncaTech LLC.
- *
- * Contact: legal@roncatech.com
- */
-
 package com.roncatech.vcat.video;
 
 import android.content.Context;
@@ -37,61 +5,59 @@ import android.os.Handler;
 import android.util.Log;
 
 import androidx.annotation.Nullable;
-import androidx.core.util.Supplier;
 
 import com.google.android.exoplayer2.DefaultRenderersFactory;
 import com.google.android.exoplayer2.Renderer;
-import com.google.android.exoplayer2.mediacodec.DefaultMediaCodecAdapterFactory;
+import com.google.android.exoplayer2.decoder.DecoderException;
 import com.google.android.exoplayer2.mediacodec.MediaCodecInfo;
 import com.google.android.exoplayer2.mediacodec.MediaCodecSelector;
 import com.google.android.exoplayer2.mediacodec.MediaCodecUtil;
-import com.google.android.exoplayer2.util.MimeTypes;
 import com.google.android.exoplayer2.video.DecoderVideoRenderer;
 import com.google.android.exoplayer2.video.MediaCodecVideoRenderer;
 import com.google.android.exoplayer2.video.VideoRendererEventListener;
-import com.roncatech.libvcat.Dav1dAv1Provider;
-import com.roncatech.libvcat.Dav1dAv1RendererProvider;
+import com.roncatech.libvcat.dav1d.VcatDav1dPlugin;
+import com.roncatech.libvcat.decoder.VcatDecoderManager;
+import com.roncatech.libvcat.decoder.VcatDecoderPlugin;
+import com.roncatech.libvcat.vvdec.VcatVvcdecPlugin;
+import com.roncatech.libvcat.vvdec.VvdecProvider;
 import com.roncatech.vcat.models.SharedViewModel;
 import com.roncatech.vcat.tools.VideoDecoderEnumerator;
 
-import java.lang.reflect.Constructor;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
-import java.util.Map;
 
 public final class StrictRenderersFactoryV2 extends DefaultRenderersFactory {
+    private static final String TAG = "RenderersFactory";
 
     private final SharedViewModel viewModel;
     private final MediaCodecSelector customSelector;
 
-    public final static String vcatDav1dName = "vcat.dav1d";
+    public static final String VCAT_DAV1D = "vcat.dav1d";
+    public static final String VCAT_VVDEC = "vcat.vvdec";
 
     @Nullable private DecoderVideoRenderer dav1dRenderer;
+    @Nullable private DecoderVideoRenderer vvdecRenderer;
 
-    public StrictRenderersFactoryV2(Context ctx,
-                                    SharedViewModel viewModel) {
+    public StrictRenderersFactoryV2(Context ctx, SharedViewModel viewModel) {
         super(ctx);
         this.viewModel = viewModel;
 
+        // Respect the user-selected codec name if present; otherwise return full list.
         this.customSelector = (mimeType, requiresSecureDecoder, requiresTunnelingDecoder) -> {
-            String decoderName = viewModel.getRunConfig().decoderCfg.getDecoder(mimeType);
-
+            String selected = viewModel.getRunConfig().decoderCfg.getDecoder(mimeType);
             List<MediaCodecInfo> infos = MediaCodecUtil.getDecoderInfos(
-                    mimeType,
-                    requiresSecureDecoder,
-                    requiresTunnelingDecoder
-            );
+                    mimeType, requiresSecureDecoder, requiresTunnelingDecoder);
 
-            if (decoderName != null && !decoderName.isEmpty()) {
+            if (selected != null && !selected.isEmpty()) {
                 List<MediaCodecInfo> filtered = new ArrayList<>();
                 for (MediaCodecInfo info : infos) {
-                    if (info.name.equalsIgnoreCase(decoderName)) {
-                        filtered.add(info);
-                    }
+                    if (info.name.equalsIgnoreCase(selected)) filtered.add(info);
                 }
+                Log.i(TAG, "MediaCodecSelector for " + mimeType + " -> " + selected
+                        + " (found=" + filtered.size() + ")");
                 return filtered;
             }
+            Log.i(TAG, "MediaCodecSelector for " + mimeType + " -> default list (count=" + infos.size() + ")");
             return infos;
         };
     }
@@ -100,44 +66,46 @@ public final class StrictRenderersFactoryV2 extends DefaultRenderersFactory {
     protected void buildVideoRenderers(
             Context context,
             int extensionRendererMode,
-            MediaCodecSelector mediaCodecSelector,
+            MediaCodecSelector ignoredMediaCodecSelector,
             boolean enableDecoderFallback,
             Handler eventHandler,
             VideoRendererEventListener eventListener,
             long allowedVideoJoiningTimeMs,
             ArrayList<Renderer> out
     )  {
+        final String selAv1 = viewModel.getRunConfig().decoderCfg.getDecoder(VideoDecoderEnumerator.MimeType.AV1);
+        final String selVvc = viewModel.getRunConfig().decoderCfg.getDecoder(VideoDecoderEnumerator.MimeType.VVC);
 
-        String av1Decoder = viewModel.getRunConfig().decoderCfg.getDecoder(VideoDecoderEnumerator.MimeType.AV1);
-
-
-        // Conditionally add Libdav1d renderer only for AV1 and if libdav1d is desired
-        if (vcatDav1dName.equalsIgnoreCase(av1Decoder)) {
-            try {
-                Dav1dAv1Provider provider = new Dav1dAv1Provider(this.viewModel.getRunConfig().threads, 4);
-
-                if (!provider.isAvailable(context)) {
-                    throw new IllegalStateException(
-                            "Selected AV1 decoder not available for vcat.dav1d"
-                    );
-                }
-
-                if(provider == null){
-                    throw new IllegalStateException("Unable to instantiate Dav1dAv1Provider");
-                }
-                if (!provider.isAvailable(context)) {
-                    throw new IllegalStateException("Selected AV1 decoder not available for vcat.dav1d");
-                }
-                Renderer r = provider.build(allowedVideoJoiningTimeMs, eventHandler, eventListener);
-                out.add(r);
-                if (r instanceof DecoderVideoRenderer) this.dav1dRenderer = (DecoderVideoRenderer) r;
-                android.util.Log.i("RenderersFactory", "Added dav1d-only renderer and returning.");
-            } catch (Exception e) {
-                Log.w("RenderersFactory", "Libdav1dVideoRenderer not available: " + e.getMessage());
+        // 1) Prefer extensions first so they can claim their formats before MediaCodec.
+        // --- vvdec (VVC) ---
+        try {
+            boolean wantVvdec = VCAT_VVDEC.equalsIgnoreCase(selVvc) || selVvc == null || selVvc.isEmpty();
+            if (wantVvdec) {
+                VcatDecoderPlugin vvc = VcatDecoderManager.getInstance().getDecoder(selVvc);
+                Renderer vvcRenderer = vvc.createVideoRenderer(context, allowedVideoJoiningTimeMs, eventHandler, eventListener, this.viewModel.getRunConfig().threads);
+                out.add(vvcRenderer);
+            } else {
+                Log.i(TAG, "vvdec explicitly not selected (selVvc=" + selVvc + ").");
             }
+        } catch (DecoderException e) {
+            Log.e(TAG, "vvdec renderer not added", e);
         }
 
-        // Always add MediaCodec renderer for fallback/default
+        // --- dav1d (AV1) ---
+        try {
+            boolean wantDav1d = VCAT_DAV1D.equalsIgnoreCase(selAv1) || selAv1 == null || selAv1.isEmpty();
+            if (wantDav1d) {
+                VcatDecoderPlugin dav1d = VcatDecoderManager.getInstance().getDecoder(selAv1);
+                Renderer davidRenderer = dav1d.createVideoRenderer(context, allowedVideoJoiningTimeMs, eventHandler, eventListener, this.viewModel.getRunConfig().threads);
+                out.add(davidRenderer);
+            } else {
+                Log.i(TAG, "dav1d explicitly not selected (selAv1=" + selAv1 + ").");
+            }
+        } catch (DecoderException e) {
+            Log.w(TAG, "dav1d renderer not added", e);
+        }
+
+        // 2) Always add MediaCodec as a fallback/default (after extensions).
         out.add(new MediaCodecVideoRenderer(
                 context,
                 customSelector,
@@ -147,5 +115,6 @@ public final class StrictRenderersFactoryV2 extends DefaultRenderersFactory {
                 eventListener,
                 MAX_DROPPED_VIDEO_FRAME_COUNT_TO_NOTIFY
         ));
+        Log.i(TAG, "Added MediaCodecVideoRenderer.");
     }
 }
