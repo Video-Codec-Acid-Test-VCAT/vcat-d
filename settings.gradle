@@ -48,9 +48,9 @@ dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
         google()
-        mavenLocal()
         mavenCentral()
         flatDir { dirs "libs" } // local fallback if you drop an AAR
+        mavenLocal()
 
         // Only add GitHub Packages when we actually have creds
         if (!ghUser.isEmpty() && !ghKey.isEmpty()) {
