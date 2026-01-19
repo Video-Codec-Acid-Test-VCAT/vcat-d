@@ -38,19 +38,20 @@ All VCAT artwork is owned exclusively by RoncaTech LLC. Use of VCAT logos and ar
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:paddingVertical="8dp"
-    android:paddingStart="24dp">
+    android:background="@android:color/transparent">
 
     <CheckBox
-        android:id="@+id/cbRow"
+        android:id="@+id/cbCatalogHeader"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"/>
 
     <TextView
-        android:id="@+id/tvRowText"
+        android:id="@+id/tvCatalogName"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_weight="1"
         android:paddingStart="8dp"
-        android:text="Vector Name"/>
+        android:textStyle="bold"
+        android:text="Catalog Name"/>
 
 </TableRow>

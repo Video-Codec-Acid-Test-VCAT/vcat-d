@@ -38,7 +38,6 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.text.TextUtils;
-import android.util.Pair;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -83,10 +82,11 @@ public class FragmentVectorImport extends Fragment implements OpenCatalogDialog.
     private ImageButton btnOpenCatalog;
     private TableLayout tableVectors;
     private ImageButton btnDownloadPlaylists;
-    CheckBox cbSelectAll;
-    TextView tvSelectAll;
 
-    private String resolvedCatalogUrl = "";
+    // Maps each catalog header row to its child vector rows
+    private final Map<TableRow, List<TableRow>> catalogChildRows = new HashMap<>();
+    // Maps each catalog header row to its resolved URL for downloads
+    private final Map<TableRow, String> catalogResolvedUrls = new HashMap<>();
 
     private int colorInProgress;
     private int colorSuccess;
@@ -123,8 +123,6 @@ public class FragmentVectorImport extends Fragment implements OpenCatalogDialog.
         btnOpenCatalog = view.findViewById(R.id.btnOpenCatalog);
         tableVectors      = view.findViewById(R.id.tableVectors);
         btnDownloadPlaylists = view.findViewById(R.id.btnDownloadPlaylists);
-        cbSelectAll = view.findViewById(R.id.cbSelectAll);
-        tvSelectAll = view.findViewById(R.id.tvSelectAllText);
 
         btnDownloadPlaylists.setEnabled(false);
 
@@ -149,20 +147,6 @@ public class FragmentVectorImport extends Fragment implements OpenCatalogDialog.
         }
         startCatalogDownload(url);
 
-
-        cbSelectAll.setOnCheckedChangeListener((buttonView, isChecked) -> {
-            // Iterate all rows currently in the table
-            for (int i = 0; i < tableVectors.getChildCount(); i++) {
-                View child = tableVectors.getChildAt(i);
-                // Each row was inflated from row_test_vector.xml
-                CheckBox rowCb = child.findViewById(R.id.cbRow);
-                if (rowCb != null) {
-                    rowCb.setChecked(isChecked);
-                }
-            }
-        });
-
-
         // TODO: optionally prepopulate etCatalogUrl from saved prefs
     }
 
@@ -170,6 +154,7 @@ public class FragmentVectorImport extends Fragment implements OpenCatalogDialog.
     public void onCatalogChosen(@NonNull String catalogUrl) {
 
         if (catalogUrl.startsWith("http://") || catalogUrl.startsWith("https://")) {
+            clearCatalogData();
             startCatalogDownload(catalogUrl);
             return;
         }
@@ -177,7 +162,7 @@ public class FragmentVectorImport extends Fragment implements OpenCatalogDialog.
         Uri treeUri = Uri.parse(catalogUrl);
         DocumentFile tree = DocumentFile.fromTreeUri(requireContext(), treeUri);
 
-        // 1) find all “*_playlist_catalog.json” (or whatever suffix you use)
+        // 1) find all "*_playlist_catalog.json" (or whatever suffix you use)
         List<DocumentFile> candidates = new ArrayList<>();
         for (DocumentFile df : tree.listFiles()) {
             if (df.isFile()
@@ -196,61 +181,39 @@ public class FragmentVectorImport extends Fragment implements OpenCatalogDialog.
             return;
         }
 
-        // 2) if more than one, let the user pick
-        if (candidates.size() > 1) {
-            String[] names = new String[candidates.size()];
-            for (int i = 0; i < candidates.size(); i++) {
-                names[i] = candidates.get(i).getName();
-            }
-            new AlertDialog.Builder(requireContext())
-                    .setTitle("Select catalog")
-                    .setItems(names, (dlg, which) -> {
-                        startCatalogDownload(candidates.get(which).toString());
-                    })
-                    .show();
-        } else {
-            startCatalogDownload(candidates.get(0).getUri().toString());
+        // 2) Load all found catalogs and display each with its own header
+        clearCatalogData();
+        for (DocumentFile candidate : candidates) {
+            startCatalogDownload(candidate.getUri().toString());
         }
     }
 
-    private void startCatalogDownload(String catalogUrl) {
-        // 1) Clear any previous rows
+    private void clearCatalogData() {
         tableVectors.removeAllViews();
+        catalogChildRows.clear();
+        catalogResolvedUrls.clear();
+    }
 
-        List<TestVectorMediaAsset> videoAssetTable = new ArrayList<>();
-
-        DownloadTestVectors.CatalogCallback callback =new DownloadTestVectors.CatalogCallback() {
+    private void startCatalogDownload(String catalogUrl) {
+        DownloadTestVectors.CatalogOrIndexCallback callback = new DownloadTestVectors.CatalogOrIndexCallback() {
             @Override
-            public void onSuccess(TestVectorManifests.Catalog catalog, String resolvedCatalogUrl) {
-                FragmentVectorImport.this.resolvedCatalogUrl = resolvedCatalogUrl;
+            public void onCatalog(TestVectorManifests.Catalog catalog, String resolvedCatalogUrl) {
+                populateCatalog(catalog, resolvedCatalogUrl);
+            }
 
-                // Make sure we're on the main thread (downloadCatalog already does this)
-                // 3) Populate the table with one row per playlist
-                for (TestVectorManifests.PlaylistAsset playlist : catalog.playlists) {
-                    TableRow row = (TableRow) getLayoutInflater()
-                            .inflate(R.layout.row_test_vector, tableVectors, false);
+            @Override
+            public void onCatalogIndex(TestVectorManifests.CatalogIndex index, String resolvedIndexUrl) {
+                // Sort catalogs alphabetically by name
+                List<TestVectorManifests.CatalogAsset> sortedCatalogs = new ArrayList<>(index.catalogs);
+                sortedCatalogs.sort((a, b) -> {
+                    String nameA = a.name != null ? a.name : "";
+                    String nameB = b.name != null ? b.name : "";
+                    return nameA.compareToIgnoreCase(nameB);
+                });
 
-                    CheckBox cb = row.findViewById(R.id.cbRow);
-                    cb.setChecked(false); // default
-
-                    TextView tv = row.findViewById(R.id.tvRowText);
-                    tv.setText(playlist.name);
-
-                    // tag the row so you can retrieve the playlist URL later
-                    row.setTag(playlist);
-
-                    tableVectors.addView(row);
-                }
-
-                // now decide whether to show the select-all control
-                if (catalog.playlists.size() >= 2) {
-                    cbSelectAll.setVisibility(View.VISIBLE);
-                    tvSelectAll.setVisibility(View.VISIBLE);
-                } else {
-                    cbSelectAll.setVisibility(View.GONE);
-                    tvSelectAll.setVisibility(View.GONE);
-                }
-                btnDownloadPlaylists.setEnabled(catalog.playlists.size()> 0);
+                // Load catalogs sequentially to maintain sort order
+                String baseUrl = UriUtils.makeBaseUrlWithUri(resolvedIndexUrl);
+                loadCatalogsSequentially(sortedCatalogs, 0, baseUrl);
             }
 
             @Override
@@ -263,26 +226,249 @@ public class FragmentVectorImport extends Fragment implements OpenCatalogDialog.
             }
         };
 
-        // 2) Kick off the download
+        // Kick off the download
+        if (catalogUrl.startsWith("http://") || catalogUrl.startsWith("https://")) {
+            DownloadTestVectors.downloadCatalogOrIndexHttp(requireContext(), catalogUrl, callback);
+        } else {
+            DownloadTestVectors.downloadCatalogOrIndexFromFile(requireContext(),
+                    Uri.parse(catalogUrl),
+                    callback);
+        }
+    }
+
+    /**
+     * Loads catalogs sequentially to maintain sort order.
+     */
+    private void loadCatalogsSequentially(List<TestVectorManifests.CatalogAsset> catalogs, int index, String baseUrl) {
+        if (index >= catalogs.size()) {
+            return; // All catalogs loaded
+        }
+
+        TestVectorManifests.CatalogAsset catalogAsset = catalogs.get(index);
+        String catalogAssetUrl;
+        try {
+            catalogAssetUrl = UriUtils.resolveUri(requireContext(), baseUrl, catalogAsset.url).toString();
+        } catch (Exception e) {
+            Toast.makeText(
+                    requireContext(),
+                    "Failed to resolve catalog URL: " + catalogAsset.name,
+                    Toast.LENGTH_SHORT
+            ).show();
+            // Continue with next catalog
+            loadCatalogsSequentially(catalogs, index + 1, baseUrl);
+            return;
+        }
+
+        DownloadTestVectors.CatalogCallback callback = new DownloadTestVectors.CatalogCallback() {
+            @Override
+            public void onSuccess(TestVectorManifests.Catalog catalog, String resolvedCatalogUrl) {
+                populateCatalog(catalog, resolvedCatalogUrl);
+                // Load next catalog
+                loadCatalogsSequentially(catalogs, index + 1, baseUrl);
+            }
+
+            @Override
+            public void onError(String errorMessage) {
+                Toast.makeText(
+                        requireContext(),
+                        "Failed to download catalog: " + errorMessage,
+                        Toast.LENGTH_SHORT
+                ).show();
+                // Continue with next catalog even on error
+                loadCatalogsSequentially(catalogs, index + 1, baseUrl);
+            }
+        };
+
+        if (catalogAssetUrl.startsWith("http://") || catalogAssetUrl.startsWith("https://")) {
+            DownloadTestVectors.downloadCatalogHttp(requireContext(), catalogAssetUrl, callback);
+        } else {
+            DownloadTestVectors.downloadCatalogFromFile(requireContext(),
+                    Uri.parse(catalogAssetUrl),
+                    callback);
+        }
+    }
+
+    /**
+     * Loads a single catalog (not an index) from the given URL.
+     */
+    private void loadSingleCatalog(String catalogUrl) {
+        DownloadTestVectors.CatalogCallback callback = new DownloadTestVectors.CatalogCallback() {
+            @Override
+            public void onSuccess(TestVectorManifests.Catalog catalog, String resolvedCatalogUrl) {
+                populateCatalog(catalog, resolvedCatalogUrl);
+            }
+
+            @Override
+            public void onError(String errorMessage) {
+                Toast.makeText(
+                        requireContext(),
+                        "Failed to download catalog: " + errorMessage,
+                        Toast.LENGTH_SHORT
+                ).show();
+            }
+        };
+
         if (catalogUrl.startsWith("http://") || catalogUrl.startsWith("https://")) {
             DownloadTestVectors.downloadCatalogHttp(requireContext(), catalogUrl, callback);
-        } else{
+        } else {
             DownloadTestVectors.downloadCatalogFromFile(requireContext(),
                     Uri.parse(catalogUrl),
                     callback);
         }
     }
 
+    /**
+     * Populates the UI with a single catalog's header and playlists.
+     */
+    private void populateCatalog(TestVectorManifests.Catalog catalog, String resolvedCatalogUrl) {
+        // 1) Create catalog header row
+        TableRow headerRow = (TableRow) getLayoutInflater()
+                .inflate(R.layout.row_catalog_header, tableVectors, false);
+
+        CheckBox headerCb = headerRow.findViewById(R.id.cbCatalogHeader);
+        TextView headerTv = headerRow.findViewById(R.id.tvCatalogName);
+
+        String catalogName = (catalog.header != null && catalog.header.name != null)
+                ? catalog.header.name
+                : "Catalog";
+        headerTv.setText(catalogName);
+        headerCb.setChecked(false);
+
+        tableVectors.addView(headerRow);
+
+        // Store the resolved URL for this catalog
+        catalogResolvedUrls.put(headerRow, resolvedCatalogUrl);
+
+        // 2) Create list to track child vector rows
+        List<TableRow> childRows = new ArrayList<>();
+
+        // Flag to prevent recursive listener calls
+        final boolean[] updatingFromHeader = {false};
+
+        // Sort playlists alphabetically by name
+        List<TestVectorManifests.PlaylistAsset> sortedPlaylists = new ArrayList<>(catalog.playlists);
+        sortedPlaylists.sort((a, b) -> {
+            String nameA = a.name != null ? a.name : "";
+            String nameB = b.name != null ? b.name : "";
+            return nameA.compareToIgnoreCase(nameB);
+        });
+
+        // 3) Add vector rows under this catalog header
+        for (TestVectorManifests.PlaylistAsset playlist : sortedPlaylists) {
+            TableRow row = (TableRow) getLayoutInflater()
+                    .inflate(R.layout.row_test_vector, tableVectors, false);
+
+            CheckBox cb = row.findViewById(R.id.cbRow);
+            cb.setChecked(false);
+
+            TextView tv = row.findViewById(R.id.tvRowText);
+            tv.setText(playlist.name);
+
+            // tag the row so you can retrieve the playlist URL later
+            row.setTag(playlist);
+
+            tableVectors.addView(row);
+            childRows.add(row);
+        }
+
+        // 4) Store the header-to-children mapping
+        catalogChildRows.put(headerRow, childRows);
+
+        // 5) Set up child checkbox listeners to update header checkbox
+        for (TableRow childRow : childRows) {
+            CheckBox childCb = childRow.findViewById(R.id.cbRow);
+            if (childCb != null) {
+                childCb.setOnCheckedChangeListener((buttonView, isChecked) -> {
+                    if (updatingFromHeader[0]) {
+                        return; // Avoid recursive updates
+                    }
+                    // Update header checkbox based on children state
+                    List<TableRow> children = catalogChildRows.get(headerRow);
+                    if (children != null) {
+                        boolean allChecked = true;
+                        for (TableRow cr : children) {
+                            CheckBox ccb = cr.findViewById(R.id.cbRow);
+                            if (ccb != null && !ccb.isChecked()) {
+                                allChecked = false;
+                                break;
+                            }
+                        }
+                        updatingFromHeader[0] = true;
+                        headerCb.setChecked(allChecked);
+                        updatingFromHeader[0] = false;
+                    }
+                });
+            }
+        }
+
+        // 6) Set up header checkbox to toggle all child checkboxes
+        headerCb.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            if (updatingFromHeader[0]) {
+                return; // Avoid recursive updates from child checkbox changes
+            }
+            updatingFromHeader[0] = true;
+            List<TableRow> children = catalogChildRows.get(headerRow);
+            if (children != null) {
+                for (TableRow childRow : children) {
+                    CheckBox childCb = childRow.findViewById(R.id.cbRow);
+                    if (childCb != null) {
+                        childCb.setChecked(isChecked);
+                    }
+                }
+            }
+            updatingFromHeader[0] = false;
+        });
+
+        // Enable download button if we have any playlists
+        btnDownloadPlaylists.setEnabled(tableVectors.getChildCount() > 0);
+    }
+
+    /**
+     * Finds the catalog header row that contains the given vector row.
+     * Returns null if not found.
+     */
+    private TableRow findCatalogHeaderForRow(TableRow vectorRow) {
+        for (Map.Entry<TableRow, List<TableRow>> entry : catalogChildRows.entrySet()) {
+            if (entry.getValue().contains(vectorRow)) {
+                return entry.getKey();
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Data class to hold a playlist asset, its row, and the resolved catalog URL.
+     */
+    private static class DownloadQueueItem {
+        final TestVectorManifests.PlaylistAsset asset;
+        final TableRow row;
+        final String resolvedCatalogUrl;
+
+        DownloadQueueItem(TestVectorManifests.PlaylistAsset asset, TableRow row, String resolvedCatalogUrl) {
+            this.asset = asset;
+            this.row = row;
+            this.resolvedCatalogUrl = resolvedCatalogUrl;
+        }
+    }
+
     private void startBatchDownload() {
-        // 1) Gather checked assets & their rows
-        List<Pair<TestVectorManifests.PlaylistAsset, TableRow>> queue = new ArrayList<>();
+        // 1) Gather checked assets & their rows, along with their catalog's resolved URL
+        List<DownloadQueueItem> queue = new ArrayList<>();
         for (int i = 0; i < tableVectors.getChildCount(); i++) {
             TableRow row = (TableRow) tableVectors.getChildAt(i);
-            CheckBox cb  = row.findViewById(R.id.cbRow);
+            CheckBox cb = row.findViewById(R.id.cbRow);
             if (cb != null && cb.isChecked()) {
                 TestVectorManifests.PlaylistAsset asset =
                         (TestVectorManifests.PlaylistAsset) row.getTag();
-                queue.add(new Pair<>(asset, row));
+                if (asset != null) {
+                    TableRow catalogHeader = findCatalogHeaderForRow(row);
+                    String resolvedUrl = catalogHeader != null
+                            ? catalogResolvedUrls.get(catalogHeader)
+                            : null;
+                    if (resolvedUrl != null) {
+                        queue.add(new DownloadQueueItem(asset, row, resolvedUrl));
+                    }
+                }
             }
         }
         if (queue.isEmpty()) return;
@@ -313,11 +499,10 @@ public class FragmentVectorImport extends Fragment implements OpenCatalogDialog.
             // a shared mediaTable
             Map<UUID, TestVectorMediaAsset> mediaTable = new HashMap<>();
 
-            String baseUrl = UriUtils.makeBaseUrlWithUri(this.resolvedCatalogUrl.trim());
-
-            for (Pair<TestVectorManifests.PlaylistAsset, TableRow> p : queue) {
-                TestVectorManifests.PlaylistAsset asset = p.first;
-                TableRow row                           = p.second;
+            for (DownloadQueueItem item : queue) {
+                TestVectorManifests.PlaylistAsset asset = item.asset;
+                TableRow row = item.row;
+                String baseUrl = UriUtils.makeBaseUrlWithUri(item.resolvedCatalogUrl.trim());
 
                 // mark in‐progress
                 main.post(() -> {

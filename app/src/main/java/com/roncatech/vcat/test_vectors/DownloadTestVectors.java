@@ -42,6 +42,8 @@ import android.provider.OpenableColumns;
 import android.util.Log;
 
 import com.google.gson.Gson;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import com.roncatech.vcat.models.TestVectorMediaAsset;
 import com.roncatech.vcat.models.TestVectorManifests;
 import com.roncatech.vcat.tools.UriUtils;
@@ -83,6 +85,16 @@ public class DownloadTestVectors {
 
     public interface CatalogCallback {
         void onSuccess(TestVectorManifests.Catalog catalog, String resolvedCatalogUrl);
+        void onError(String errorMessage);
+    }
+
+    /**
+     * Callback for loading catalog or catalog index.
+     * One of onCatalog or onCatalogIndex will be called on success.
+     */
+    public interface CatalogOrIndexCallback {
+        void onCatalog(TestVectorManifests.Catalog catalog, String resolvedCatalogUrl);
+        void onCatalogIndex(TestVectorManifests.CatalogIndex index, String resolvedIndexUrl);
         void onError(String errorMessage);
     }
 
@@ -229,6 +241,105 @@ public class DownloadTestVectors {
                 Log.e(TAG, "Failed to download catalog", e);
                 String msg = e.getMessage() != null ? e.getMessage() : "Unknown error";
                 mainHandler.post(() -> callback.onError(msg));
+            }
+        });
+    }
+
+    /**
+     * Downloads from the given URL and detects whether it's a Catalog (has "playlists")
+     * or a CatalogIndex (has "catalogs"), then calls the appropriate callback method.
+     */
+    public static void downloadCatalogOrIndexHttp(
+            Context context,
+            String catalogUrl,
+            CatalogOrIndexCallback callback
+    ) {
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        Handler mainHandler = new Handler(Looper.getMainLooper());
+
+        executor.execute(() -> {
+            try {
+                String resolvedUrl;
+                String json;
+
+                if (catalogUrl.startsWith("http://") || catalogUrl.startsWith("https://")) {
+                    Request request = new Request.Builder()
+                            .url(catalogUrl)
+                            .build();
+                    Response response = client.newCall(request).execute();
+
+                    if (!response.isSuccessful()) {
+                        throw new IOException("Unexpected HTTP " + response.code());
+                    }
+
+                    json = response.body().string();
+                    resolvedUrl = response.request().url().toString();
+                } else {
+                    json = downloadJson2(context, catalogUrl);
+                    resolvedUrl = catalogUrl;
+                }
+
+                // Parse as JsonObject to detect type
+                JsonObject jsonObject = JsonParser.parseString(json).getAsJsonObject();
+
+                if (jsonObject.has("catalogs")) {
+                    // It's a CatalogIndex
+                    TestVectorManifests.CatalogIndex index =
+                            new Gson().fromJson(json, TestVectorManifests.CatalogIndex.class);
+                    mainHandler.post(() -> callback.onCatalogIndex(index, resolvedUrl));
+                } else if (jsonObject.has("playlists")) {
+                    // It's a Catalog
+                    TestVectorManifests.Catalog catalog =
+                            new Gson().fromJson(json, TestVectorManifests.Catalog.class);
+                    mainHandler.post(() -> callback.onCatalog(catalog, resolvedUrl));
+                } else {
+                    throw new IOException("JSON is neither a catalog (no 'playlists') nor an index (no 'catalogs')");
+                }
+
+            } catch (Exception e) {
+                Log.e(TAG, "Failed to download catalog/index", e);
+                String msg = e.getMessage() != null ? e.getMessage() : "Unknown error";
+                mainHandler.post(() -> callback.onError(msg));
+            }
+        });
+    }
+
+    /**
+     * File-based loader that detects whether it's a Catalog or CatalogIndex.
+     */
+    public static void downloadCatalogOrIndexFromFile(
+            Context context,
+            Uri fileUri,
+            CatalogOrIndexCallback callback
+    ) {
+        ExecutorService exec = Executors.newSingleThreadExecutor();
+        Handler main = new Handler(Looper.getMainLooper());
+
+        exec.execute(() -> {
+            try {
+                try (InputStream in = context.getContentResolver().openInputStream(fileUri)) {
+                    if (in == null) throw new IOException("Cannot open " + fileUri);
+                    String json = readStreamAsString(in);
+
+                    // Parse as JsonObject to detect type
+                    JsonObject jsonObject = JsonParser.parseString(json).getAsJsonObject();
+
+                    if (jsonObject.has("catalogs")) {
+                        TestVectorManifests.CatalogIndex index =
+                                new Gson().fromJson(json, TestVectorManifests.CatalogIndex.class);
+                        main.post(() -> callback.onCatalogIndex(index, fileUri.toString()));
+                    } else if (jsonObject.has("playlists")) {
+                        TestVectorManifests.Catalog catalog =
+                                new Gson().fromJson(json, TestVectorManifests.Catalog.class);
+                        main.post(() -> callback.onCatalog(catalog, fileUri.toString()));
+                    } else {
+                        throw new IOException("JSON is neither a catalog (no 'playlists') nor an index (no 'catalogs')");
+                    }
+                }
+            } catch (Exception e) {
+                main.post(() -> callback.onError(e.getMessage()));
+            } finally {
+                exec.shutdown();
             }
         });
     }

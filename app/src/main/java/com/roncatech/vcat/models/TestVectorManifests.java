@@ -202,7 +202,7 @@ public class TestVectorManifests {
         }
     }
 
-    // tCatalog (final class as requested)
+    // Catalog (contains playlists)
     public static class Catalog {
         @SerializedName("vcat_testvector_header")
         public final Header header;
@@ -223,6 +223,52 @@ public class TestVectorManifests {
         // Static method to serialize to JSON
         public static String toJson(Catalog playlistCatalog) {
             return new Gson().toJson(playlistCatalog);
+        }
+    }
+
+    // CatalogAsset (reference to a catalog, extends AssetBase)
+    public static class CatalogAsset extends AssetBase {
+        public final UUID uuid;
+        public final String description;
+
+        public CatalogAsset(String name, String url, String checksum, long lengthBytes, UUID uuid, String description) {
+            super(name, url, checksum, lengthBytes);
+            this.uuid = uuid;
+            this.description = description;
+        }
+
+        // Static method to deserialize from JSON
+        public static CatalogAsset fromJson(String json) {
+            return new Gson().fromJson(json, CatalogAsset.class);
+        }
+
+        // Static method to serialize to JSON
+        public static String toJson(CatalogAsset catalogAsset) {
+            return new Gson().toJson(catalogAsset);
+        }
+    }
+
+    // CatalogIndex (contains references to multiple catalogs)
+    public static class CatalogIndex {
+        @SerializedName("vcat_testvector_header")
+        public final Header header;
+
+        @SerializedName("catalogs")
+        public final List<CatalogAsset> catalogs;
+
+        public CatalogIndex(Header header, List<CatalogAsset> catalogs) {
+            this.header = header;
+            this.catalogs = catalogs;
+        }
+
+        // Static method to deserialize from JSON
+        public static CatalogIndex fromJson(String json) {
+            return new Gson().fromJson(json, CatalogIndex.class);
+        }
+
+        // Static method to serialize to JSON
+        public static String toJson(CatalogIndex catalogIndex) {
+            return new Gson().toJson(catalogIndex);
         }
     }
 }
