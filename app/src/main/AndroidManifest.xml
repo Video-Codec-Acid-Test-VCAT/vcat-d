@@ -48,6 +48,9 @@ All VCAT artwork is owned exclusively by RoncaTech LLC. Use of VCAT logos and ar
     <uses-permission android:name="android.permission.WRITE_SETTINGS" />
 
     <application
+        android:name=".VcatApplication"
+        android:debuggable="true"
+        android:profileable="true"
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"

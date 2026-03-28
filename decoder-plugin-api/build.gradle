@@ -1,0 +1,79 @@
+/*
+ * VCAT (Video Codec Acid Test)
+ *
+ * SPDX-FileCopyrightText: Copyright (C) 2020-2025 VCAT authors and RoncaTech
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ *
+ * This file is part of VCAT.
+ *
+ * VCAT is free software: you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with VCAT. If not, see <https://www.gnu.org/licenses/gpl-3.0.html>.
+ *
+ * For proprietary/commercial use cases, a written GPL-3.0 waiver or
+ * a separate commercial license is required from RoncaTech LLC.
+ *
+ * All VCAT artwork is owned exclusively by RoncaTech LLC. Use of VCAT logos
+ * and artwork is permitted for the purpose of discussing, documenting,
+ * or promoting VCAT itself. Any other use requires prior written permission
+ * from RoncaTech LLC.
+ *
+ * Contact: legal@roncatech.com
+ */
+
+plugins {
+    id 'com.android.library'
+    id 'maven-publish'
+}
+
+android {
+    namespace 'com.roncatech.vcat.decoder_plugin_api'
+    compileSdk 35
+
+    defaultConfig {
+        minSdk 29
+        consumerProguardFiles 'consumer-rules.pro'
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_11
+        targetCompatibility JavaVersion.VERSION_11
+    }
+}
+
+dependencies {
+    // ExoPlayer types appear in the public API (Renderer, DecoderException, C, Format, MimeTypes).
+    // Declared compileOnly: the consuming app/library provides ExoPlayer at runtime.
+    compileOnly 'com.google.android.exoplayer:exoplayer-core:2.19.1'
+    compileOnly 'androidx.annotation:annotation:1.7.1'
+}
+
+// Publish to Maven Local so libvcat and standalone decoder projects can consume it.
+afterEvaluate {
+    publishing {
+        publications {
+            release(MavenPublication) {
+                artifact("$buildDir/outputs/aar/${project.name}-release.aar")
+
+                groupId    = 'com.roncatech.vcat'
+                artifactId = 'decoder-plugin-api'
+                version    = '1.0.0'
+            }
+        }
+    }
+
+    tasks.named('publishReleasePublicationToMavenLocal') {
+        dependsOn 'assembleRelease'
+    }
+}

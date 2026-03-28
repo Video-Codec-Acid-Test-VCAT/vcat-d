@@ -20,6 +20,25 @@
 
 // Top-level build file where you can add configuration options common to all sub-projects/modules.
 plugins {
-alias(libs.plugins.android.application) apply false
+    alias(libs.plugins.android.application) apply false
     alias(libs.plugins.android.library) apply false
+}
+
+/**
+ * Builds and publishes decoder-plugin-api to Maven Local so that libvcat
+ * and standalone decoder plugin projects can consume it.
+ *
+ * Usage: ./gradlew build-decoder-plugin-api
+ */
+tasks.register("build-decoder-plugin-api") {
+    group = "build"
+    description = "Build and publish decoder-plugin-api to Maven Local"
+
+    dependsOn(":decoder-plugin-api:publishReleasePublicationToMavenLocal")
+
+    doLast {
+        println("\nPublished to Maven Local:")
+        println("  com.roncatech.vcat:decoder-plugin-api:1.0.0")
+        println("\nLocation: ${System.getProperty('user.home')}/.m2/repository/com/roncatech/vcat/decoder-plugin-api/")
+    }
 }

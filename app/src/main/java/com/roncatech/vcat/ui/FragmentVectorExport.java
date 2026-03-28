@@ -32,34 +32,39 @@
 
 package com.roncatech.vcat.ui;
 
+import android.app.AlertDialog;
 import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.CheckBox;
 import android.widget.ImageButton;
+import android.widget.ScrollView;
 import android.widget.TableLayout;
 import android.widget.TableRow;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
-import androidx.core.content.ContextCompat;
 import androidx.fragment.app.Fragment;
 
 import com.roncatech.vcat.R;
+import com.roncatech.vcat.test_vectors.ExportTestVectors;
 import com.roncatech.vcat.tools.StorageManager;
 
 import java.io.File;
 import java.util.Arrays;
 import java.util.Comparator;
 
-public class FragmentVectorExport extends Fragment implements ExportTestVectorsDialog.Listener{
+public class FragmentVectorExport extends Fragment implements ExportTestVectorsDialog.Listener {
     private TableLayout tableExport;
-    private CheckBox   cbSelectAll;
-    private TextView   tvSelectAll;
 
     private ImageButton btnExport;
+
+    // Track the currently selected playlist (single selection)
+    private File selectedPlaylist = null;
+    private TableRow selectedRow = null;
 
     @Nullable @Override
     public View onCreateView(@NonNull LayoutInflater inflater,
@@ -70,12 +75,17 @@ public class FragmentVectorExport extends Fragment implements ExportTestVectorsD
 
     @Override
     public void onViewCreated(@NonNull View view, @Nullable Bundle savedInstanceState) {
-        tableExport   = view.findViewById(R.id.tableExport);
-        cbSelectAll   = view.findViewById(R.id.cbSelectAll);
-        tvSelectAll   = view.findViewById(R.id.tvSelectAll);
+        tableExport = view.findViewById(R.id.tableExport);
         btnExport = view.findViewById(R.id.btnExportPlaylists);
 
-        btnExport.setOnClickListener(v ->doExport());
+        // Hide the Select All controls (single selection mode)
+        View cbSelectAll = view.findViewById(R.id.cbSelectAll);
+        View tvSelectAll = view.findViewById(R.id.tvSelectAll);
+        if (cbSelectAll != null) cbSelectAll.setVisibility(View.GONE);
+        if (tvSelectAll != null) tvSelectAll.setVisibility(View.GONE);
+
+        btnExport.setOnClickListener(v -> doExport());
+        btnExport.setEnabled(false);
 
         loadPlaylists();
     }
@@ -90,11 +100,12 @@ public class FragmentVectorExport extends Fragment implements ExportTestVectorsD
         File playlistDir = StorageManager.getFolder(StorageManager.VCATFolder.PLAYLIST);
 
         tableExport.removeAllViews();
+        selectedPlaylist = null;
+        selectedRow = null;
+        btnExport.setEnabled(false);
 
         File[] files = playlistDir.listFiles((dir, name) -> name.toLowerCase().endsWith(".xspf"));
         if (files == null || files.length == 0) {
-            cbSelectAll.setVisibility(View.GONE);
-            tvSelectAll.setVisibility(View.GONE);
             return;
         }
 
@@ -112,30 +123,44 @@ public class FragmentVectorExport extends Fragment implements ExportTestVectorsD
             tv.setText(f.getName());
 
             row.setTag(f);
-            tableExport.addView(row);
-        }
 
-        boolean showSelectAll = files.length >= 2;
-        cbSelectAll.setVisibility(showSelectAll ? View.VISIBLE : View.GONE);
-        tvSelectAll.setVisibility(showSelectAll ? View.VISIBLE : View.GONE);
-
-        if (showSelectAll) {
-            cbSelectAll.setChecked(false);
-            cbSelectAll.setOnCheckedChangeListener((button, isChecked) -> {
-                for (int i = 0; i < tableExport.getChildCount(); i++) {
-                    TableRow r = (TableRow) tableExport.getChildAt(i);
-                    CheckBox c = r.findViewById(R.id.cbRow);
-                    c.setChecked(isChecked);
+            // Single selection behavior: clicking a checkbox deselects the previous one
+            cb.setOnCheckedChangeListener((buttonView, isChecked) -> {
+                if (isChecked) {
+                    // Deselect the previously selected row
+                    if (selectedRow != null && selectedRow != row) {
+                        CheckBox prevCb = selectedRow.findViewById(R.id.cbRow);
+                        if (prevCb != null) {
+                            prevCb.setChecked(false);
+                        }
+                    }
+                    selectedRow = row;
+                    selectedPlaylist = f;
+                    btnExport.setEnabled(true);
+                } else {
+                    // If this row was the selected one and is now unchecked
+                    if (selectedRow == row) {
+                        selectedRow = null;
+                        selectedPlaylist = null;
+                        btnExport.setEnabled(false);
+                    }
                 }
             });
+
+            tableExport.addView(row);
         }
     }
 
     /**
      * Handle export button click.
-     * Shows ExportTestVectorsDialog, then UnderConstructionDialog.
+     * Shows ExportTestVectorsDialog if a playlist is selected.
      */
     private void doExport() {
+        if (selectedPlaylist == null) {
+            Toast.makeText(requireContext(), "Please select a playlist to export", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
         // Show the modal ExportTestVectorsDialog
         ExportTestVectorsDialog exportDialog = new ExportTestVectorsDialog();
         exportDialog.setListener(this);
@@ -143,14 +168,61 @@ public class FragmentVectorExport extends Fragment implements ExportTestVectorsD
     }
 
     @Override
-    public void onExportConfirmed(String stagingFolder, String vectorName, String createdBy, String description){
-        UnderConstructionDialog.newInstance()
-                .show(getParentFragmentManager(), UnderConstructionDialog.TAG);
+    public void onExportConfirmed(String stagingFolder, String vectorName, String createdBy, String description) {
+        if (selectedPlaylist == null) {
+            Toast.makeText(requireContext(), "No playlist selected", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        // Build and show status dialog
+        AlertDialog.Builder dlgBuilder = new AlertDialog.Builder(requireContext());
+        dlgBuilder.setTitle("Export Progress");
+        ScrollView statusScroll = new ScrollView(requireContext());
+        TextView statusTv = new TextView(requireContext());
+        statusTv.setPadding(32, 32, 32, 32);
+        statusScroll.addView(statusTv);
+        dlgBuilder.setView(statusScroll);
+        dlgBuilder.setPositiveButton("OK", null);
+        dlgBuilder.setCancelable(false);
+        AlertDialog statusDialog = dlgBuilder.create();
+        statusDialog.show();
+        statusDialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(false);
+
+        // Start export
+        ExportTestVectors.exportPlaylist(
+                requireContext(),
+                selectedPlaylist,
+                stagingFolder,
+                vectorName,
+                createdBy,
+                description,
+                new ExportTestVectors.ExportCallback() {
+                    @Override
+                    public void onProgress(String message) {
+                        statusTv.append(message + "\n");
+                        statusScroll.fullScroll(View.FOCUS_DOWN);
+                    }
+
+                    @Override
+                    public void onSuccess(java.io.File exportFolder) {
+                        statusTv.append("\nExport completed successfully!\n");
+                        statusTv.append("Location: " + exportFolder.getAbsolutePath() + "\n");
+                        statusScroll.fullScroll(View.FOCUS_DOWN);
+                        statusDialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(true);
+                    }
+
+                    @Override
+                    public void onError(String errorMessage) {
+                        statusTv.append("\nExport failed: " + errorMessage + "\n");
+                        statusScroll.fullScroll(View.FOCUS_DOWN);
+                        statusDialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(true);
+                    }
+                }
+        );
     }
 
     @Override
-    public void onExportCancelled(){
-
+    public void onExportCancelled() {
+        // Nothing to do
     }
-
 }
