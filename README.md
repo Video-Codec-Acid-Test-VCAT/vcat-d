@@ -85,10 +85,14 @@ VCAT and libvcat are distributed under GPL-3.0-or-later. Nothing in this README,
 
 ## License
 
-VCAT is licensed under **GPL-3.0-or-later**.  
-See: https://www.gnu.org/licenses/gpl-3.0.html
+VCAT is licensed under **GPL-3.0-or-later** with a narrow additional permission for decoder `.aar` plugins.  
+See:
+- GPL-3.0 license text: <insert link here>
+- Decoder plugin additional permission: <insert link here>
 
-Contact us for commercial licensing if you can’t use GPL
+This additional permission applies only to `vcat-d` code and does not waive, modify, or supersede any license obligations arising from third-party code, tools, or libraries included in or used by a decoder plugin.
+
+The public exception only covers public release under the stated conditions. It does not authorize private external distribution to customers, partners, or other third parties. Those rights require a separate commercial license from RoncaTech.
 
 Use of the VCAT logo and artwork is permitted when discussing, documenting, demonstrating, or promoting VCAT itself.  Any other usage requires prior written permission from RoncaTech LLC.
 
