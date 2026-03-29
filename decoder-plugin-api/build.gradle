@@ -30,6 +30,9 @@ plugins {
     id 'maven-publish'
 }
 
+group   = 'com.roncatech.vcat'
+version = '1.0.1'
+
 android {
     namespace 'com.roncatech.vcat.decoder_plugin_api'
     compileSdk 35
@@ -50,6 +53,10 @@ android {
         sourceCompatibility JavaVersion.VERSION_11
         targetCompatibility JavaVersion.VERSION_11
     }
+
+    publishing {
+        singleVariant('release') { withSourcesJar() }
+    }
 }
 
 dependencies {
@@ -59,21 +66,122 @@ dependencies {
     compileOnly 'androidx.annotation:annotation:1.7.1'
 }
 
-// Publish to Maven Local so libvcat and standalone decoder projects can consume it.
-afterEvaluate {
-    publishing {
-        publications {
-            release(MavenPublication) {
-                artifact("$buildDir/outputs/aar/${project.name}-release.aar")
+/* ===== Publishing ===== */
 
-                groupId    = 'com.roncatech.vcat'
-                artifactId = 'decoder-plugin-api'
-                version    = '1.0.0'
+// Minimal javadoc jar (satisfies Maven Central component validation)
+tasks.register('androidJavadocJar', Jar) { archiveClassifier = 'javadoc' }
+
+publishing {
+    publications {
+        create('mavenRelease', MavenPublication) {
+            groupId    = project.group
+            artifactId = 'vcatd-decoder-plugin-api'
+            version    = project.version
+
+            afterEvaluate { from components.release }
+
+            artifact(tasks.named('androidJavadocJar'))
+
+            pom {
+                name.set('VCAT Decoder Plugin API')
+                description.set('Plugin SPI for VCAT software video decoders — VcatDecoderPlugin interface, VideoConfiguration, and NonStdDecoderStsdParser for ExoPlayer integration.')
+                url.set('https://github.com/jonathannah/vcat')
+                licenses {
+                    license {
+                        name.set('GPL-3.0-or-later')
+                        url.set('https://www.gnu.org/licenses/gpl-3.0.html')
+                        distribution.set('repo')
+                    }
+                }
+                developers {
+                    developer {
+                        id.set('roncatech')
+                        name.set('RoncaTech LLC')
+                        email.set('dev@roncatech.com')
+                    }
+                }
+                scm {
+                    url.set('https://github.com/jonathannah/vcat')
+                    connection.set('scm:git:https://github.com/jonathannah/vcat.git')
+                    developerConnection.set('scm:git:ssh://git@github.com/jonathannah/vcat.git')
+                }
             }
         }
     }
 
-    tasks.named('publishReleasePublicationToMavenLocal') {
-        dependsOn 'assembleRelease'
+    repositories {
+        // Local staging repo — unlike publishToMavenLocal, a file:// repository
+        // causes Gradle to generate the md5/sha1 checksums Central Portal requires.
+        maven {
+            name = 'localStaging'
+            url  = layout.buildDirectory.dir('outputs/staging').get().asFile.toURI()
+        }
+    }
+}
+
+// Workflow:
+//   ./gradlew :decoder-plugin-api:bundleForCentral [-PgpgKeyName=<KEY_ID>]
+//     → stages artifacts + md5/sha1 checksums to build/outputs/staging/
+//     → GPG-signs every artifact (.asc) using gpg on PATH
+//     → produces build/outputs/central/central-bundle-vcatd-decoder-plugin-api-<version>.zip
+//   Upload the ZIP at: central.sonatype.com → Publish → Upload deployment bundle
+
+tasks.register('publishLocal') {
+    group       = 'publishing'
+    description = 'Publish vcatd-decoder-plugin-api to Maven Local (~/.m2)'
+    dependsOn   'publishToMavenLocal'
+}
+
+tasks.register('stageForCentral') {
+    group       = 'publishing'
+    description = 'Publishes to local file:// staging repo, generating md5/sha1 checksums'
+    dependsOn   'publishMavenReleasePublicationToLocalStagingRepository'
+}
+
+tasks.register('signStagedArtifacts') {
+    group       = 'publishing'
+    description = 'GPG-signs every artifact in the staging repo, producing .asc files'
+    dependsOn   'stageForCentral'
+    doLast {
+        def gpgKeyName = (findProperty('gpgKeyName') ?: findProperty('signing.gnupg.keyName') ?: '') as String
+        def stagingDir = layout.buildDirectory.dir('outputs/staging').get().asFile
+        def toSign = []
+        stagingDir.eachFileRecurse { f ->
+            if (f.isFile() && !f.name.endsWith('.asc') && !f.name.endsWith('.module')) {
+                toSign << f
+            }
+        }
+        if (toSign.isEmpty()) throw new GradleException("No staged artifacts found — run stageForCentral first")
+        def gpgPassphrase = (findProperty('gpgPassphrase') ?: '') as String
+        toSign.each { f ->
+            def cmd = ['gpg', '--batch', '--yes', '--pinentry-mode', 'loopback', '--detach-sign', '--armor']
+            if (gpgKeyName) cmd += ['--local-user', gpgKeyName]
+            if (gpgPassphrase) cmd += ['--passphrase-fd', '0']
+            cmd << f.absolutePath
+            exec {
+                commandLine cmd
+                if (gpgPassphrase) standardInput = new ByteArrayInputStream(gpgPassphrase.bytes)
+            }
+            println "Signed: ${f.name}"
+        }
+    }
+}
+
+tasks.register('bundleForCentral', Zip) {
+    group       = 'publishing'
+    description = 'Produces a Central Portal upload bundle from the local staging repo'
+    dependsOn   'signStagedArtifacts'
+
+    def stagingDir = layout.buildDirectory.dir('outputs/staging').get().asFile
+    from(stagingDir) {
+        // Central Portal does not accept Gradle module metadata
+        exclude '**/*.module'
+    }
+
+    archiveFileName      = "central-bundle-vcatd-decoder-plugin-api-${project.version}.zip"
+    destinationDirectory = layout.buildDirectory.dir('outputs/central')
+    doLast {
+        println "Bundle: ${archiveFile.get().asFile.absolutePath}"
+        println "Upload at: central.sonatype.com → Publish → Upload deployment bundle"
     }
 }

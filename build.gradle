@@ -38,7 +38,7 @@ tasks.register("build-decoder-plugin-api") {
 
     doLast {
         println("\nPublished to Maven Local:")
-        println("  com.roncatech.vcat:decoder-plugin-api:1.0.0")
-        println("\nLocation: ${System.getProperty('user.home')}/.m2/repository/com/roncatech/vcat/decoder-plugin-api/")
+        println("  com.roncatech.vcat:vcatd-decoder-plugin-api:1.0.1")
+        println("\nLocation: ${System.getProperty('user.home')}/.m2/repository/com/roncatech/vcat/vcatd-decoder-plugin-api/")
     }
 }
