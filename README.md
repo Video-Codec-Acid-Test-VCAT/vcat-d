@@ -88,7 +88,7 @@ VCAT and libvcat are distributed under GPL-3.0-or-later. Nothing in this README,
 VCAT is licensed under **GPL-3.0-or-later** with a narrow additional permission for decoder `.aar` plugins.  
 See:
 - GPL-3.0 license text: [link](https://github.com/Video-Codec-Acid-Test-VCAT/vcat-d/blob/plugin-decoder/LICENSE)
-- Decoder plugin additional permission: [link] (https://github.com/Video-Codec-Acid-Test-VCAT/vcat-d/blob/plugin-decoder/LICENSE-PLUGIN-EXCEPTION.md)
+- Decoder plugin additional permission: [link](https://github.com/Video-Codec-Acid-Test-VCAT/vcat-d/blob/plugin-decoder/LICENSE-PLUGIN-EXCEPTION.md)
 
 This additional permission applies only to `vcat-d` code and does not waive, modify, or supersede any license obligations arising from third-party code, tools, or libraries included in or used by a decoder plugin.
 
