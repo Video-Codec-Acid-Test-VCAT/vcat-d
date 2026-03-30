@@ -1,5 +1,7 @@
 # Additional Permission Under GPLv3 Section 7 for Decoder `.aar` Plugins
 
+#THIS IS DRAFT TEXT AND NOT CURRENTLY ADOPTED< NO RIGHTS ARE GIVEN BY THIS DRAFT LICENSE.
+
 The VCAT project (`vcat-d`) is licensed under GNU General Public License version 3 or, at your option, any later version ("GPL-3.0-or-later").
 
 As an additional permission under GPLv3 Section 7, the copyright holder for `vcat-d` grants the following narrow exception for decoder plugins:
