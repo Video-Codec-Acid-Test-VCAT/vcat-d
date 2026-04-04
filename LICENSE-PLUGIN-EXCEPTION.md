@@ -20,7 +20,7 @@ As an additional permission under GPLv3 Section 7, RoncaTech LLC, as the sole co
 
 7. This additional permission applies only to `vcat-d` code and does not waive, modify, or supersede any license obligations arising from third-party code, tools, or libraries included in or used by a decoder plugin.
 
-8. A distributor may include reasonable use limitations in a decoder `.aar` plugin, including but not limited to evaluation expiry, output watermarking, or usage caps, provided that all such limitations are clearly disclosed in the build and integration instructions required by §2. Undisclosed limitations that affect benchmark output or decode behavior are a violation of this additional permission and of the Benchmark Integrity rules below.
+8. A distributor may include reasonable use limitations in a decoder `.aar` plugin, including but not limited to evaluation expiry, output watermarking, or usage limitations, provided that all such limitations are clearly disclosed in the build and integration instructions required by §2. Undisclosed limitations that affect benchmark output or decode behavior are a violation of this additional permission and of the Benchmark Integrity rules below.
 
 ## Benchmark Integrity
 
