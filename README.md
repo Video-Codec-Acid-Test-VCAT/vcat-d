@@ -30,7 +30,7 @@ It is designed to evaluate real-world decode performance and platform stability 
 - **Open Source — GPL-3.0-or-later**  
   – free to use, modify, and improve
 - **Clean decoder plugin model**
-  - Special handling for decoders not supported by ExoPlayer: [vvdec example](https://github.com/Video-Codec-Acid-Test-VCAT/vcatd-vvdec-plugin)
+  – Special handling for decoders not supported by ExoPlayer: [vvdec example](https://github.com/Video-Codec-Acid-Test-VCAT/vcatd-vvdec-plugin)
 
 ## Vision
 
