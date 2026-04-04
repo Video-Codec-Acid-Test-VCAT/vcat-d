@@ -32,7 +32,30 @@ It is designed to evaluate real-world decode performance and platform stability 
 
 ## Vision
 
-VCAT’s mission is to enable users, developers, and OEMs to understand **how well devices handle modern video standards under real conditions**, not just short synthetic tests.
+VCAT's mission is to enable users, developers, and OEMs to understand **how well devices handle modern video standards under real conditions**, not just short synthetic tests.
+
+## Decoder Plugin Exception
+
+Android devices vary enormously in their ability to handle software video decoding.
+VCAT's mission is to make that capability visible and comparable across devices — but
+that mission is only as useful as the decoders it can test.
+
+Some codecs, including current-generation VVC and future formats, may not have
+open-source decoder implementations. Excluding them would limit VCAT's relevance
+precisely where benchmarking matters most: at the frontier of what devices can handle.
+
+To address this, VCAT provides a narrow license exception allowing decoder vendors to
+integrate a closed-source `.aar` plugin without open-sourcing their decoder SDK.
+
+**If you are a decoder vendor** and would like your decoder evaluated within VCAT,
+see [LICENSE-PLUGIN-EXCEPTION.md](LICENSE-PLUGIN-EXCEPTION.md) for the full terms.
+The short version:
+
+- Your decoder `.aar` and integration instructions must be publicly available
+- Any limitations (trial expiry, watermarking, usage caps) must be disclosed in your
+  integration instructions
+- You do not need to open-source your decoder
+- Modifications to `vcat-d` itself remain GPL
 
 ## Components
 | Component | Role |
@@ -73,9 +96,9 @@ Feedback is welcome — issues and PRs encouraged!
 VCAT is provided for general benchmarking and evaluation purposes only. RoncaTech makes no representations or guarantees that VCAT is suitable for any particular purpose, environment, or workflow. You are solely responsible for determining whether VCAT meets your needs. Under no circumstances should reliance on VCAT substitute for your own testing, validation, or professional judgment.
 
 ## Limitation of Liability
-TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, IN NO EVENT WILL RONCATECH, LLC OR ITS AFFILIATES, CONTRIBUTORS, OR SUPPLIERS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, OR PUNITIVE DAMAGES, INCLUDING BUT NOT LIMITED TO LOSS OF PROFITS, REVENUE, DATA, OR USE, ARISING OUT OF OR IN CONNECTION WITH YOUR USE OF VCAT, EVEN IF RONCATECH HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH DAMAGES.  
+TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, IN NO EVENT WILL RONCATECH LLC OR ITS AFFILIATES, CONTRIBUTORS, OR SUPPLIERS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, OR PUNITIVE DAMAGES, INCLUDING BUT NOT LIMITED TO LOSS OF PROFITS, REVENUE, DATA, OR USE, ARISING OUT OF OR IN CONNECTION WITH YOUR USE OF VCAT, EVEN IF RONCATECH HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH DAMAGES.
 
-You agree that your sole and exclusive remedy for any claim under or related to VCAT will be to discontinue use of the software.
+RoncaTech does not provide any remedy beyond the right to discontinue use of the software.
 
 ## Patent Notice (No Patent Rights Granted)
 VCAT and libvcat are distributed under GPL-3.0-or-later. Nothing in this README, the source code, or the license grants you any rights under third-party patents, including without limitation patents essential to implement or use media codecs and container formats (e.g., AVC/H.264, HEVC/H.265, VVC/H.266, MPEG-2, AAC, etc.).  
@@ -87,13 +110,13 @@ VCAT and libvcat are distributed under GPL-3.0-or-later. Nothing in this README,
 
 VCAT is licensed under **GPL-3.0-or-later** with a narrow additional permission for decoder `.aar` plugins.  
 See:
-- GPL-3.0 license text: [link](https://github.com/Video-Codec-Acid-Test-VCAT/vcat-d/blob/plugin-decoder/LICENSE)
-- Decoder plugin additional permission: [link](https://github.com/Video-Codec-Acid-Test-VCAT/vcat-d/blob/plugin-decoder/LICENSE-PLUGIN-EXCEPTION.md)
+- GPL-3.0 license text: https://www.gnu.org/licenses/gpl-3.0.html
+- Decoder plugin additional permission: [LICENSE-PLUGIN-EXCEPTION.md](LICENSE-PLUGIN-EXCEPTION.md)
 
 This additional permission applies only to `vcat-d` code and does not waive, modify, or supersede any license obligations arising from third-party code, tools, or libraries included in or used by a decoder plugin.
 
 The public exception only covers public release under the stated conditions. It does not authorize private external distribution to customers, partners, or other third parties. Those rights require a separate commercial license from RoncaTech.
 
-Use of the VCAT logo and artwork is permitted when discussing, documenting, demonstrating, or promoting VCAT itself.  Any other usage requires prior written permission from RoncaTech LLC.
+Use of the VCAT logo and artwork is permitted when discussing, documenting, demonstrating, or promoting VCAT itself. Any other usage requires prior written permission from RoncaTech LLC.
 
 Contact: https://www.roncatech.com/contact
