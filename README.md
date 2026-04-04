@@ -104,7 +104,7 @@ RoncaTech does not provide any remedy beyond the right to discontinue use of the
 
 ## Patent Notice (No Patent Rights Granted)
 vcat-d and libvcatd are distributed under GPL-3.0-or-later. Nothing in this README, the source code, or the license grants you any rights under third-party patents, including without limitation patents essential to implement or use media codecs and container formats (e.g., AVC/H.264, HEVC/H.265, VVC/H.266, MPEG-2, AAC, etc.).  
-- You are solely responsible for determining whether your use, distribution, or deployment of vcat-d/libvcat requires patent licenses from any third party (including patent pools or individual patent holders) and for obtaining any such licenses.  
+- You are solely responsible for determining whether your use, distribution, or deployment of vcat-d/libvcatd requires patent licenses from any third party (including patent pools or individual patent holders) and for obtaining any such licenses.  
 - Contributions to this project may include a limited patent grant from contributors as specified by GPL-3.0-or-later, but no additional patent rights are provided, and no rights are granted on behalf of any third party.  
 - Use of bundled or integrated decoders/parsers does not imply or provide patent clearance for any jurisdiction. Your compliance with all applicable intellectual property laws remains your responsibility.
 
