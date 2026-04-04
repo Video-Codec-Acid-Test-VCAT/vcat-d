@@ -54,7 +54,7 @@ see [LICENSE-PLUGIN-EXCEPTION.md](LICENSE-PLUGIN-EXCEPTION.md) for the full term
 The short version:
 
 - Your decoder `.aar` and integration instructions must be publicly available
-- Any limitations (trial expiry, watermarking, usage caps) must be disclosed in your
+- Any limitations (trial expiry, watermarking, usage limits, etc.) must be disclosed in your
   integration instructions
 - You do not need to open-source your decoder
 - Modifications to `vcat-d` itself remain GPL
