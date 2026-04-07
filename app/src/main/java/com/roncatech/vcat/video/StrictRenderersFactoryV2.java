@@ -74,37 +74,29 @@ public final class StrictRenderersFactoryV2 extends DefaultRenderersFactory {
         final String selVvc = viewModel.getRunConfig().decoderCfg.getDecoder(VideoDecoderEnumerator.MimeType.VVC);
 
         // 1) Prefer extensions first so they can claim their formats before MediaCodec.
-        // --- vvdec (VVC) ---
+        // --- VVC decoder (vvdec or any other registered VVC plugin) ---
         try {
-            boolean wantVvdec = VCAT_VVDEC.equalsIgnoreCase(selVvc) || selVvc == null || selVvc.isEmpty();
-            if (wantVvdec) {
-                String vvcId = (selVvc != null && !selVvc.isEmpty()) ? selVvc : VCAT_VVDEC;
-                VcatDecoderPlugin vvc = VcatDecoderManager.getInstance().getDecoder(vvcId);
-                if (vvc != null) {
-                    out.add(vvc.createVideoRenderer(context, allowedVideoJoiningTimeMs, eventHandler, eventListener, this.viewModel.getRunConfig().threads));
-                } else {
-                    Log.i(TAG, "vvdec plugin not registered, skipping.");
-                }
+            String vvcDecoderId = (selVvc == null || selVvc.isEmpty()) ? VCAT_VVDEC : selVvc;
+            VcatDecoderPlugin vvc = VcatDecoderManager.getInstance().getDecoder(vvcDecoderId);
+            if (vvc != null) {
+                out.add(vvc.createVideoRenderer(context, allowedVideoJoiningTimeMs, eventHandler, eventListener, this.viewModel.getRunConfig().threads));
             } else {
-                Log.i(TAG, "vvdec explicitly not selected (selVvc=" + selVvc + ").");
+                Log.w(TAG, "VVC decoder not found in registry: " + vvcDecoderId);
             }
         } catch (DecoderException e) {
-            Log.e(TAG, "vvdec renderer not added", e);
+            Log.e(TAG, "VVC renderer not added", e);
         }
 
         // --- dav1d (AV1) ---
         try {
-            boolean wantDav1d = VCAT_DAV1D.equalsIgnoreCase(selAv1) || selAv1 == null || selAv1.isEmpty();
-            if (wantDav1d) {
-                String av1Id = (selAv1 != null && !selAv1.isEmpty()) ? selAv1 : VCAT_DAV1D;
-                VcatDecoderPlugin dav1d = VcatDecoderManager.getInstance().getDecoder(av1Id);
-                if (dav1d != null) {
-                    out.add(dav1d.createVideoRenderer(context, allowedVideoJoiningTimeMs, eventHandler, eventListener, this.viewModel.getRunConfig().threads));
-                } else {
-                    Log.w(TAG, "dav1d plugin not registered, skipping.");
-                }
+            String av1DecoderId = (selAv1 == null || selAv1.isEmpty()) ? VCAT_DAV1D : selAv1;
+            VcatDecoderPlugin dav1d = VcatDecoderManager.getInstance().getDecoder(av1DecoderId);
+            if (dav1d != null) {
+                Renderer davidRenderer = dav1d.createVideoRenderer(context, allowedVideoJoiningTimeMs, eventHandler, eventListener, this.viewModel.getRunConfig().threads);
+                out.add(davidRenderer);
+                Log.i(TAG, "Added AV1 renderer: " + av1DecoderId);
             } else {
-                Log.i(TAG, "dav1d explicitly not selected (selAv1=" + selAv1 + ").");
+                Log.w(TAG, "AV1 decoder not found in registry: " + av1DecoderId);
             }
         } catch (DecoderException e) {
             Log.w(TAG, "dav1d renderer not added", e);
