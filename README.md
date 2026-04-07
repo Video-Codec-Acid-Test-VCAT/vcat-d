@@ -111,12 +111,13 @@ cd ../vcat-d
 
 vcat-d is currently in active development and work is ongoing.
 
-* Source code  
-* Telemetry pipeline  
-* dav1d & vvdecintegration
+* Source code
+* Telemetry pipeline
+* dav1d & vvdec integration
 
 ### Help needed
-* Continuous UI improvements  
+
+* Continuous UI improvements
 * Additional test vector libraries
 * H264, H265, VP9, and VVC bundled decoders (in libvcatd).
 * vcat-d-Neg mode to use VLC as the video player to prevent unscrupulous vendors from gaming their system when vcat-d is running.
@@ -128,14 +129,17 @@ Contributions are handled through merge requests on the vcat-d project.
 Feedback is welcome — issues and PRs encouraged!
 
 ### Feedback
-- Use the discussion thread in this project for feedback
+
+* Use the discussion thread in this project for feedback
 
 ### Bugs
-- Open issues on vcat-d or libvcatd github projects.  If unsure which to use, use vcat-d.
-- Include: **steps to reproduce**, **expected vs actual behavior**, **timestamp & timezone**, **browser/app version**, and **screenshots**.
+
+* Open issues on vcat-d or libvcatd github projects. If unsure which to use, use vcat-d.
+* Include: **steps to reproduce**, **expected vs actual behavior**, **timestamp & timezone**, **browser/app version**, and **screenshots**.
 
 ## Disclaimer of Suitability
-vcat-d is provided for general benchmarking and evaluation purposes only. RoncaTech makes no representations or guarantees that vcat-d is suitable for any particular purpose, environment, or workflow. You are solely responsible for determining whether vcat-d meets your needs. Under no circumstances should reliance on vcat-d substitute for your own testing, validation, or professional judgment.
+
+vcat-d is provided for general benchmarking and evaluation purposes only. RoncaTech makes no representations or guarantees that vcat-d is suitable for any particular purpose, environment, or workflow. Benchmark results produced by vcat-d reflect conditions at the time of testing and may vary based on device state, configuration, test vector selection, and other factors outside RoncaTech's control. You are solely responsible for determining whether vcat-d and its results meet your needs. Under no circumstances should reliance on vcat-d or its output substitute for your own testing, validation, or professional judgment.
 
 ## Limitation of Liability
 TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, IN NO EVENT WILL RONCATECH LLC OR ITS AFFILIATES, CONTRIBUTORS, OR SUPPLIERS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, OR PUNITIVE DAMAGES, INCLUDING BUT NOT LIMITED TO LOSS OF PROFITS, REVENUE, DATA, OR USE, ARISING OUT OF OR IN CONNECTION WITH YOUR USE OF vcat-d, EVEN IF RONCATECH HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH DAMAGES.
