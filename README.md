@@ -64,8 +64,48 @@ The short version:
 |-----------|------|
 | **vcat-d (app)** | Benchmarking UI, telemetry collection, test orchestration, reporting |
 | **[libvcatd](https://github.com/Video-Codec-Acid-Test-VCAT/libvcatd)** | Core media stack: decoder adapters (e.g., dav1d AV1, optional vvdec VVC), parsers/extractors, JNI/native glue, capability probes |
+|[vcatd-vvdec-plugin](https://github.com/Video-Codec-Acid-Test-VCAT/vcatd-vvdec-plugin)| External vvdec plugin for vcat-d|
 
 This separation keeps the app lightweight and lets media-layer work (decoders, parsing, performance hooks) evolve independently from UI and workflow code.
+
+## Building vcat-d with VVC (H.266) Plugin
+
+### Prerequisites
+
+- Android Studio (latest stable)
+- JDK 17+
+- NDK 27.0.12077973 (install via Android Studio SDK Manager)
+- CMake 3.22+ and Ninja (install via SDK Manager)
+- Python 3.8+ and Meson ≥ 1.2 (`pip install meson`)
+
+### Repositories
+
+Clone into the same parent directory:
+```bash
+git clone -b plugin-decoder https://github.com/Video-Codec-Acid-Test-VCAT/vcat-d.git
+git clone https://github.com/Video-Codec-Acid-Test-VCAT/vcatd-vvdec-plugin.git
+```
+
+### Build
+
+1. **Build the VVC decoder plugin**
+```bash
+cd vcatd-vvdec-plugin
+./gradlew :app:dist
+```
+
+2. **Copy the plugin into vcat-d**
+```bash
+cp app/build/outputs/dist/vcatd-vvdec-plugin.aar ../vcat-d/decoder-plugins/
+```
+
+3. **Build the vcat-d app**
+```bash
+cd ../vcat-d
+./gradlew :app:assembleRelease
+```
+
+> **Note:** Step 1 builds vvdec from source (Fraunhofer H.266 decoder). The first build takes ~10–15 minutes per ABI to compile. Subsequent builds are cached and fast.
 
 ## Project Status
 
@@ -73,7 +113,7 @@ vcat-d is currently in active development and work is ongoing.
 
 * Source code  
 * Telemetry pipeline  
-* dav1d integration
+* dav1d & vvdecintegration
 
 ### Help needed
 * Continuous UI improvements  
