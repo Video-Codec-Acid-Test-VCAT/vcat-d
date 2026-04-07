@@ -59,7 +59,7 @@ All VCAT artwork is owned exclusively by RoncaTech LLC. Use of VCAT logos and ar
             android:id="@+id/radioVCAT"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="VCAT Test Vectors"
+            android:text="vcat-d Test Vectors"
             android:checked="true" />
 
         <RadioButton

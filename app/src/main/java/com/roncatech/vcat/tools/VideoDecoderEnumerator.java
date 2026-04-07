@@ -39,7 +39,7 @@ import androidx.annotation.NonNull;
 
 import com.google.android.exoplayer2.mediacodec.MediaCodecUtil;
 import com.roncatech.libvcat.decoder.VcatDecoderManager;
-import com.roncatech.libvcat.decoder.VcatDecoderPlugin;
+import com.roncatech.vcat.decoder_plugin_api.VcatDecoderPlugin;
 import com.roncatech.vcat.video.StrictRenderersFactoryV2;
 
 import org.jetbrains.annotations.Contract;

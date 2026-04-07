@@ -15,11 +15,8 @@ import com.google.android.exoplayer2.mediacodec.MediaCodecUtil;
 import com.google.android.exoplayer2.video.DecoderVideoRenderer;
 import com.google.android.exoplayer2.video.MediaCodecVideoRenderer;
 import com.google.android.exoplayer2.video.VideoRendererEventListener;
-import com.roncatech.libvcat.dav1d.VcatDav1dPlugin;
 import com.roncatech.libvcat.decoder.VcatDecoderManager;
-import com.roncatech.libvcat.decoder.VcatDecoderPlugin;
-import com.roncatech.libvcat.vvdec.VcatVvcdecPlugin;
-import com.roncatech.libvcat.vvdec.VvdecProvider;
+import com.roncatech.vcat.decoder_plugin_api.VcatDecoderPlugin;
 import com.roncatech.vcat.models.SharedViewModel;
 import com.roncatech.vcat.tools.VideoDecoderEnumerator;
 
@@ -81,9 +78,13 @@ public final class StrictRenderersFactoryV2 extends DefaultRenderersFactory {
         try {
             boolean wantVvdec = VCAT_VVDEC.equalsIgnoreCase(selVvc) || selVvc == null || selVvc.isEmpty();
             if (wantVvdec) {
-                VcatDecoderPlugin vvc = VcatDecoderManager.getInstance().getDecoder(selVvc);
-                Renderer vvcRenderer = vvc.createVideoRenderer(context, allowedVideoJoiningTimeMs, eventHandler, eventListener, this.viewModel.getRunConfig().threads);
-                out.add(vvcRenderer);
+                String vvcId = (selVvc != null && !selVvc.isEmpty()) ? selVvc : VCAT_VVDEC;
+                VcatDecoderPlugin vvc = VcatDecoderManager.getInstance().getDecoder(vvcId);
+                if (vvc != null) {
+                    out.add(vvc.createVideoRenderer(context, allowedVideoJoiningTimeMs, eventHandler, eventListener, this.viewModel.getRunConfig().threads));
+                } else {
+                    Log.i(TAG, "vvdec plugin not registered, skipping.");
+                }
             } else {
                 Log.i(TAG, "vvdec explicitly not selected (selVvc=" + selVvc + ").");
             }
@@ -95,9 +96,13 @@ public final class StrictRenderersFactoryV2 extends DefaultRenderersFactory {
         try {
             boolean wantDav1d = VCAT_DAV1D.equalsIgnoreCase(selAv1) || selAv1 == null || selAv1.isEmpty();
             if (wantDav1d) {
-                VcatDecoderPlugin dav1d = VcatDecoderManager.getInstance().getDecoder(selAv1);
-                Renderer davidRenderer = dav1d.createVideoRenderer(context, allowedVideoJoiningTimeMs, eventHandler, eventListener, this.viewModel.getRunConfig().threads);
-                out.add(davidRenderer);
+                String av1Id = (selAv1 != null && !selAv1.isEmpty()) ? selAv1 : VCAT_DAV1D;
+                VcatDecoderPlugin dav1d = VcatDecoderManager.getInstance().getDecoder(av1Id);
+                if (dav1d != null) {
+                    out.add(dav1d.createVideoRenderer(context, allowedVideoJoiningTimeMs, eventHandler, eventListener, this.viewModel.getRunConfig().threads));
+                } else {
+                    Log.w(TAG, "dav1d plugin not registered, skipping.");
+                }
             } else {
                 Log.i(TAG, "dav1d explicitly not selected (selAv1=" + selAv1 + ").");
             }

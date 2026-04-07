@@ -100,5 +100,6 @@ Try one of these:
 
 rootProject.name = "vcat"
 include(":app")
+include(":decoder-plugin-api")
 
 

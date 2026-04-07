@@ -48,4 +48,8 @@ app/release/
 # --- temp lib folder for decoder
 libs/
 
-extension-dav1d/src/main/cpp/third_party/
+decoder-plugins/
+
+# --- decoder-plugin-api build artifacts
+decoder-plugin-api/build/
+decoder-plugin-api/.gradle/

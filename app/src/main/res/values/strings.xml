@@ -34,7 +34,7 @@ All VCAT artwork is owned exclusively by RoncaTech LLC. Use of VCAT logos and ar
 -->
 
 <resources>
-    <string name="app_name">VCAT&#8482;</string>
+    <string name="app_name">vcat-d</string>
 
     <string name="title_home">Home</string>
     <string name="title_logs">Logs</string>
@@ -45,11 +45,12 @@ All VCAT artwork is owned exclusively by RoncaTech LLC. Use of VCAT logos and ar
     <string name="logs_nav">Logs</string>
     <string name="conditions_nav">Conditions</string>
     <string name="test_vectors_nav">Test Vectors</string>
-    <string name="about_vcat">About VCAT</string>
+    <string name="about_vcat">About vcat-d</string>
     <string name="download_test_vectors">Download Test Vectors</string>
-    <string name="about_title">"VCAT (Video Codec Acid Test)</string>
-    <string name="about_vcat_description">"VCAT&#8482; is a tool for evaluating video codec playback behavior under real-world conditions. It helps benchmark device decode performance and analyze power, quality, and reliability across formats and conditions."</string>
-    <string name="about_contributors">"Contributors: David Ronca, Ittiam Systems, Meta, and the VCAT OSS community"</string>
+    <string name="about_title">vcat-d</string>
+    <string name="about_subtitle">Video Codec Acid Test for Decoders</string>
+    <string name="about_vcat_description">"vcat-d is a tool for evaluating video decoder playback behavior under real-world conditions. It helps benchmark device decode performance and analyze power, quality, and reliability across formats and conditions."</string>
+    <string name="about_contributors">"Contributors: David Ronca, Ittiam Systems, Meta, and the vcat-d OSS community"</string>
     <string name="url_roncatech">"https://www.roncatech.com"</string>
     <string name="url_ittiam">"https://www.ittiam.com"</string>
     <string name="view_license">"View License"</string>
