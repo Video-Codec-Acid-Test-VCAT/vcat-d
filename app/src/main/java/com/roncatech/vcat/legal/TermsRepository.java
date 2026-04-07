@@ -149,7 +149,7 @@ public class TermsRepository {
 
     // Your public Gist RAW URL (auto-updates when you edit the Gist)
     private static final String DEFAULT_URL =
-            "https://gist.githubusercontent.com/jonathannah/124a2b48f3555a18d6d75f6d34f5b226/raw/ce5e5803bb6b3516812554ddc960ef4cd304fa10/vcat-d_terms.json";
+            "https://gist.githubusercontent.com/jonathannah/124a2b48f3555a18d6d75f6d34f5b226/raw/111fdd2e95936f53ed1ff228ae626e36aa177c4d/vcat-d_terms.json";
     // Local fallback HTML used when fetch fails (keep short or your full text)
     // If you materially change LOCAL_TERMS_HTML, bump this local version
     private static final int LOCAL_VERSION = 1;
@@ -300,6 +300,8 @@ public class TermsRepository {
 
     /**
      * Returns HTML body either from inline "html" or by downloading "html_url".
+     * Converts GitHub Gist page URLs to raw content URLs automatically:
+     *   https://gist.github.com/{user}/{id}  →  https://gist.githubusercontent.com/{user}/{id}/raw/
      */
     private String resolveHtml(JSONObject json) throws Exception {
         if (json.has("html")) {
@@ -307,6 +309,12 @@ public class TermsRepository {
         }
         if (json.has("html_url")) {
             String htmlUrl = json.getString("html_url");
+            // Convert Gist page URL to raw content URL
+            if (htmlUrl.startsWith("https://gist.github.com/")) {
+                htmlUrl = htmlUrl.replace("https://gist.github.com/",
+                                          "https://gist.githubusercontent.com/")
+                         + "/raw/";
+            }
             Request htmlReq = new Request.Builder().url(htmlUrl).build();
             try (Response htmlResp = http.newCall(htmlReq).execute()) {
                 if (!htmlResp.isSuccessful()) {
