@@ -44,9 +44,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
 import android.util.Log;
-import android.view.Gravity;
 import android.view.View;
-import android.view.ViewGroup;
 import android.view.WindowManager;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
@@ -219,31 +217,7 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
             return;
         }
 
-        // calculate size (fall back if height is not laid out yet)
         TelemetryLogger.VideoInfo vi = getTlVideoInfo(this.testClips.get(this.curFileIndex), this.viewModel.curTestDetails);
-        int displayHeight = playerView.getHeight();
-        if (displayHeight == 0) {
-            displayHeight = playerView.getMeasuredHeight();
-            if (displayHeight == 0) {
-                // final fallback: just use MATCH_PARENT width if we can't compute yet
-                displayHeight = ViewGroup.LayoutParams.MATCH_PARENT;
-            }
-        }
-        double videoAspectRatio = -1;
-
-        if(vi.width != null && !vi.width.isEmpty() && vi.height != null && !vi.height.isEmpty()){
-            videoAspectRatio = Double.parseDouble(vi.width) / Double.parseDouble(vi.height);
-        }
-        int scaledVideoWidth = (displayHeight == ViewGroup.LayoutParams.MATCH_PARENT)
-                ? ViewGroup.LayoutParams.MATCH_PARENT
-                : (int) (displayHeight * videoAspectRatio);
-
-        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
-                scaledVideoWidth,
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                Gravity.CENTER
-        );
-        videoOverlay.setLayoutParams(params);
 
         // show it ABOVE the video + controller
         videoOverlay.setVisibility(View.VISIBLE);

@@ -40,7 +40,6 @@ import com.google.gson.GsonBuilder;
 
 import com.roncatech.vcat.BuildConfig;
 import com.roncatech.vcat.tools.VideoDecoderEnumerator;
-import com.roncatech.vcat.video.StrictRenderersFactoryV2;
 
 import java.util.Collections;
 import java.util.HashMap;
@@ -55,10 +54,9 @@ public class DecoderConfig {
     public final Map<VideoDecoderEnumerator.MimeType, String> decoderConfig = new HashMap<>();
 
     public DecoderConfig() {
-        // default all decoders to the first provided by ExoPlayer except AV1 is vcat-dav1d
-
-        decoderConfig.put(VideoDecoderEnumerator.MimeType.AV1, StrictRenderersFactoryV2.VCAT_DAV1D);
-        decoderConfig.put(VideoDecoderEnumerator.MimeType.VVC, StrictRenderersFactoryV2.VCAT_VVDEC);
+        // When no decoder is selected for a MIME type,
+        // StrictRenderersFactoryV2 enumerates all registered plugins for that type and adds
+        // them in registration order — the first registered plugin becomes the effective default.
         VideoDecoderEnumerator.DecoderSet vp9Set = VideoDecoderEnumerator.getDecodersForMimeType(VideoDecoderEnumerator.MimeType.VP9);
 
         if (vp9Set.decoders.size() > 0) {
