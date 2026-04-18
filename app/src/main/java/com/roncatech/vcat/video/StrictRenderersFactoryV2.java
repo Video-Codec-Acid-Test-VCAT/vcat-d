@@ -12,15 +12,14 @@ import com.google.android.exoplayer2.decoder.DecoderException;
 import com.google.android.exoplayer2.mediacodec.MediaCodecInfo;
 import com.google.android.exoplayer2.mediacodec.MediaCodecSelector;
 import com.google.android.exoplayer2.mediacodec.MediaCodecUtil;
-import com.google.android.exoplayer2.video.DecoderVideoRenderer;
 import com.google.android.exoplayer2.video.MediaCodecVideoRenderer;
 import com.google.android.exoplayer2.video.VideoRendererEventListener;
 import com.roncatech.libvcat.decoder.VcatDecoderManager;
 import com.roncatech.vcat.decoder_plugin_api.VcatDecoderPlugin;
 import com.roncatech.vcat.models.SharedViewModel;
-import com.roncatech.vcat.tools.VideoDecoderEnumerator;
 
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 
 public final class StrictRenderersFactoryV2 extends DefaultRenderersFactory {
@@ -65,14 +64,17 @@ public final class StrictRenderersFactoryV2 extends DefaultRenderersFactory {
             long allowedVideoJoiningTimeMs,
             ArrayList<Renderer> out
     )  {
-        final String selAv1 = viewModel.getRunConfig().decoderCfg.getDecoder(VideoDecoderEnumerator.MimeType.AV1);
-        final String selVvc = viewModel.getRunConfig().decoderCfg.getDecoder(VideoDecoderEnumerator.MimeType.VVC);
-
-        // 1) Software decoders first so they can claim their formats before MediaCodec.
-        addPluginRenderers(context, allowedVideoJoiningTimeMs, eventHandler, eventListener,
-                VideoDecoderEnumerator.MimeType.VVC.toString(), selVvc, out);
-        addPluginRenderers(context, allowedVideoJoiningTimeMs, eventHandler, eventListener,
-                VideoDecoderEnumerator.MimeType.AV1.toString(), selAv1, out);
+        // 1) Software plugin decoders first so they can claim their formats before MediaCodec.
+        //    Enumerate all distinct MIME types from registered plugins — no hardcoded codec list.
+        LinkedHashSet<String> pluginMimeTypes = new LinkedHashSet<>();
+        for (VcatDecoderPlugin p : VcatDecoderManager.getInstance().getDecoders()) {
+            pluginMimeTypes.add(p.getMimeType());
+        }
+        for (String mimeType : pluginMimeTypes) {
+            String selected = viewModel.getRunConfig().decoderCfg.getDecoder(mimeType);
+            addPluginRenderers(context, allowedVideoJoiningTimeMs, eventHandler, eventListener,
+                    mimeType, selected, out);
+        }
 
         // 2) Always add MediaCodec as a fallback/default (after extensions).
         out.add(new MediaCodecVideoRenderer(

@@ -10,12 +10,16 @@ import android.content.Context;
 import android.os.Build;
 import android.util.Log;
 
+import androidx.annotation.Nullable;
+
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.roncatech.libvcat.decoder.VcatDecoderManager;
 import com.roncatech.vcat.decoder_plugin_api.VcatDecoderPlugin;
 
 import java.io.ByteArrayOutputStream;
+import java.util.ArrayList;
+import java.util.List;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -55,6 +59,15 @@ public final class DecoderPluginLoader {
         }
     }
 
+    private static class PluginManifest {
+        final String pluginClass;
+        @Nullable final String loaderClass;
+        PluginManifest(String pluginClass, @Nullable String loaderClass) {
+            this.pluginClass = pluginClass;
+            this.loaderClass = loaderClass;
+        }
+    }
+
     private static void loadPlugin(Context context, String fileName) {
         try {
             // Stream AAR from assets to a writable file so ZipFile can open it
@@ -62,8 +75,8 @@ public final class DecoderPluginLoader {
             copyAsset(context, ASSET_DIR + "/" + fileName, aarFile);
 
             // Read plugin-manifest.json from inside the AAR
-            String pluginClass = readPluginClass(aarFile);
-            if (pluginClass == null) {
+            PluginManifest manifest = readManifest(aarFile);
+            if (manifest == null) {
                 Log.w(TAG, fileName + ": missing or invalid plugin-manifest.json, skipping");
                 return;
             }
@@ -74,32 +87,68 @@ public final class DecoderPluginLoader {
             dexFile.setReadOnly();
 
             // Extract native libs for the current ABI
-            File nativeLibDir = extractNativeLibs(context, aarFile, fileName);
+            final File nativeLibDir = extractNativeLibs(context, aarFile, fileName);
+
+            // Diagnostics: log what was extracted so failures are visible in logcat
+            File[] soFiles = nativeLibDir.listFiles((d, n) -> n.endsWith(".so"));
+            if (soFiles == null || soFiles.length == 0) {
+                List<String> pluginAbis = getAvailableAbis(aarFile);
+                String deviceAbi = Build.SUPPORTED_ABIS[0];
+                if (!pluginAbis.isEmpty() && !pluginAbis.contains(deviceAbi)) {
+                    Log.e(TAG, fileName + ": ABI mismatch — plugin provides " + pluginAbis
+                            + " but device is " + deviceAbi
+                            + ". Request an " + deviceAbi + " build from the plugin provider.");
+                } else {
+                    Log.e(TAG, fileName + ": no .so files extracted"
+                            + " (device ABI=" + deviceAbi
+                            + ", plugin ABIs=" + pluginAbis + ")");
+                }
+            } else {
+                for (File so : soFiles) {
+                    Log.d(TAG, fileName + ": extracted " + so.getName() + " (" + so.length() + " B)");
+                }
+            }
 
             // Load the plugin class via its own DexClassLoader; parent = app classloader
             // so shared interfaces (VcatDecoderPlugin, etc.) resolve to the same Class objects.
-            // librarySearchPath points to extracted .so files so that System.loadLibrary()
-            // calls made from within plugin classes use the DexClassLoader's findLibrary().
+            // Override findLibrary() to directly probe nativeLibDir by filename — the default
+            // BaseDexClassLoader search can silently miss the file on some devices/OS versions.
             DexClassLoader loader = new DexClassLoader(
                     dexFile.getAbsolutePath(),
                     context.getCodeCacheDir().getAbsolutePath(),
                     nativeLibDir.getAbsolutePath(),
-                    context.getClassLoader()
-            );
+                    context.getClassLoader()) {
+                @Override
+                public String findLibrary(String name) {
+                    String path = super.findLibrary(name);
+                    if (path != null) return path;
+                    File f = new File(nativeLibDir, System.mapLibraryName(name));
+                    Log.d(TAG, "findLibrary(" + name + ") fallback: " + f.getAbsolutePath()
+                            + " exists=" + f.exists());
+                    return f.exists() ? f.getAbsolutePath() : null;
+                }
+            };
 
-            // Trigger native library loading through the DexClassLoader's namespace by
-            // reflectively calling the plugin's library loader class before any native calls.
-            String libLoaderClass = pluginClass.substring(0, pluginClass.lastIndexOf('.') + 1)
-                    + "VvdecLibrary";
-            try {
-                Class<?> libLoader = loader.loadClass(libLoaderClass);
-                libLoader.getMethod("load").invoke(null);
-                Log.d(TAG, "Native library loaded via " + libLoaderClass);
-            } catch (Exception e) {
-                Log.d(TAG, "No library loader class found (" + libLoaderClass + "), skipping");
+            // Trigger native library loading through the DexClassLoader's namespace before
+            // any native calls. The manifest must declare "loaderClass" for plugins that
+            // bundle native libraries; plugins without native code omit this field.
+            if (manifest.loaderClass != null) {
+                try {
+                    Class<?> libLoader = loader.loadClass(manifest.loaderClass);
+                    libLoader.getMethod("load").invoke(null);
+                    Log.i(TAG, fileName + ": native library loaded OK");
+                } catch (java.lang.reflect.InvocationTargetException e) {
+                    Throwable cause = e.getCause() != null ? e.getCause() : e;
+                    Log.e(TAG, fileName + ": native library load FAILED — " + cause.getMessage()
+                            + " | device ABI=" + Build.SUPPORTED_ABIS[0]
+                            + " | plugin=" + manifest.pluginClass);
+                } catch (Exception e) {
+                    Log.e(TAG, fileName + ": could not invoke loader class "
+                            + manifest.loaderClass + " — " + e.getMessage());
+                }
             }
 
-            Class<?> clazz = loader.loadClass(pluginClass);
+            Class<?> clazz = loader.loadClass(manifest.pluginClass);
             VcatDecoderPlugin plugin = (VcatDecoderPlugin) clazz.getDeclaredConstructor().newInstance();
             boolean registered = VcatDecoderManager.getInstance().registerDecoder(plugin);
             Log.i(TAG, (registered ? "Registered" : "Already registered") + " decoder plugin: " + plugin.getId());
@@ -117,7 +166,8 @@ public final class DecoderPluginLoader {
         }
     }
 
-    private static String readPluginClass(File aarFile) throws IOException {
+    @Nullable
+    private static PluginManifest readManifest(File aarFile) throws IOException {
         try (ZipFile zip = new ZipFile(aarFile)) {
             ZipEntry entry = zip.getEntry("assets/plugin-manifest.json");
             if (entry == null) return null;
@@ -127,7 +177,10 @@ public final class DecoderPluginLoader {
             }
             JsonObject obj = JsonParser.parseString(new String(bytes, StandardCharsets.UTF_8))
                     .getAsJsonObject();
-            return obj.get("pluginClass").getAsString();
+            String pluginClass = obj.get("pluginClass").getAsString();
+            String loaderClass = obj.has("loaderClass")
+                    ? obj.get("loaderClass").getAsString() : null;
+            return new PluginManifest(pluginClass, loaderClass);
         }
     }
 
@@ -152,6 +205,26 @@ public final class DecoderPluginLoader {
             while ((n = is.read(buf)) > 0) os.write(buf, 0, n);
         }
         return dest;
+    }
+
+    private static List<String> getAvailableAbis(File aarFile) {
+        List<String> abis = new ArrayList<>();
+        try (ZipFile zip = new ZipFile(aarFile)) {
+            Enumeration<? extends ZipEntry> entries = zip.entries();
+            while (entries.hasMoreElements()) {
+                ZipEntry entry = entries.nextElement();
+                String name = entry.getName();
+                if (name.startsWith("jni/") && name.endsWith(".so")) {
+                    String[] parts = name.split("/");
+                    if (parts.length >= 2 && !abis.contains(parts[1])) {
+                        abis.add(parts[1]);
+                    }
+                }
+            }
+        } catch (IOException e) {
+            // ignore — best effort
+        }
+        return abis;
     }
 
     private static File extractNativeLibs(Context ctx, File aarFile, String pluginName)
