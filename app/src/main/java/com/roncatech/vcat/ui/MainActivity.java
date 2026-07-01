@@ -32,13 +32,14 @@
 
 package com.roncatech.vcat.ui;
 
+import android.app.AlertDialog;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.UriPermission;
 import android.net.Uri;
 import android.os.Bundle;
-import android.os.Environment;
-import android.provider.Settings;
+import android.provider.DocumentsContract;
 import android.util.Log;
 import android.view.MenuItem;
 import android.view.Window;
@@ -47,9 +48,14 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.constraintlayout.widget.ConstraintLayout;
 import androidx.core.content.ContextCompat;
+import androidx.core.view.WindowCompat;
+import androidx.core.view.WindowInsetsCompat;
+import androidx.core.view.WindowInsetsControllerCompat;
+import androidx.documentfile.provider.DocumentFile;
 import androidx.fragment.app.Fragment;
 import androidx.lifecycle.ViewModelProvider;
 
@@ -63,10 +69,12 @@ import com.roncatech.vcat.service.CommandReceiver;
 import com.roncatech.vcat.tools.StorageManager;
 
 import java.io.IOException;
+import java.util.List;
 
 public class MainActivity extends AppCompatActivity {
 
     private final static String TAG = "MainActivity";
+    private static final int REQUEST_CODE_ROOT_FOLDER = 200;
 
     private SharedViewModel viewModel;
 
@@ -81,26 +89,55 @@ public class MainActivity extends AppCompatActivity {
     private CommandReceiver receiver;
 
     private boolean hasAllPermissions() {
-        return Environment.isExternalStorageManager() && Settings.System.canWrite(this);
+        Uri rootUri = viewModel.getRootUri();
+        if (rootUri == null) return false;
+        List<UriPermission> perms = getContentResolver().getPersistedUriPermissions();
+        for (UriPermission p : perms) {
+            if (p.getUri().equals(rootUri) && p.isReadPermission() && p.isWritePermission()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private void requestAllPermissions() {
-        if(permissionPrompted){
-            return;
-        }
-
+        if (permissionPrompted) return;
         permissionPrompted = true;
 
-         if (!Environment.isExternalStorageManager()) {
-            Intent storageIntent = new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
-                    Uri.parse("package:" + getPackageName()));
-            startActivity(storageIntent);
-        }
+        new AlertDialog.Builder(this)
+            .setTitle("Storage Access Required")
+            .setMessage("vcat-d needs a folder at /sdcard/vcat-d.\n\nTap OK. If the folder already exists the picker will open inside it — just tap \"Use this folder\".\n\nIf not:\n1. Tap the ⊕ New folder button\n2. Type vcat-d\n3. Tap OK, then \"Use this folder\"")
+            .setPositiveButton("OK", (d, w) -> launchRootFolderPicker())
+            .setCancelable(false)
+            .show();
+    }
 
-        if (!Settings.System.canWrite(this)) {
-            Intent settingsIntent = new Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS,
-                    Uri.parse("package:" + getPackageName()));
-            startActivity(settingsIntent);
+    private void launchRootFolderPicker() {
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+        // Hint at vcat-d: if it exists the picker opens inside it (user just taps "Use this folder");
+        // if not, picker opens at internal storage root where the user can create it.
+        Uri hint = DocumentsContract.buildDocumentUri(
+            "com.android.externalstorage.documents", "primary:vcat-d");
+        intent.putExtra(DocumentsContract.EXTRA_INITIAL_URI, hint);
+        startActivityForResult(intent, REQUEST_CODE_ROOT_FOLDER);
+        waitingForPermissionResult = true;
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, @Nullable Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQUEST_CODE_ROOT_FOLDER && resultCode == RESULT_OK && data != null) {
+            Uri treeUri = data.getData();
+            if (treeUri == null) {
+                Toast.makeText(this, "No folder selected. Exiting.", Toast.LENGTH_LONG).show();
+                finishAffinity();
+                return;
+            }
+            getContentResolver().takePersistableUriPermission(treeUri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+            viewModel.setRootUri(treeUri);
+            waitingForPermissionResult = false;
+            loadUI(null);
         }
     }
 
@@ -119,11 +156,12 @@ public class MainActivity extends AppCompatActivity {
             this.server = new HttpServer(port, this.http_handler);
             this.server.start();
         } catch (IOException e) {
-            Log.e("VCAT", String.format("VCAT Failed to start HTTP server on port %d",port), e);
+            Log.e("VCAT", String.format("VCAT Failed to start HTTP server on port %d", port), e);
         }
 
         IntentFilter filter = new IntentFilter(CommandReceiver.broadcastLogHttp);
-        receiver = new CommandReceiver(this);  // use actual port
+        filter.addAction(CommandReceiver.broadcastLogRoot);
+        receiver = new CommandReceiver(this);
         registerReceiver(receiver, filter, Context.RECEIVER_EXPORTED);
 
         if (hasAllPermissions()) {
@@ -134,7 +172,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     @Override
-    protected void onDestroy(){
+    protected void onDestroy() {
         super.onDestroy();
 
         if (this.server != null) {
@@ -146,7 +184,6 @@ public class MainActivity extends AppCompatActivity {
             this.unregisterReceiver(receiver);
             Log.i("VCAT", "VCAT_CommandReceiver unregistered.");
         }
-
     }
 
     @Override
@@ -155,20 +192,17 @@ public class MainActivity extends AppCompatActivity {
 
         if (uiLoaded) return;
 
-        // If we're waiting for the user to act on permissions, check now
         if (waitingForPermissionResult) {
             if (hasAllPermissions()) {
                 loadUI(null);
                 return;
             } else {
-                // Still not granted after user returned
-                Toast.makeText(this, "Required permissions not granted. Exiting.", Toast.LENGTH_LONG).show();
+                Toast.makeText(this, "Folder access not granted. Exiting.", Toast.LENGTH_LONG).show();
                 finishAffinity();
                 return;
             }
         }
 
-        // First entry — check if we need to prompt for permissions
         if (!hasAllPermissions()) {
             requestAllPermissions();
             permissionPrompted = true;
@@ -178,49 +212,75 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-
-    private void loadUI(Bundle savedInstanceState){
-
-        if (uiLoaded) {return;}  // prevent accidental re-entry
-
+    private void loadUI(Bundle savedInstanceState) {
+        if (uiLoaded) return;
         uiLoaded = true;
 
-        // We're here so Permission granted — create folders on the main thread
-        if (!StorageManager.createVcatFolder()) {
-            Log.e(TAG, "Failed to create vcat folders.");
-            Toast.makeText(this, "Storage setup failed. Exiting.", Toast.LENGTH_LONG).show();
+        Uri rootUri = viewModel.getRootUri();
+        if (rootUri == null) {
+            Log.e(TAG, "Root URI is null after permission granted — should not happen");
             finishAffinity();
             return;
         }
 
-        // set the playlist folder
-        this.viewModel.setFolderUri(Uri.fromFile(StorageManager.getFolder(StorageManager.VCATFolder.PLAYLIST)));
+        StorageManager.init(this, rootUri);
 
-        // Tell the window we’re going to draw the system bar backgrounds
+        DocumentFile playlistFolder = StorageManager.getFolder(this, StorageManager.VCATFolder.PLAYLIST);
+        if (playlistFolder == null) {
+            Log.w(TAG, "Root folder missing or inaccessible — re-prompting picker.");
+            viewModel.setRootUri(null);
+            uiLoaded = false;
+            permissionPrompted = false;
+            requestAllPermissions();
+            return;
+        }
+
+        this.viewModel.setFolderUri(playlistFolder.getUri());
+
         Window window = getWindow();
         window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
-
-        // Now paint the status bar exactly your background_blue
         window.setStatusBarColor(ContextCompat.getColor(this, R.color.background_blue));
 
         setContentView(R.layout.activity_main);
 
         ConstraintLayout topBar = findViewById(R.id.top_bar);
-        TextView curView       = topBar.findViewById(R.id.toolbar_cur_view);
-        TextView title         = topBar.findViewById(R.id.toolbar_title);
+        TextView curView = topBar.findViewById(R.id.toolbar_cur_view);
+        TextView title   = topBar.findViewById(R.id.toolbar_title);
 
         curViewTitle = findViewById(R.id.toolbar_cur_view);
 
-        // Show the default tab (e.g. MainFragment)
         if (savedInstanceState == null) {
             getSupportFragmentManager().beginTransaction()
                     .replace(R.id.fragment_container, new FragmentMain())
                     .commit();
         }
 
-        // Bottom navigation menu
         bottomNav = findViewById(R.id.bottom_nav);
         bottomNav.setOnItemSelectedListener(this::onNavItemSelected);
+
+        hideSystemNavBar();
+    }
+
+    /**
+     * Hide the system navigation/button bar so it doesn't cover VCAT's own bottom
+     * navigation menu. Uses sticky immersive behavior so a swipe from the edge
+     * temporarily reveals the system bar, then it auto-hides again. On some devices
+     * (e.g. Samsung 3-button navigation) the bar does not hide by default under
+     * edge-to-edge, so this must be requested explicitly.
+     */
+    private void hideSystemNavBar() {
+        WindowInsetsControllerCompat controller =
+                WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView());
+        controller.setSystemBarsBehavior(
+                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+        controller.hide(WindowInsetsCompat.Type.navigationBars());
+    }
+
+    @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        // Re-hide the nav bar after it transiently reappears (dialogs, swipes, etc.).
+        if (hasFocus && uiLoaded) hideSystemNavBar();
     }
 
     private boolean onNavItemSelected(@NonNull MenuItem item) {
@@ -229,16 +289,16 @@ public class MainActivity extends AppCompatActivity {
         if (id == R.id.home_nav) {
             frag = new FragmentMain();
             curViewTitle.setText(R.string.title_home);
-        }else if (id == R.id.logs_nav) {
+        } else if (id == R.id.logs_nav) {
             frag = new FragmentTestLogs();
             curViewTitle.setText(R.string.title_logs);
         } else if (id == R.id.conditions_nav) {
             frag = new FragmentTestConditions();
             curViewTitle.setText(R.string.title_conditions);
-        }else if(id == R.id.vectors_nav){
+        } else if (id == R.id.vectors_nav) {
             frag = new FragmentTestVector();
             curViewTitle.setText(R.string.title_test_vectors);
-        } else{
+        } else {
             frag = new FragmentMain();
             curViewTitle.setText(R.string.title_home);
         }
@@ -249,5 +309,4 @@ public class MainActivity extends AppCompatActivity {
 
         return true;
     }
-
 }

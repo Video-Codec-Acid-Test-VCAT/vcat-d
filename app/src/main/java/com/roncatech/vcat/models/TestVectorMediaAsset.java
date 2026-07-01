@@ -32,15 +32,22 @@
 
 package com.roncatech.vcat.models;
 
+import android.net.Uri;
+
 import java.io.File;
 
 public class TestVectorMediaAsset {
     public final TestVectorManifests.VideoManifest manifest;
-    public final File localPath;
+    public final Uri localUri;
 
+    public TestVectorMediaAsset(TestVectorManifests.VideoManifest videoManifest, Uri localUri){
+        this.manifest = videoManifest;
+        this.localUri = localUri;
+    }
 
+    /** Backward-compat constructor for callers that still have a File (e.g. temp files in cache). */
     public TestVectorMediaAsset(TestVectorManifests.VideoManifest videoManifest, File localPath){
         this.manifest = videoManifest;
-        this.localPath = localPath;
+        this.localUri = Uri.fromFile(localPath);
     }
 }

@@ -37,11 +37,13 @@ import static android.content.Context.BATTERY_SERVICE;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.net.Uri;
 import android.os.BatteryManager;
 import android.os.Build;
-import android.os.Environment;
 import android.os.PowerManager;
 import android.util.Log;
+
+import androidx.documentfile.provider.DocumentFile;
 
 import com.roncatech.vcat.models.SessionHeader;
 import com.roncatech.vcat.models.RunConfig;
@@ -49,12 +51,14 @@ import com.roncatech.vcat.tools.AppMemoryInfo;
 import com.roncatech.vcat.tools.BatteryInfo;
 import com.roncatech.vcat.models.SessionInfo;
 import com.roncatech.vcat.tools.DeviceInfo;
+import com.roncatech.vcat.tools.StorageManager;
 
 import java.io.BufferedReader;
 import java.io.File;
-import java.io.FileWriter;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.List;
@@ -100,7 +104,9 @@ public class TelemetryLogger {
     }
 
 
-    private final String csvPath;
+    private final Context ctx;
+    private final String csvFileName;
+    private DocumentFile csvDocFile;
     private final int numCpus;
 
     public static class VideoInfo{
@@ -135,19 +141,41 @@ public class TelemetryLogger {
 
     }
 
-    public TelemetryLogger(String csvFileName){
-        this.csvPath = Environment.getExternalStorageDirectory()
-                .getAbsolutePath() + "/vcat/test_results/" + csvFileName;
+    public TelemetryLogger(Context ctx, String csvFileName){
+        this.ctx = ctx.getApplicationContext();
+        this.csvFileName = csvFileName;
         this.numCpus = getTotalCpus();
     }
 
-    private void writeRow(String row){
-        try{
-            FileWriter fw = new FileWriter(this.csvPath, true);
-            fw.write(row + "\n");
-            fw.close();
+    private DocumentFile getOrCreateCsvDocFile() {
+        if (csvDocFile != null) return csvDocFile;
+        DocumentFile dir = StorageManager.getFolder(ctx, StorageManager.VCATFolder.TEST_RESULTS);
+        if (dir == null) {
+            Log.e(TAG, "TEST_RESULTS folder not available");
+            return null;
         }
-        catch(IOException e){
+        DocumentFile existing = dir.findFile(csvFileName);
+        if (existing != null && existing.isFile()) {
+            csvDocFile = existing;
+        } else {
+            csvDocFile = dir.createFile("text/csv", csvFileName);
+        }
+        return csvDocFile;
+    }
+
+    private void writeRow(String row){
+        DocumentFile docFile = getOrCreateCsvDocFile();
+        if (docFile == null) {
+            Log.e(TAG, "Cannot write row — CSV DocumentFile is null");
+            return;
+        }
+        try (OutputStream os = ctx.getContentResolver().openOutputStream(docFile.getUri(), "wa")) {
+            if (os == null) {
+                Log.e(TAG, "openOutputStream returned null for " + docFile.getUri());
+                return;
+            }
+            os.write((row + "\n").getBytes(StandardCharsets.UTF_8));
+        } catch (IOException e) {
             Log.e(TAG, "Error writing csv data: " + e.getLocalizedMessage());
         }
     }

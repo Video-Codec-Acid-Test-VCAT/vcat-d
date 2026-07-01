@@ -33,7 +33,6 @@
 package com.roncatech.vcat.ui;
 
 import android.os.Bundle;
-import android.os.Environment;
 import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -41,19 +40,18 @@ import android.view.ViewGroup;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.documentfile.provider.DocumentFile;
 import androidx.fragment.app.Fragment;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.roncatech.vcat.models.TestResultsItem;
-import com.roncatech.vcat.models.SharedViewModel;
+import com.roncatech.vcat.tools.StorageManager;
 
-import java.io.File;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import com.roncatech.vcat.R;
-import java.util.Arrays;
 
 public class FragmentTestLogs extends Fragment {
 
@@ -89,40 +87,28 @@ public class FragmentTestLogs extends Fragment {
     }
 
     private void loadTestResults() {
-        File logsDir = new File(Environment.getExternalStorageDirectory(), SharedViewModel.LOG_FOLDER);
-        File[] csvs = logsDir.listFiles((dir, name) ->
-                name.startsWith("logs_") && name.endsWith(".csv")
-        );
-
-        Log.d(TAG, "logsDir path: " + logsDir.getAbsolutePath()
-                + " | exists: " + logsDir.exists()
-                + " | isDirectory: " + logsDir.isDirectory()
-                + " | canRead: " + logsDir.canRead());
-
-        String[] rawNames = logsDir.list();
-        if (rawNames == null) {
-            Log.e(TAG, "Raw list() returned null — likely a permissions/scoped‐storage block");
-        } else {
-            Log.d(TAG, "Raw directory entries: " + Arrays.toString(rawNames));
+        DocumentFile logsDir = StorageManager.getFolder(requireContext(), StorageManager.VCATFolder.TEST_RESULTS);
+        if (logsDir == null) {
+            Log.e(TAG, "TEST_RESULTS folder not available");
+            adapter.setResults(new ArrayList<>());
+            return;
         }
 
-        String[] names = logsDir.list();
-        if (names == null) {
-            Log.e(TAG, "list() returned null — likely a permissions or I/O error");
-        } else {
-            Log.d(TAG, "list() returned " + names.length + " entries: " + Arrays.toString(names));
-        }
-
+        DocumentFile[] files = logsDir.listFiles();
         List<TestResultsItem> results = new ArrayList<>();
-        if (csvs != null) {
-            for (File f : csvs) {
-                long timeStampMS = TestResultsItem.getTimeStamp(f.getAbsolutePath());
 
-                // if timestampMillis < 0, then the file is malformed, and we will ignore it
-                if(timeStampMS > 0) {
-                    results.add(new TestResultsItem(f.getAbsolutePath(), timeStampMS));
+        if (files != null) {
+            for (DocumentFile f : files) {
+                String name = f.getName();
+                if (name == null || !name.startsWith("logs_") || !name.endsWith(".csv")) continue;
+
+                String uriString = f.getUri().toString();
+                long timeStampMS = TestResultsItem.getTimeStamp(uriString);
+
+                if (timeStampMS > 0) {
+                    results.add(new TestResultsItem(uriString, timeStampMS));
                 } else {
-                    Log.e(TAG, "Invalid log file: " + f.getAbsolutePath());
+                    Log.e(TAG, "Invalid log file: " + name);
                 }
             }
             Collections.sort(results, (a, b) ->

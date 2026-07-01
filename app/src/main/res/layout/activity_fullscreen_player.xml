@@ -56,12 +56,12 @@ All VCAT artwork is owned exclusively by RoncaTech LLC. Use of VCAT logos and ar
     <!-- FULLSCREEN OVERLAY SIBLING (always above video) -->
     <TextView
         android:id="@+id/videoOverlay"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
         android:padding="12dp"
         android:textColor="#FFFFFF"
         android:textSize="14sp"
-        android:background="#66000000"
+        android:background="#99000000"
         android:gravity="top|start"
         android:visibility="gone"
         android:clickable="false"

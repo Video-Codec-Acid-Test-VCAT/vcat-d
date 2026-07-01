@@ -519,30 +519,30 @@ public class FragmentVectorImport extends Fragment implements OpenCatalogDialog.
                             );
 
                     // 3b) relocate only this playlist’s assets
-
                     Map<UUID, TestVectorMediaAsset> finalAssets =
-                            SetupLocalVectors.relocateMediaAssets(manifest, mediaTable);
+                            SetupLocalVectors.relocateMediaAssets(requireContext(), manifest, mediaTable);
 
                     // 3c) build & write XSPF
-                    String xspfXml = XspfBuilder.buildPlaylistString(manifest, finalAssets);
-                    File xspfFile = new File(
-                            StorageManager.getFolder(StorageManager.VCATFolder.PLAYLIST),
-                            manifest.header.name.replaceAll("[^a-zA-Z0-9_.-]", "_") + ".xspf"
-                    );
+                    DocumentFile playlistDir = StorageManager.getFolder(
+                            requireContext(), StorageManager.VCATFolder.PLAYLIST);
+                    String xspfName = manifest.header.name.replaceAll("[^a-zA-Z0-9_.-]", "_") + ".xspf";
+                    DocumentFile existingXspf = (playlistDir != null) ? playlistDir.findFile(xspfName) : null;
 
-                    if (!xspfFile.exists()) {
+                    if (existingXspf == null) {
                         List<String> playlistFiles = new ArrayList<>();
                         for (TestVectorManifests.PlaylistAsset pa : manifest.mediaAssets) {
                             TestVectorMediaAsset tv = finalAssets.get(pa.uuid);
                             if (tv != null) {
-                                playlistFiles.add(tv.localPath.getAbsolutePath());
+                                playlistFiles.add(tv.localUri.toString());
                             }
                         }
-                        XSPFPlaylistCreator.writePlaylistFile(
-                                requireContext(),
-                                Uri.fromFile(xspfFile),
-                                playlistFiles
-                        );
+                        if (playlistDir != null) {
+                            DocumentFile newXspf = playlistDir.createFile("application/xspf+xml", xspfName);
+                            if (newXspf != null) {
+                                XSPFPlaylistCreator.writePlaylistFile(
+                                        requireContext(), newXspf.getUri(), playlistFiles);
+                            }
+                        }
                         main.post(() -> {
                             statusTv.append(asset.name + ": XSPF OK\n");
                             statusScroll.fullScroll(View.FOCUS_DOWN);

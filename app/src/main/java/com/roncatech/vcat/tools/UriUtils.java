@@ -113,6 +113,34 @@ public class UriUtils {
     public static Uri resolveUri(Context context, String baseUri, String assetUrl) throws IOException {
         return resolveUri(context, Uri.parse(baseUri), assetUrl);
     }
+    /**
+     * Resolves a URI that may be a legacy file:// path into a current content:// SAF URI.
+     * content://, http://, and https:// URIs are returned unchanged.
+     * For file:// URIs the path segment after "/media/" is used to locate the file
+     * in the current SAF media tree. Falls back to filename-only lookup if needed.
+     */
+    public static Uri resolveMediaUri(Context ctx, Uri uri) {
+        if (!"file".equals(uri.getScheme())) return uri;
+        String path = uri.getPath();
+        if (path == null) return uri;
+
+        DocumentFile mediaDir = StorageManager.getFolder(ctx, StorageManager.VCATFolder.MEDIA);
+        if (mediaDir != null) {
+            // Try relative path under "media/" first (preserves subdirectory structure)
+            int idx = path.indexOf("/media/");
+            if (idx >= 0) {
+                String relPath = path.substring(idx + "/media/".length());
+                DocumentFile found = findInTree(mediaDir, relPath);
+                if (found != null && found.canRead()) return found.getUri();
+            }
+            // Fallback: filename-only lookup
+            String fileName = new File(path).getName();
+            DocumentFile found = mediaDir.findFile(fileName);
+            if (found != null && found.canRead()) return found.getUri();
+        }
+        return uri; // return original; player will surface the error
+    }
+
     public static Uri resolveUri(Context ctx, Uri baseUri, String assetUrl) throws IOException {
         String scheme = baseUri.getScheme();
         if ("http".equals(scheme) || "https".equals(scheme)) {

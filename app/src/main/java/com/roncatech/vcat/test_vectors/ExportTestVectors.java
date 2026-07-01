@@ -38,20 +38,19 @@ import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
 
+import androidx.documentfile.provider.DocumentFile;
+
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.roncatech.vcat.models.TestVectorManifests;
 import com.roncatech.vcat.tools.XspfParser;
 
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
-import java.io.FileWriter;
 import java.io.IOException;
-import java.nio.channels.FileChannel;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -63,7 +62,7 @@ public class ExportTestVectors {
 
     public interface ExportCallback {
         void onProgress(String message);
-        void onSuccess(File exportFolder);
+        void onSuccess(Uri exportUri);
         void onError(String errorMessage);
     }
 
@@ -80,8 +79,8 @@ public class ExportTestVectors {
      */
     public static void exportPlaylist(
             Context context,
-            File playlistFile,
-            String stagingFolder,
+            Uri playlistUri,
+            Uri stagingUri,
             String vectorName,
             String createdBy,
             String description,
@@ -94,34 +93,26 @@ public class ExportTestVectors {
             try {
                 mainHandler.post(() -> callback.onProgress("Starting export..."));
 
-                // Create export folder structure
                 String safeName = vectorName.replaceAll("[^a-zA-Z0-9_.-]", "_");
-                File exportRoot = new File(stagingFolder, safeName);
-                File mediaFolder = new File(exportRoot, "media");
-                File manifestFolder = new File(exportRoot, "manifest");
 
-                if (!exportRoot.exists() && !exportRoot.mkdirs()) {
-                    throw new IOException("Failed to create export folder: " + exportRoot);
-                }
-                if (!mediaFolder.exists() && !mediaFolder.mkdirs()) {
-                    throw new IOException("Failed to create media folder: " + mediaFolder);
-                }
-                if (!manifestFolder.exists() && !manifestFolder.mkdirs()) {
-                    throw new IOException("Failed to create manifest folder: " + manifestFolder);
+                DocumentFile stagingRoot = DocumentFile.fromTreeUri(context, stagingUri);
+                if (stagingRoot == null || !stagingRoot.isDirectory()) {
+                    throw new IOException("Invalid staging folder: " + stagingUri);
                 }
 
-                // Parse the XSPF playlist to get media file URIs
-                Uri playlistUri = Uri.fromFile(playlistFile);
+                DocumentFile exportRoot = stagingRoot.createDirectory(safeName);
+                if (exportRoot == null) throw new IOException("Failed to create export folder");
+                DocumentFile mediaFolder = exportRoot.createDirectory("media");
+                if (mediaFolder == null) throw new IOException("Failed to create media folder");
+                DocumentFile manifestFolder = exportRoot.createDirectory("manifest");
+                if (manifestFolder == null) throw new IOException("Failed to create manifest folder");
+
                 List<Uri> mediaUris = XspfParser.parsePlaylist(context, playlistUri);
-
-                if (mediaUris.isEmpty()) {
-                    throw new IOException("No media files found in playlist");
-                }
+                if (mediaUris.isEmpty()) throw new IOException("No media files found in playlist");
 
                 Gson gson = new GsonBuilder().setPrettyPrinting().create();
                 List<TestVectorManifests.PlaylistAsset> playlistAssets = new ArrayList<>();
 
-                // Process each media file
                 int fileIndex = 0;
                 for (Uri mediaUri : mediaUris) {
                     fileIndex++;
@@ -131,148 +122,85 @@ public class ExportTestVectors {
                     mainHandler.post(() -> callback.onProgress(
                             "Processing file " + idx + "/" + total + ": " + fileName));
 
-                    // Get source file
-                    File sourceFile = new File(mediaUri.getPath());
-                    if (!sourceFile.exists()) {
-                        throw new IOException("Source file not found: " + sourceFile);
-                    }
-
                     // Copy to media folder
-                    File destFile = new File(mediaFolder, fileName);
-                    copyFile(sourceFile, destFile);
+                    DocumentFile destDoc = mediaFolder.createFile(getMimeType(fileName), fileName);
+                    if (destDoc == null) throw new IOException("Failed to create dest file: " + fileName);
+                    copyUri(context, mediaUri, destDoc.getUri());
 
-                    // Calculate checksum
-                    String checksum = calculateChecksum(destFile);
-                    long fileSize = destFile.length();
+                    String checksum = calculateChecksum(context, destDoc.getUri());
+                    long fileSize = destDoc.length();
 
-                    // Create VideoManifest for this file
                     UUID videoUuid = UUID.randomUUID();
                     TestVectorManifests.Header videoHeader = new TestVectorManifests.Header(
-                            fileName,
-                            "Video file: " + fileName,
-                            createdBy
-                    );
-
+                            fileName, "Video file: " + fileName, createdBy);
                     TestVectorManifests.VideoAsset videoAsset = new TestVectorManifests.VideoAsset(
-                            fileName,
-                            "media/" + fileName,
-                            checksum,
-                            fileSize,
-                            getMimeType(fileName),
-                            null,  // durationMs - unknown
-                            null,  // resolutionXY - unknown
-                            null   // frameRate - unknown
-                    );
+                            fileName, "media/" + fileName, checksum, fileSize,
+                            getMimeType(fileName), null, null, null);
+                    TestVectorManifests.VideoManifest videoManifest =
+                            new TestVectorManifests.VideoManifest(videoHeader, videoAsset);
 
-                    TestVectorManifests.VideoManifest videoManifest = new TestVectorManifests.VideoManifest(
-                            videoHeader,
-                            videoAsset
-                    );
-
-                    // Write VideoManifest to manifest folder
                     String manifestFileName = fileName.replaceAll("\\.[^.]+$", "") + ".manifest.json";
-                    File manifestFile = new File(manifestFolder, manifestFileName);
-                    writeJsonFile(manifestFile, gson.toJson(videoManifest));
+                    DocumentFile manifestDoc = manifestFolder.createFile("application/json", manifestFileName);
+                    if (manifestDoc == null) throw new IOException("Failed to create manifest: " + manifestFileName);
+                    writeJson(context, manifestDoc.getUri(), gson.toJson(videoManifest));
 
-                    // Calculate manifest checksum
-                    String manifestChecksum = calculateChecksum(manifestFile);
-                    long manifestSize = manifestFile.length();
+                    String manifestChecksum = calculateChecksum(context, manifestDoc.getUri());
+                    long manifestSize = manifestDoc.length();
 
-                    // Create PlaylistAsset reference to this video
-                    TestVectorManifests.PlaylistAsset playlistAsset = new TestVectorManifests.PlaylistAsset(
-                            fileName,
-                            "manifest/" + manifestFileName,
-                            manifestChecksum,
-                            manifestSize,
-                            videoUuid,
-                            "Video: " + fileName
-                    );
-                    playlistAssets.add(playlistAsset);
+                    playlistAssets.add(new TestVectorManifests.PlaylistAsset(
+                            fileName, "manifest/" + manifestFileName,
+                            manifestChecksum, manifestSize, videoUuid, "Video: " + fileName));
                 }
 
                 mainHandler.post(() -> callback.onProgress("Creating playlist manifest..."));
 
-                // Create PlaylistManifest
-                TestVectorManifests.Header playlistHeader = new TestVectorManifests.Header(
-                        vectorName,
-                        description,
-                        createdBy
-                );
-                TestVectorManifests.PlaylistManifest playlistManifest = new TestVectorManifests.PlaylistManifest(
-                        playlistHeader,
-                        playlistAssets
-                );
+                TestVectorManifests.PlaylistManifest playlistManifest =
+                        new TestVectorManifests.PlaylistManifest(
+                                new TestVectorManifests.Header(vectorName, description, createdBy),
+                                playlistAssets);
 
-                // Write PlaylistManifest
                 String playlistManifestName = safeName + "_playlist.json";
-                File playlistManifestFile = new File(manifestFolder, playlistManifestName);
-                writeJsonFile(playlistManifestFile, gson.toJson(playlistManifest));
+                DocumentFile pmDoc = manifestFolder.createFile("application/json", playlistManifestName);
+                if (pmDoc == null) throw new IOException("Failed to create playlist manifest file");
+                writeJson(context, pmDoc.getUri(), gson.toJson(playlistManifest));
 
                 mainHandler.post(() -> callback.onProgress("Creating catalog..."));
 
-                // Create Catalog
-                TestVectorManifests.Header catalogHeader = new TestVectorManifests.Header(
-                        vectorName + " Catalog",
-                        "Catalog for " + vectorName,
-                        createdBy
-                );
-
-                // Create catalog reference to playlist
-                String playlistManifestChecksum = calculateChecksum(playlistManifestFile);
-                long playlistManifestSize = playlistManifestFile.length();
-                TestVectorManifests.PlaylistAsset catalogPlaylistRef = new TestVectorManifests.PlaylistAsset(
-                        vectorName,
-                        "manifest/" + playlistManifestName,
-                        playlistManifestChecksum,
-                        playlistManifestSize,
-                        UUID.randomUUID(),
-                        description
-                );
+                String pmChecksum = calculateChecksum(context, pmDoc.getUri());
+                long pmSize = pmDoc.length();
 
                 List<TestVectorManifests.PlaylistAsset> catalogPlaylists = new ArrayList<>();
-                catalogPlaylists.add(catalogPlaylistRef);
+                catalogPlaylists.add(new TestVectorManifests.PlaylistAsset(
+                        vectorName, "manifest/" + playlistManifestName,
+                        pmChecksum, pmSize, UUID.randomUUID(), description));
                 TestVectorManifests.Catalog catalog = new TestVectorManifests.Catalog(
-                        catalogHeader,
-                        catalogPlaylists
-                );
+                        new TestVectorManifests.Header(vectorName + " Catalog", "Catalog for " + vectorName, createdBy),
+                        catalogPlaylists);
 
-                // Write Catalog
                 String catalogName = safeName + "_catalog.json";
-                File catalogFile = new File(manifestFolder, catalogName);
-                writeJsonFile(catalogFile, gson.toJson(catalog));
+                DocumentFile catDoc = manifestFolder.createFile("application/json", catalogName);
+                if (catDoc == null) throw new IOException("Failed to create catalog file");
+                writeJson(context, catDoc.getUri(), gson.toJson(catalog));
 
                 mainHandler.post(() -> callback.onProgress("Creating catalog index..."));
 
-                // Create CatalogIndex
-                TestVectorManifests.Header indexHeader = new TestVectorManifests.Header(
-                        vectorName + " Index",
-                        "Catalog index for " + vectorName,
-                        createdBy
-                );
-
-                String catalogChecksum = calculateChecksum(catalogFile);
-                long catalogSize = catalogFile.length();
-                TestVectorManifests.CatalogAsset catalogAsset = new TestVectorManifests.CatalogAsset(
-                        vectorName + " Catalog",
-                        "manifest/" + catalogName,
-                        catalogChecksum,
-                        catalogSize,
-                        UUID.randomUUID(),
-                        "Catalog for " + vectorName
-                );
+                String catChecksum = calculateChecksum(context, catDoc.getUri());
+                long catSize = catDoc.length();
 
                 List<TestVectorManifests.CatalogAsset> indexCatalogs = new ArrayList<>();
-                indexCatalogs.add(catalogAsset);
+                indexCatalogs.add(new TestVectorManifests.CatalogAsset(
+                        vectorName + " Catalog", "manifest/" + catalogName,
+                        catChecksum, catSize, UUID.randomUUID(), "Catalog for " + vectorName));
                 TestVectorManifests.CatalogIndex catalogIndex = new TestVectorManifests.CatalogIndex(
-                        indexHeader,
-                        indexCatalogs
-                );
+                        new TestVectorManifests.Header(vectorName + " Index", "Catalog index for " + vectorName, createdBy),
+                        indexCatalogs);
 
-                // Write CatalogIndex to root
-                File catalogIndexFile = new File(exportRoot, "catalog_index.json");
-                writeJsonFile(catalogIndexFile, gson.toJson(catalogIndex));
+                DocumentFile indexDoc = exportRoot.createFile("application/json", "catalog_index.json");
+                if (indexDoc == null) throw new IOException("Failed to create catalog index file");
+                writeJson(context, indexDoc.getUri(), gson.toJson(catalogIndex));
 
-                mainHandler.post(() -> callback.onSuccess(exportRoot));
+                final Uri exportUri = exportRoot.getUri();
+                mainHandler.post(() -> callback.onSuccess(exportUri));
 
             } catch (Exception e) {
                 Log.e(TAG, "Export failed", e);
@@ -309,42 +237,42 @@ public class ExportTestVectors {
         return "video/mp4";
     }
 
-    private static void copyFile(File source, File dest) throws IOException {
-        try (FileInputStream fis = new FileInputStream(source);
-             FileOutputStream fos = new FileOutputStream(dest);
-             FileChannel inChannel = fis.getChannel();
-             FileChannel outChannel = fos.getChannel()) {
-
-            long size = inChannel.size();
-            long pos = 0;
-            while (pos < size) {
-                pos += inChannel.transferTo(pos, size - pos, outChannel);
+    private static void copyUri(Context ctx, Uri src, Uri dst) throws IOException {
+        try (InputStream in = ctx.getContentResolver().openInputStream(src);
+             OutputStream out = ctx.getContentResolver().openOutputStream(dst)) {
+            if (in == null) throw new IOException("Cannot open input: " + src);
+            if (out == null) throw new IOException("Cannot open output: " + dst);
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = in.read(buf)) != -1) {
+                out.write(buf, 0, n);
             }
         }
     }
 
-    private static String calculateChecksum(File file) throws IOException, NoSuchAlgorithmException {
+    private static String calculateChecksum(Context ctx, Uri uri)
+            throws IOException, NoSuchAlgorithmException {
         MessageDigest digest = MessageDigest.getInstance("SHA-256");
-
-        try (FileInputStream fis = new FileInputStream(file)) {
-            byte[] buffer = new byte[8192];
-            int bytesRead;
-            while ((bytesRead = fis.read(buffer)) != -1) {
-                digest.update(buffer, 0, bytesRead);
+        try (InputStream in = ctx.getContentResolver().openInputStream(uri)) {
+            if (in == null) throw new IOException("Cannot open input for checksum: " + uri);
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = in.read(buf)) != -1) {
+                digest.update(buf, 0, n);
             }
         }
-
         byte[] hashBytes = digest.digest();
-        StringBuilder hexString = new StringBuilder();
+        StringBuilder hex = new StringBuilder();
         for (byte b : hashBytes) {
-            hexString.append(String.format("%02x", b));
+            hex.append(String.format("%02x", b));
         }
-        return hexString.toString();
+        return hex.toString();
     }
 
-    private static void writeJsonFile(File file, String json) throws IOException {
-        try (FileWriter writer = new FileWriter(file)) {
-            writer.write(json);
+    private static void writeJson(Context ctx, Uri uri, String json) throws IOException {
+        try (OutputStream out = ctx.getContentResolver().openOutputStream(uri)) {
+            if (out == null) throw new IOException("Cannot open output for JSON: " + uri);
+            out.write(json.getBytes(StandardCharsets.UTF_8));
         }
     }
 }

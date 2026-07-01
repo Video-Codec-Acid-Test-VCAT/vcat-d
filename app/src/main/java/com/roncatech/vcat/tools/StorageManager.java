@@ -34,20 +34,21 @@ package com.roncatech.vcat.tools;
 
 import android.content.Context;
 import android.net.Uri;
-import android.os.Environment;
-import android.provider.DocumentsContract;
 import android.util.Log;
 
-import java.io.File;
-import java.io.FilenameFilter;
+import androidx.annotation.Nullable;
+import androidx.documentfile.provider.DocumentFile;
+
+import java.io.BufferedReader;
 import java.io.IOException;
-import java.io.RandomAccessFile;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 
 public class StorageManager {
     private static final String TAG = "StorageManager";
 
     public enum VCATFolder {
-        ROOT("vcat"),
         PLAYLIST("playlist"),
         MEDIA("media"),
         TEST_RESULTS("test_results");
@@ -61,97 +62,75 @@ public class StorageManager {
         public String getFolderName() {
             return folderName;
         }
-
-        public static String playListFolder(){return ROOT.folderName + "/" + PLAYLIST.folderName;}
-        public static String resultsFolder(){return ROOT.folderName + "/" + TEST_RESULTS.folderName;}
-        public static String mediaFolder(){return ROOT.folderName + "/" + MEDIA.folderName;}
-
     }
 
-    public static File getFolder(VCATFolder folder){
+    private static Uri sRootTreeUri = null;
 
-        if(folder != VCATFolder.ROOT){
-            return new File(Environment.getExternalStorageDirectory(), VCATFolder.ROOT.getFolderName() + "/" + folder.folderName);
+    /** Call once at startup after the SAF root URI is granted. */
+    public static void init(Context ctx, Uri rootTreeUri) {
+        sRootTreeUri = rootTreeUri;
+        Log.i(TAG, "root_folder=" + rootTreeUri);
+        DocumentFile root = DocumentFile.fromTreeUri(ctx, rootTreeUri);
+        if (root == null || !root.isDirectory()) {
+            Log.e(TAG, "Root is not a directory: " + rootTreeUri);
+            return;
         }
-
-        return new File(Environment.getExternalStorageDirectory(), VCATFolder.ROOT.getFolderName());
+        for (VCATFolder folder : VCATFolder.values()) {
+            DocumentFile sub = root.findFile(folder.getFolderName());
+            if (sub == null || !sub.isDirectory()) {
+                root.createDirectory(folder.getFolderName());
+                Log.d(TAG, "Created subfolder: " + folder.getFolderName());
+            }
+        }
     }
 
+    @Nullable
+    public static DocumentFile getRoot(Context ctx) {
+        if (sRootTreeUri == null) return null;
+        return DocumentFile.fromTreeUri(ctx, sRootTreeUri);
+    }
 
-    /**
-     * Creates the VCAT directory structure on external storage:
-     * /vcat/{playlist, media, test_results}
-     *
-     * @return true if all directories exist or were created successfully, false otherwise
-     */
-    public static boolean createVcatFolder() {
-        File baseDir = getFolder(VCATFolder.ROOT);
-
-        boolean allSubDirsCreated = true;
-
-        if (!baseDir.exists()) {
-            if (baseDir.mkdirs()) {
-                Log.d(TAG, "Base folder created at: " + baseDir.getAbsolutePath());
-            } else {
-                Log.e(TAG, "Failed to create base folder: " + baseDir.getAbsolutePath());
-                return false;
-            }
-        } else {
-            Log.d(TAG, "Base folder already exists: " + baseDir.getAbsolutePath());
-        }
-
-        for (VCATFolder cur : VCATFolder.values()) {
-            if(cur == VCATFolder.ROOT){continue;}
-
-            File dir = getFolder(cur);
-
-            if (!dir.exists()) {
-                if (dir.mkdirs()) {
-                    Log.d(TAG, "Subfolder created: " + dir.getAbsolutePath());
-                } else {
-                    Log.e(TAG, "Failed to create subfolder: " + dir.getAbsolutePath());
-                    allSubDirsCreated = false;
-                }
-            }
-        }
-
-        return allSubDirsCreated;
+    @Nullable
+    public static Uri getRootUri() {
+        return sRootTreeUri;
     }
 
     /**
-     * @return the most-recently created telemetry CSV in /storage/emulated/0/vcat/test_results
-     *         (i.e. the `logs_<timestamp>.csv` file with the largest timestamp), or null
-     *         if none found or on error.
+     * Returns the DocumentFile for a sub-folder, creating it if absent.
      */
-    public static File findLatestLogFile() {
-        File dir = getFolder(VCATFolder.TEST_RESULTS);
-
-        if (!dir.isDirectory()) {
-            Log.w(TAG, "Not a directory: " + dir.getAbsolutePath());
-            return null;
+    @Nullable
+    public static DocumentFile getFolder(Context ctx, VCATFolder folder) {
+        DocumentFile root = getRoot(ctx);
+        if (root == null || !root.isDirectory()) return null;
+        DocumentFile sub = root.findFile(folder.getFolderName());
+        if (sub == null || !sub.isDirectory()) {
+            sub = root.createDirectory(folder.getFolderName());
         }
+        return sub;
+    }
 
-        File[] files = dir.listFiles(new FilenameFilter() {
-            @Override
-            public boolean accept(File dir, String name) {
-                return name.startsWith("logs_") && name.endsWith(".csv");
-            }
-        });
+    /**
+     * Returns the most-recently created telemetry CSV in the TEST_RESULTS folder,
+     * or null if none found.
+     */
+    @Nullable
+    public static DocumentFile findLatestLogFile(Context ctx) {
+        DocumentFile dir = getFolder(ctx, VCATFolder.TEST_RESULTS);
+        if (dir == null) return null;
+
+        DocumentFile[] files = dir.listFiles();
         if (files == null || files.length == 0) {
-            Log.w(TAG, "No valid logs_*.csv in " + dir.getAbsolutePath());
+            Log.w(TAG, "No files in TEST_RESULTS folder");
             return null;
         }
 
-        File latest = null;
+        DocumentFile latest = null;
         long maxTs = -1L;
-        for (File file : files) {
+        for (DocumentFile file : files) {
             String name = file.getName();
+            if (name == null || !name.startsWith("logs_") || !name.endsWith(".csv")) continue;
             try {
-                String tsStr = name.substring(
-                        "logs_".length(),
-                        name.length() - ".csv".length()
-                );
-                long ts = Long.parseLong(tsStr);
+                long ts = Long.parseLong(name.substring("logs_".length(), name.length() - ".csv".length()));
                 if (ts > maxTs) {
                     maxTs = ts;
                     latest = file;
@@ -162,74 +141,38 @@ public class StorageManager {
         }
 
         if (latest == null) {
-            Log.w(TAG, "No valid logs_*.csv in " + dir.getAbsolutePath());
+            Log.w(TAG, "No valid logs_*.csv found");
         }
         return latest;
     }
 
     /**
-     * Reads the very last timestamp (first CSV column) from a VCAT telemetry file.
-     * If anything goes wrong (I/O error, malformed lines, empty file, etc.)
-     * returns -1L and logs the error.
+     * Reads the very last timestamp (first CSV column) from a SAF-based telemetry CSV.
+     * Scans the file line by line, returning the timestamp from the last non-empty line.
      */
-    public static long readLastTimestamp(File csvFile) {
-        if (!csvFile.exists()) {
-            Log.w(TAG, "Log file does not exist: " + csvFile.getAbsolutePath());
-            return -1L;
-        }
-
-        try (RandomAccessFile raf = new RandomAccessFile(csvFile, "r")) {
-            long length = raf.length();
-            if (length == 0L) {
-                Log.w(TAG, "Log file is empty: " + csvFile.getAbsolutePath());
-                return -1L;
-            }
-
-            long ptr = length - 1;
-            raf.seek(ptr);
-            if ((char) raf.readByte() == '\n') {
-                ptr--;
-            }
-
-            while (ptr > 0) {
-                raf.seek(ptr);
-                if ((char) raf.readByte() == '\n') {
-                    ptr++;
-                    break;
+    public static long readLastTimestamp(Context ctx, DocumentFile csvFile) {
+        try (InputStream is = ctx.getContentResolver().openInputStream(csvFile.getUri());
+             BufferedReader reader = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8))) {
+            String lastLine = null;
+            String line;
+            while ((line = reader.readLine()) != null) {
+                if (!line.trim().isEmpty()) {
+                    lastLine = line.trim();
                 }
-                ptr--;
             }
-
-            raf.seek(ptr);
-            String lastLine = raf.readLine();
             if (lastLine == null) {
-                Log.w(TAG, "Could not read last line in " + csvFile.getAbsolutePath());
                 return -1L;
             }
-
-            String tsString = lastLine.split(",", 2)[0].trim();
+            String tsStr = lastLine.split(",", 2)[0].trim();
             try {
-                return Long.parseLong(tsString);
+                return Long.parseLong(tsStr);
             } catch (NumberFormatException e) {
-                Log.w(TAG, "Last line timestamp not a valid long: '" + tsString + "'");
+                Log.w(TAG, "Last line timestamp not a valid long: '" + tsStr + "'");
                 return -1L;
             }
         } catch (IOException e) {
             Log.e(TAG, "I/O error reading last timestamp", e);
             return -1L;
         }
-    }
-
-    public static String getFullPathFromUri(Context context, Uri uri) {
-        // Handle tree URIs (SAF)
-        if (DocumentsContract.isTreeUri(uri)) {
-            String docId = DocumentsContract.getTreeDocumentId(uri);
-            if (docId.startsWith("primary:")) {
-                return Environment.getExternalStorageDirectory().getAbsolutePath()
-                        + "/" + docId.substring("primary:".length());
-            }
-        }
-        // fallback
-        return uri.getPath();
     }
 }

@@ -161,7 +161,7 @@ public class XSPFPlaylistCreator {
             // Add <track> elements for each file
             for (String file : files) {
 
-                if(!file.startsWith("file://")){
+                if (!file.startsWith("file://") && !file.startsWith("content://")) {
                     file = "file://" + file;
                 }
 

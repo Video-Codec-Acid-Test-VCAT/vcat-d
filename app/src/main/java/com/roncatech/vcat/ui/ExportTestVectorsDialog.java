@@ -50,16 +50,14 @@ import android.widget.EditText;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
-import androidx.documentfile.provider.DocumentFile;
 import androidx.fragment.app.DialogFragment;
-import com.roncatech.vcat.tools.StorageManager;
 
 import com.roncatech.vcat.R;
 
 public class ExportTestVectorsDialog extends DialogFragment {
 
     public interface Listener {
-        void onExportConfirmed(String stagingFolder, String vectorName, String createdBy, String description);
+        void onExportConfirmed(Uri stagingUri, String vectorName, String createdBy, String description);
         void onExportCancelled();
     }
 
@@ -122,7 +120,7 @@ public class ExportTestVectorsDialog extends DialogFragment {
             okButton.setOnClickListener(v -> {
                 if (listener != null) {
                     listener.onExportConfirmed(
-                            edit_staging_folder.getText().toString(),
+                            selectedFolderUri,
                             edit_vector_name.getText().toString(),
                             edit_created_by.getText().toString(),
                             edit_description.getText().toString()
@@ -162,17 +160,11 @@ public class ExportTestVectorsDialog extends DialogFragment {
         if (requestCode == REQUEST_CODE_PICK_FOLDER && resultCode == Activity.RESULT_OK) {
             if (data != null) {
                 Uri treeUri = data.getData();
-
-                // Persist permissions
-                final int takeFlags = data.getFlags() & (Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
-
+                final int takeFlags = data.getFlags()
+                        & (Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
                 requireContext().getContentResolver().takePersistableUriPermission(treeUri, takeFlags);
-
-                // Convert Uri to a full path (if possible)
-                String fullPath = StorageManager.getFullPathFromUri(requireContext(), treeUri);
-
-                edit_staging_folder.setText(fullPath);
-
+                selectedFolderUri = treeUri;
+                edit_staging_folder.setText(treeUri.toString());
                 updateOkButtonState();
             }
         }

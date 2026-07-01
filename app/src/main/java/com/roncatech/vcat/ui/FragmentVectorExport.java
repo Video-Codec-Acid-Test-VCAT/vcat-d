@@ -49,13 +49,14 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.fragment.app.Fragment;
 
+import androidx.documentfile.provider.DocumentFile;
+
 import com.roncatech.vcat.R;
 import com.roncatech.vcat.test_vectors.ExportTestVectors;
 import com.roncatech.vcat.tools.StorageManager;
 
-import java.io.File;
-import java.util.Arrays;
-import java.util.Comparator;
+import java.util.ArrayList;
+import java.util.List;
 
 public class FragmentVectorExport extends Fragment implements ExportTestVectorsDialog.Listener {
     private TableLayout tableExport;
@@ -63,7 +64,7 @@ public class FragmentVectorExport extends Fragment implements ExportTestVectorsD
     private ImageButton btnExport;
 
     // Track the currently selected playlist (single selection)
-    private File selectedPlaylist = null;
+    private DocumentFile selectedPlaylist = null;
     private TableRow selectedRow = null;
 
     @Nullable @Override
@@ -97,22 +98,35 @@ public class FragmentVectorExport extends Fragment implements ExportTestVectorsD
     }
 
     private void loadPlaylists() {
-        File playlistDir = StorageManager.getFolder(StorageManager.VCATFolder.PLAYLIST);
+        DocumentFile playlistDir = StorageManager.getFolder(requireContext(), StorageManager.VCATFolder.PLAYLIST);
 
         tableExport.removeAllViews();
         selectedPlaylist = null;
         selectedRow = null;
         btnExport.setEnabled(false);
 
-        File[] files = playlistDir.listFiles((dir, name) -> name.toLowerCase().endsWith(".xspf"));
-        if (files == null || files.length == 0) {
-            return;
-        }
+        if (playlistDir == null) return;
 
-        Arrays.sort(files, Comparator.comparing(File::getName, String.CASE_INSENSITIVE_ORDER));
+        DocumentFile[] allFiles = playlistDir.listFiles();
+        if (allFiles == null || allFiles.length == 0) return;
+
+        List<DocumentFile> xspfFiles = new ArrayList<>();
+        for (DocumentFile f : allFiles) {
+            String name = f.getName();
+            if (name != null && name.toLowerCase().endsWith(".xspf")) {
+                xspfFiles.add(f);
+            }
+        }
+        if (xspfFiles.isEmpty()) return;
+
+        xspfFiles.sort((a, b) -> {
+            String na = a.getName() != null ? a.getName() : "";
+            String nb = b.getName() != null ? b.getName() : "";
+            return na.compareToIgnoreCase(nb);
+        });
 
         LayoutInflater inflater = getLayoutInflater();
-        for (File f : files) {
+        for (DocumentFile f : xspfFiles) {
             TableRow row = (TableRow) inflater.inflate(
                     R.layout.row_test_vector, tableExport, false);
 
@@ -124,21 +138,16 @@ public class FragmentVectorExport extends Fragment implements ExportTestVectorsD
 
             row.setTag(f);
 
-            // Single selection behavior: clicking a checkbox deselects the previous one
             cb.setOnCheckedChangeListener((buttonView, isChecked) -> {
                 if (isChecked) {
-                    // Deselect the previously selected row
                     if (selectedRow != null && selectedRow != row) {
                         CheckBox prevCb = selectedRow.findViewById(R.id.cbRow);
-                        if (prevCb != null) {
-                            prevCb.setChecked(false);
-                        }
+                        if (prevCb != null) prevCb.setChecked(false);
                     }
                     selectedRow = row;
                     selectedPlaylist = f;
                     btnExport.setEnabled(true);
                 } else {
-                    // If this row was the selected one and is now unchecked
                     if (selectedRow == row) {
                         selectedRow = null;
                         selectedPlaylist = null;
@@ -168,13 +177,12 @@ public class FragmentVectorExport extends Fragment implements ExportTestVectorsD
     }
 
     @Override
-    public void onExportConfirmed(String stagingFolder, String vectorName, String createdBy, String description) {
+    public void onExportConfirmed(android.net.Uri stagingUri, String vectorName, String createdBy, String description) {
         if (selectedPlaylist == null) {
             Toast.makeText(requireContext(), "No playlist selected", Toast.LENGTH_SHORT).show();
             return;
         }
 
-        // Build and show status dialog
         AlertDialog.Builder dlgBuilder = new AlertDialog.Builder(requireContext());
         dlgBuilder.setTitle("Export Progress");
         ScrollView statusScroll = new ScrollView(requireContext());
@@ -188,11 +196,10 @@ public class FragmentVectorExport extends Fragment implements ExportTestVectorsD
         statusDialog.show();
         statusDialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(false);
 
-        // Start export
         ExportTestVectors.exportPlaylist(
                 requireContext(),
-                selectedPlaylist,
-                stagingFolder,
+                selectedPlaylist.getUri(),
+                stagingUri,
                 vectorName,
                 createdBy,
                 description,
@@ -204,9 +211,9 @@ public class FragmentVectorExport extends Fragment implements ExportTestVectorsD
                     }
 
                     @Override
-                    public void onSuccess(java.io.File exportFolder) {
+                    public void onSuccess(android.net.Uri exportUri) {
                         statusTv.append("\nExport completed successfully!\n");
-                        statusTv.append("Location: " + exportFolder.getAbsolutePath() + "\n");
+                        statusTv.append("Location: " + exportUri.toString() + "\n");
                         statusScroll.fullScroll(View.FOCUS_DOWN);
                         statusDialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(true);
                     }

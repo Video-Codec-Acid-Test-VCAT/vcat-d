@@ -35,7 +35,6 @@ package com.roncatech.vcat.ui;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.app.Dialog;
-import android.content.ContentValues;
 import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
@@ -56,8 +55,6 @@ import com.roncatech.vcat.R;
 import org.xmlpull.v1.XmlPullParser;
 import org.xmlpull.v1.XmlPullParserFactory;
 
-import java.io.File;
-import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
@@ -224,9 +221,8 @@ public class PlaylistDialog extends DialogFragment {
 
     // Add New Entry
     private void addNewEntry(Uri fileUri) {
-        String filePath = XSPFPlaylistCreator.getRealPathFromUri(context, fileUri);
-        if(!(filePath == null || filePath.isEmpty())){
-            playlistEntries.add(filePath); // Placeholder
+        if (fileUri != null) {
+            playlistEntries.add(fileUri.toString());
             setDirty();
             saveButton.setEnabled(this.isDirty && this.playlistUri != null);
             saveAsButton.setEnabled(this.isDirty);
@@ -251,33 +247,21 @@ public class PlaylistDialog extends DialogFragment {
         }
 
         try {
-            // Extract folder URI and filename before deleting
-            Uri folderUri = DocumentsContract.buildDocumentUriUsingTree(playlistUri,
-                    DocumentsContract.getTreeDocumentId(playlistUri));
-            String filename = getFileNameFromURI(context, playlistUri); // Get the original filename
-
+            String filename = getFileNameFromURI(context, playlistUri);
             if (filename == null) {
                 Log.e("PlaylistDialog", "Failed to retrieve filename.");
                 return;
             }
 
-            // Delete the existing file
             deletePlaylist(context, playlistUri);
 
-            // Create a new file with the same name
-            playlistUri = createFileInSelectedFolder(folderUri, filename);
-
+            playlistUri = createFileInSelectedFolder(selectedFolderUri, filename);
             if (playlistUri == null) {
                 Log.e("PlaylistDialog", "Failed to recreate playlist file");
                 return;
             }
 
-            // Now write the new playlist entries
             XSPFPlaylistCreator.writePlaylistFile(this.context, this.playlistUri, this.playlistEntries);
-            // Force the media scanner to update
-            Intent scanIntent = new Intent(Intent.ACTION_MEDIA_SCANNER_SCAN_FILE);
-            scanIntent.setData(playlistUri);
-            context.sendBroadcast(scanIntent);
         } catch (Exception e) {
             Log.e("PlaylistDialog", "Error clearing and recreating playlist file", e);
         }
@@ -362,26 +346,17 @@ public class PlaylistDialog extends DialogFragment {
     }
 
     private Uri createFileInSelectedFolder(Uri folderUri, String filename) {
-        File folder = new File(folderUri.getPath());
-        if (!folder.exists() || !folder.isDirectory()) {
-            Log.e("PlaylistDialog", "Invalid folder: " + folder.getAbsolutePath());
+        DocumentFile folder = DocumentFile.fromTreeUri(context, folderUri);
+        if (folder == null || !folder.isDirectory()) {
+            Log.e("PlaylistDialog", "Invalid folder: " + folderUri);
             return null;
         }
-
-        File newFile = new File(folder, filename);
-
-        try {
-            if (newFile.createNewFile()) {
-                Log.d("PlaylistDialog", "Created file: " + newFile.getAbsolutePath());
-            } else {
-                Log.w("PlaylistDialog", "File already exists: " + newFile.getAbsolutePath());
-            }
-
-            return Uri.fromFile(newFile);
-        } catch (IOException e) {
-            Log.e("PlaylistDialog", "Error creating file in folder", e);
+        DocumentFile newFile = folder.createFile("application/xspf+xml", filename);
+        if (newFile == null) {
+            Log.e("PlaylistDialog", "Failed to create file in folder: " + folderUri);
             return null;
         }
+        return newFile.getUri();
     }
 
 }

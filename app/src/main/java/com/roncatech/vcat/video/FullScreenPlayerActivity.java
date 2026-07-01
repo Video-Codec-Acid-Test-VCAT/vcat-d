@@ -463,12 +463,15 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
         long startTime = System.currentTimeMillis();
         String telemetryFileName = "logs_" + startTime + ".csv";
 
-        this.tl = new TelemetryLogger(telemetryFileName);
+        this.tl = new TelemetryLogger(this, telemetryFileName);
 
         this.tl.writeHeaderRows(this, viewModel.curTestDetails.getPlaylistFileName(), this.viewModel.getRunConfig(), startTime);
         this.tl.writeCsvHeader();
 
-        testClips  = XspfParser.parsePlaylist(this, Uri.parse(viewModel.curTestDetails.getPlaylist()));
+        testClips = XspfParser.parsePlaylist(this, Uri.parse(viewModel.curTestDetails.getPlaylist()));
+        for (int i = 0; i < testClips.size(); i++) {
+            testClips.set(i, UriUtils.resolveMediaUri(this, testClips.get(i)));
+        }
         curFileIndex = 0;
         if (testClips.isEmpty()) {
             finish();  // nothing to play

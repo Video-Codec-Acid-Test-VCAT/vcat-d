@@ -32,6 +32,8 @@
 
 package com.roncatech.vcat.ui;
 
+import android.net.Uri;
+
 import java.io.File;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
@@ -65,20 +67,16 @@ import com.roncatech.vcat.models.SessionInfo;
 public class TestResultsDetailDialog extends DialogFragment {
     private static final String ARG_PATH = "file_path";
 
-    private final TestResult results;
+    private TestResult results;
     private String filePath;
 
-    private TestResultsDetailDialog(String filePath, TestResult results){
+    private TestResultsDetailDialog(String filePath){
         super();
-        this.results = results;
         this.filePath = filePath;
     }
 
     public static TestResultsDetailDialog newInstance(String filePath) {
-
-        TestResult results = TestResult.fromLogFile(new File(filePath));
-
-        TestResultsDetailDialog frag = new TestResultsDetailDialog(filePath, results);
+        TestResultsDetailDialog frag = new TestResultsDetailDialog(filePath);
         Bundle args = new Bundle();
         args.putString(ARG_PATH, filePath);
         frag.setArguments(args);
@@ -148,8 +146,21 @@ public class TestResultsDetailDialog extends DialogFragment {
                 videoPath = row.getOrDefault("video.filename", "none");
             }
 
+            String displayName;
+            if (videoPath.startsWith("content://")) {
+                String seg = Uri.parse(videoPath).getLastPathSegment();
+                if (seg != null) {
+                    String decoded = Uri.decode(seg);
+                    int cut = Math.max(decoded.lastIndexOf('/'), decoded.lastIndexOf(':'));
+                    displayName = decoded.substring(cut + 1);
+                } else {
+                    displayName = videoPath;
+                }
+            } else {
+                displayName = new File(videoPath).getName();
+            }
             return new TestFile(
-                    new File(videoPath).getName(),
+                    displayName,
                     row.getOrDefault("video.resolution", "none"),
                     row.getOrDefault("video.codec_name", "none"),
                     row.getOrDefault("video.decoder_name", "none"),
@@ -175,6 +186,8 @@ public class TestResultsDetailDialog extends DialogFragment {
     @NonNull
     @Override
     public Dialog onCreateDialog(Bundle savedInstanceState) {
+        this.results = TestResult.fromLogFile(requireContext(), Uri.parse(filePath));
+
         View content = LayoutInflater.from(getContext())
                 .inflate(R.layout.dialog_test_results_detail, null);
 
@@ -183,7 +196,7 @@ public class TestResultsDetailDialog extends DialogFragment {
         TextView tvDuration = content.findViewById(R.id.tvTestDuration);
         TextView tvBatStart = content.findViewById(R.id.tvBattery);
 
-        logFile.setText("Log File: " + (new File(this.filePath)).getName());
+        logFile.setText("Log File: " + Uri.parse(this.filePath).getLastPathSegment());
 
         if(this.results != null && results.getTelemetryRows().size() > 0){
             SessionInfo.StartTime startTime = results.getSessionHeader().getSessionInfo().start_time;

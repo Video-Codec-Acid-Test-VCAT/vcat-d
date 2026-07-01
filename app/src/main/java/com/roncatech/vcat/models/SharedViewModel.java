@@ -45,7 +45,6 @@ import com.google.gson.Gson;
 import com.roncatech.vcat.http.HttpServer;
 
 public class SharedViewModel extends AndroidViewModel {
-    public static final String LOG_FOLDER = "/vcat/test_results";
 
     private MutableLiveData<Uri> folderUri = new MutableLiveData<>(null);
     private RunConfig runConfig;
@@ -60,6 +59,7 @@ public class SharedViewModel extends AndroidViewModel {
 
     private static final String PREFS_NAME = "AppPrefs";
     private static final String KEY_FOLDER_URI = "folder_uri";
+    private static final String KEY_ROOT_TREE_URI = "root_tree_uri";
     private static final String KEY_HTTP_PORT = "http_port";
     private static final String KEY_RUN_CONFIG = "vcat_run_config";
 
@@ -78,20 +78,22 @@ public class SharedViewModel extends AndroidViewModel {
     public MutableLiveData<Uri> getObservableFolderUri(){return this.folderUri;}
 
     public void setFolderUri(Uri uri) {
-        if (uri != null) {
-            folderUri.setValue(uri);
-        } else {
-            folderUri.setValue(null);
-        }
-    }
-
-    private void saveFolderUri(Uri uri) {
+        folderUri.setValue(uri);
         prefs.edit().putString(KEY_FOLDER_URI, (uri != null) ? uri.toString() : null).apply();
     }
 
     private void loadFolderUri() {
         String uriString = prefs.getString(KEY_FOLDER_URI, null);
         folderUri.setValue((uriString != null) ? Uri.parse(uriString) : null);
+    }
+
+    public Uri getRootUri() {
+        String s = prefs.getString(KEY_ROOT_TREE_URI, null);
+        return s != null ? Uri.parse(s) : null;
+    }
+
+    public void setRootUri(Uri uri) {
+        prefs.edit().putString(KEY_ROOT_TREE_URI, uri != null ? uri.toString() : null).apply();
     }
 
     public void setHttpPort(int port){

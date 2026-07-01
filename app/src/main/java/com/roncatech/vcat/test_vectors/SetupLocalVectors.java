@@ -32,8 +32,11 @@
 
 package com.roncatech.vcat.test_vectors;
 
-import android.os.Environment;
+import android.content.Context;
+import android.net.Uri;
 import android.util.Log;
+
+import androidx.documentfile.provider.DocumentFile;
 
 import com.roncatech.vcat.models.TestVectorManifests;
 import com.roncatech.vcat.models.TestVectorMediaAsset;
@@ -41,11 +44,10 @@ import com.roncatech.vcat.tools.StorageManager;
 
 import java.io.File;
 import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.IOException;
-import java.util.ArrayList;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -55,26 +57,33 @@ public class SetupLocalVectors {
 
     /**
      * Moves each temp‑downloaded media asset into /sdcard/vcat/media/…
-     * preserving any sub‑folders under “media/”.  If the file already exists,
+     * preserving any sub‑folders under "media/".  If the file already exists,
      * it’s checksum‑verified; if it matches, we reuse it, otherwise we fail.
      *
      * @param tempAssets the list of media assets (manifest + tempFile)
      * @return a new list of TestVectorMediaAsset pointing to the permanent files
      * @throws IOException on any I/O or checksum mismatch
      */
-    public static Map<UUID, TestVectorMediaAsset> relocateMediaAssets(TestVectorManifests.PlaylistManifest playlist,
+    public static Map<UUID, TestVectorMediaAsset> relocateMediaAssets(
+            Context ctx,
+            TestVectorManifests.PlaylistManifest playlist,
             Map<UUID, TestVectorMediaAsset> assets
     ) {
         Map<UUID, TestVectorMediaAsset> result = new HashMap<>();
 
-        File baseDir = StorageManager.getFolder(StorageManager.VCATFolder.MEDIA);
+        DocumentFile baseDir = StorageManager.getFolder(ctx, StorageManager.VCATFolder.MEDIA);
+        if (baseDir == null) {
+            Log.e(TAG, "MEDIA folder not available");
+            return result;
+        }
 
-        for(TestVectorManifests.PlaylistAsset cur : playlist.mediaAssets){
+        for (TestVectorManifests.PlaylistAsset cur : playlist.mediaAssets) {
             TestVectorMediaAsset curAsset = assets.get(cur.uuid);
+            if (curAsset == null) continue;
             TestVectorManifests.VideoManifest vm = curAsset.manifest;
             String assetUrl = vm.mediaAsset.url;
 
-            // 1) compute relative path under “media/…”
+            // 1) compute relative path under "media/…"
             String relPath;
             int idx = assetUrl.indexOf("/media/");
             if (idx >= 0) {
@@ -83,59 +92,87 @@ public class SetupLocalVectors {
                 relPath = vm.mediaAsset.name;
             }
 
-            // 2) dest = /sdcard/vcat/media/<relPath>
-            File dest = new File(baseDir, relPath);
-
-            // ensure parent dirs exist
-            File parent = dest.getParentFile();
-            if (parent != null && !parent.exists() && !parent.mkdirs()) {
-                //throw new IOException("Failed to create dir: " + parent);
-                Log.e(TAG, "Unable to create folder(s)");
-                return result;
+            // 2) resolve parent DocumentFile directory (create if absent)
+            String[] parts = relPath.split("/");
+            String fileName = parts[parts.length - 1];
+            DocumentFile parentDir = baseDir;
+            for (int i = 0; i < parts.length - 1; i++) {
+                String dirName = parts[i];
+                DocumentFile sub = parentDir.findFile(dirName);
+                if (sub == null || !sub.isDirectory()) {
+                    sub = parentDir.createDirectory(dirName);
+                }
+                if (sub == null) {
+                    Log.e(TAG, "Unable to create directory: " + dirName);
+                    return result;
+                }
+                parentDir = sub;
             }
+
+            DocumentFile destDocFile = parentDir.findFile(fileName);
 
             // 3) if dest exists, verify checksum
-            if (dest.exists()) {
-                if (!DownloadTestVectors.verifyChecksum(dest, vm.mediaAsset.checksum)) {
-                    Log.e(TAG, "Local file exists and chacksum does not match:  "+ dest.toString());
+            if (destDocFile != null && destDocFile.isFile()) {
+                if (!DownloadTestVectors.verifyChecksum(ctx, destDocFile.getUri(), vm.mediaAsset.checksum)) {
+                    Log.e(TAG, "Local file exists but checksum does not match: " + destDocFile.getUri());
                     return result;
-                    //throw new IOException("Checksum mismatch on existing file: " + dest);
                 }
             } else {
-                // 4) copy temp → dest
+                // 4) create dest and copy from temp source
+                destDocFile = parentDir.createFile(getMimeType(fileName), fileName);
+                if (destDocFile == null) {
+                    Log.e(TAG, "Failed to create destination file: " + fileName);
+                    return result;
+                }
                 try {
-                    copyFile(curAsset.localPath, dest);
+                    copyUri(ctx, curAsset.localUri, destDocFile.getUri());
                     // 5) verify freshly copied
-                    if (!DownloadTestVectors.verifyChecksum(dest, vm.mediaAsset.checksum)) {
-                        Log.e(TAG, "Unexpected checksum error after copying file");
-                        // should delete the copy
+                    if (!DownloadTestVectors.verifyChecksum(ctx, destDocFile.getUri(), vm.mediaAsset.checksum)) {
+                        Log.e(TAG, "Checksum mismatch after copy: " + fileName);
+                        destDocFile.delete();
                         return result;
-                        //throw new IOException("Checksum mismatch after copy: " + dest);
                     }
-                } catch (IOException e){
-                    Log.e(TAG, "Exception during copy of "+
-                            curAsset.localPath.toString() + ". "+
-                            e.getLocalizedMessage()
-                    );
+                } catch (IOException e) {
+                    Log.e(TAG, "Exception during copy of " + curAsset.localUri + ": " + e.getLocalizedMessage());
+                    return result;
                 }
             }
 
-            // 6) add to result list
-            result.put(cur.uuid,new TestVectorMediaAsset(vm, dest));
+            // 6) add to result
+            result.put(cur.uuid, new TestVectorMediaAsset(vm, destDocFile.getUri()));
         }
 
         return result;
     }
 
-    private static void copyFile(File src, File dst) throws IOException {
-        try (FileInputStream in = new FileInputStream(src);
-             FileOutputStream out = new FileOutputStream(dst)) {
-            byte[] buf = new byte[8 * 1024];
+    private static void copyUri(Context ctx, Uri src, Uri dst) throws IOException {
+        try (InputStream in = openInputStream(ctx, src);
+             OutputStream out = ctx.getContentResolver().openOutputStream(dst)) {
+            if (in == null) throw new IOException("Cannot open source: " + src);
+            if (out == null) throw new IOException("Cannot open dest: " + dst);
+            byte[] buf = new byte[64 * 1024];
             int r;
             while ((r = in.read(buf)) > 0) {
                 out.write(buf, 0, r);
             }
         }
+    }
+
+    private static InputStream openInputStream(Context ctx, Uri uri) throws IOException {
+        String scheme = uri.getScheme();
+        if ("file".equalsIgnoreCase(scheme)) {
+            return new FileInputStream(new File(uri.getPath()));
+        }
+        return ctx.getContentResolver().openInputStream(uri);
+    }
+
+    private static String getMimeType(String fileName) {
+        String lower = fileName.toLowerCase();
+        if (lower.endsWith(".mp4") || lower.endsWith(".m4v")) return "video/mp4";
+        if (lower.endsWith(".webm")) return "video/webm";
+        if (lower.endsWith(".mkv")) return "video/x-matroska";
+        if (lower.endsWith(".ts")) return "video/mp2t";
+        return "video/mp4";
     }
 }
 

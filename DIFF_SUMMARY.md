@@ -1,0 +1,184 @@
+# DIFF_SUMMARY
+
+Detailed description of the changes currently in the working tree (uncommitted, on `main`).
+
+**Theme:** Migration from `MANAGE_EXTERNAL_STORAGE` + raw `File` I/O to the Storage
+Access Framework (SAF) with `DocumentFile` / `ContentResolver`, plus a fix for the system
+navigation bar obscuring VCAT's bottom menu, plus a version/dependency bump. See
+`STORAGE_MIGRATION.md` (this folder) for the design rationale.
+
+**Scope:** 26 files changed (~712 insertions / ~767 deletions).
+
+---
+
+## Build & manifest
+
+### `app/build.gradle`
+- `versionCode` 74 → 75, `versionName` `0.2.0.44` → `0.2.0.45`.
+- `libvcat` dependency bumped `0.0.3.10` → `0.0.3.11`.
+- Added `packagingOptions { jniLibs { useLegacyPackaging false } }`.
+
+### `app/src/main/AndroidManifest.xml`
+- Removed three storage permissions: `MANAGE_EXTERNAL_STORAGE`,
+  `READ_EXTERNAL_STORAGE`, `WRITE_EXTERNAL_STORAGE`. SAF tree URIs need none of them.
+
+---
+
+## Core storage layer
+
+### `tools/StorageManager.java` (full rewrite)
+- Dropped the `File` / `Environment.getExternalStorageDirectory()` model.
+- Removed the `ROOT` enum value and the `playListFolder()`/`resultsFolder()`/`mediaFolder()`
+  path helpers; `VCATFolder` is now just `PLAYLIST`, `MEDIA`, `TEST_RESULTS`.
+- New static `sRootTreeUri` plus:
+  - `init(Context, Uri rootTreeUri)` — stores the root URI, logs `root_folder=…`, and
+    creates the three sub-folders via `DocumentFile.createDirectory()`.
+  - `getRoot(Context)` / `getRootUri()` — accessors for the SAF root.
+  - `getFolder(Context, VCATFolder)` — returns (creating if absent) the sub-folder
+    `DocumentFile`. **Signature changed** — now takes a `Context`.
+  - `findLatestLogFile(Context)` — scans `DocumentFile.listFiles()` for `logs_*.csv` and
+    picks the largest timestamp.
+  - `readLastTimestamp(Context, DocumentFile)` — replaced the `RandomAccessFile`
+    backward-seek with a forward `ContentResolver.openInputStream()` line scan (RandomAccessFile
+    doesn't work on SAF).
+- Deleted `getFullPathFromUri()` and `createVcatFolder()`.
+
+### `tools/UriUtils.java`
+- Added `resolveMediaUri(Context, Uri)`: converts a legacy `file://` media URI into a current
+  `content://` SAF URI by locating the file under the SAF media tree (relative path after
+  `/media/` first, then filename-only fallback). `content://` / `http(s)://` pass through
+  unchanged. Enables old playlists to keep working after the migration.
+
+### `models/SharedViewModel.java`
+- Removed the `LOG_FOLDER = "/vcat/test_results"` constant.
+- Added `KEY_ROOT_TREE_URI` pref plus `getRootUri()` / `setRootUri()`.
+- Simplified `setFolderUri()` (folded in the old private `saveFolderUri()`); the stored
+  folder URI is now a SAF tree URI instead of a `file://` URI.
+
+---
+
+## Telemetry & result models
+
+### `telemetry/TelemetryLogger.java`
+- Constructor now `TelemetryLogger(Context, String csvFileName)` instead of a path string.
+- Writes rows via `ContentResolver.openOutputStream(uri, "wa")` (append) to a lazily
+  created `DocumentFile` in the `TEST_RESULTS` folder, replacing `FileWriter`.
+
+### `models/SessionHeader.java`
+- Added `fromLogFile(Context, Uri)` overload that reads through
+  `ContentResolver.openInputStream()`; existing `File` overload kept.
+
+### `models/TestResult.java`
+- Added `fromLogFile(Context, Uri)`; refactored the shared parsing logic into a private
+  `fromReader(BufferedReader)` used by both the `Uri` and `File` overloads. Tidied
+  resource cleanup.
+
+### `models/TestResultsItem.java`
+- `getTimeStamp()` now handles `content://` URI strings, not just file paths, via a new
+  `getFileName()` helper that decodes the last path segment. Added bounds guards.
+
+### `models/TestVectorMediaAsset.java`
+- Field `File localPath` → `Uri localUri`. New `Uri` constructor; the `File` constructor is
+  kept as a backward-compat shim (`Uri.fromFile()`).
+
+---
+
+## Test-vector import / export / download
+
+### `test_vectors/ExportTestVectors.java` (largest single change)
+- `ExportCallback.onSuccess(File)` → `onSuccess(Uri)`.
+- `exportPlaylist(...)` now takes `Uri playlistUri` and `Uri stagingUri` instead of
+  `File`/`String`.
+- Export folder tree built with `DocumentFile.createDirectory()`; media/manifest/catalog
+  files created with `DocumentFile.createFile(mime, name)`.
+- `copyFile` (FileChannel) → `copyUri()` via ContentResolver streams; `calculateChecksum`
+  and `writeJsonFile` → `Context`/`Uri` versions via ContentResolver.
+
+### `test_vectors/SetupLocalVectors.java`
+- `relocateMediaAssets()` now takes a `Context` and works entirely in `DocumentFile`:
+  resolves/creates sub-dirs under `media/`, creates the dest file, copies via
+  `copyUri()`, checksum-verifies, deletes on mismatch.
+- Added `openInputStream()` (handles `file://` temp sources + `content://`) and
+  `getMimeType()`.
+
+### `test_vectors/DownloadTestVectors.java`
+- Added `verifyChecksum(Context, Uri, String)` that hashes via
+  `ContentResolver.openInputStream()`. Existing `File` overload retained.
+
+### `test_vectors/XspfBuilder.java`
+- `<location>` now emitted from `tvAsset.localUri.toString()` instead of building a
+  `file://` string from `localPath.getAbsolutePath()`.
+
+---
+
+## UI
+
+### `ui/MainActivity.java`
+- **Permission flow replaced:** `hasAllPermissions()` now checks the persisted root URI
+  against `getPersistedUriPermissions()` (read+write) instead of
+  `Environment.isExternalStorageManager()` / `Settings.System.canWrite()`.
+- `requestAllPermissions()` shows an explanatory dialog, then `launchRootFolderPicker()`
+  fires `ACTION_OPEN_DOCUMENT_TREE` with an `EXTRA_INITIAL_URI` hint at `primary:vcat-d`.
+- New `onActivityResult()` takes the persistable permission, stores the root URI, and
+  loads the UI. `loadUI()` calls `StorageManager.init()` and re-prompts if the folder is
+  inaccessible.
+- Registers the `ACTION_LOG_ROOT` broadcast action on the receiver.
+- **System nav-bar fix:** new `hideSystemNavBar()` (sticky-immersive, hides
+  `navigationBars()`) called from `loadUI()` and re-applied in `onWindowFocusChanged()` so
+  the Android nav bar stops covering VCAT's bottom menu (notably on Samsung 3-button nav).
+
+### `ui/FragmentMain.java`
+- Removed the manual folder picker, `safUriToFile()`, and `displayNameFromFileUri()`.
+- Playlist list is now `List<DocumentFile>` sourced from
+  `StorageManager.getFolder(PLAYLIST).listFiles()` filtered to `.xspf`.
+- `deletePlaylist()` calls `DocumentFile.delete()`; browse button hidden (`View.GONE`).
+- Resume detection and row/menu wiring updated to pass `DocumentFile` / `content://` URIs.
+
+### `ui/FragmentTestLogs.java`
+- `loadTestResults()` reads from `StorageManager.getFolder(TEST_RESULTS).listFiles()`
+  instead of `new File(Environment.getExternalStorageDirectory(), LOG_FOLDER)`; items keyed
+  by `content://` URI string. Removed verbose `File.list()` diagnostics.
+
+### `ui/FragmentVectorExport.java`
+- `selectedPlaylist` is now a `DocumentFile`; playlist scan uses `DocumentFile.listFiles()`.
+- `onExportConfirmed(...)` / `onSuccess(...)` updated to the new `Uri`-based signatures.
+
+### `ui/FragmentVectorImport.java`
+- `relocateMediaAssets()` called with `Context`; XSPF file located/created via
+  `DocumentFile.findFile()` / `createFile("application/xspf+xml", …)`; playlist entries use
+  `localUri.toString()`.
+
+### `ui/ExportTestVectorsDialog.java`
+- `Listener.onExportConfirmed(...)` first arg `String stagingFolder` → `Uri stagingUri`.
+- Picker result stores the tree `Uri` directly (`selectedFolderUri`) instead of converting
+  to a path via `StorageManager.getFullPathFromUri()`.
+
+### `ui/PlaylistDialog.java`
+- `addNewEntry()` stores `fileUri.toString()` instead of resolving a real path via
+  `getRealPathFromUri()`.
+- `createFileInSelectedFolder()` rewritten with `DocumentFile.fromTreeUri()` +
+  `createFile("application/xspf+xml", …)`; removed the media-scanner broadcast.
+
+### `ui/TestResultsDetailDialog.java`
+- Loads the `TestResult` lazily in `onCreateDialog()` via
+  `TestResult.fromLogFile(Context, Uri)`.
+- Display-name derivation handles `content://` URIs; log-file label uses
+  `Uri.getLastPathSegment()`.
+
+### `video/FullScreenPlayerActivity.java`
+- `TelemetryLogger` constructed with `(this, fileName)`.
+- After parsing the playlist, each clip URI is passed through
+  `UriUtils.resolveMediaUri()` so legacy `file://` entries resolve to current SAF URIs.
+
+### `res/layout/activity_fullscreen_player.xml`
+- `videoOverlay` sized `wrap_content` (was `match_parent`) and background darkened
+  `#66000000` → `#99000000` — fixes the status-overlay text being clipped on vertical video.
+
+---
+
+## Known outstanding item
+
+- `tools/XSPFPlaylistCreator.java`: still contains `getRealPathFromUri()` /
+  `getDataColumn()` (MediaStore path resolution). Per §7 of `STORAGE_MIGRATION.md` these
+  should be deleted and callers moved to `Uri` directly. The only diff so far is accepting
+  `content://` in the `file://` prefix check. **Not yet migrated.**

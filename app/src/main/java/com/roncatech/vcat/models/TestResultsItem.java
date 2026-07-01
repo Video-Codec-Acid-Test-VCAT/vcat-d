@@ -32,8 +32,9 @@
 
 package com.roncatech.vcat.models;
 
-import java.io.File;
+import android.net.Uri;
 
+import java.io.File;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
@@ -42,17 +43,36 @@ public class TestResultsItem {
     private final long timestampMillis;
     private final String filePath;
 
+    /**
+     * Extracts the Unix timestamp from the file path or content:// URI string.
+     * The file name format is "logs_<unixtime>.csv".
+     */
     public static long getTimeStamp(String filePath){
-        String name = new File(filePath).getName();        // "log_<unixtime>.csv"
+        String name = getFileName(filePath);
         int start = name.indexOf('_') + 1;
         int end = name.lastIndexOf('.');
-        String tsPart = name.substring(start, end);        // "<unixtime>"
-
+        if (start <= 0 || end < 0 || start >= end) return -1;
         try {
-            return Long.parseLong(tsPart);
+            return Long.parseLong(name.substring(start, end));
         } catch(NumberFormatException unused){
             return -1;
         }
+    }
+
+    private static String getFileName(String filePath) {
+        if (filePath != null && filePath.startsWith("content://")) {
+            Uri uri = Uri.parse(filePath);
+            String lastSegment = uri.getLastPathSegment();
+            if (lastSegment != null) {
+                String decoded = Uri.decode(lastSegment);
+                int lastSlash = decoded.lastIndexOf('/');
+                int lastColon = decoded.lastIndexOf(':');
+                int nameStart = Math.max(lastSlash, lastColon) + 1;
+                return decoded.substring(nameStart);
+            }
+            return "unknown";
+        }
+        return new File(filePath).getName();
     }
 
     public TestResultsItem(String filePath, long timestampMillis) {
@@ -73,6 +93,6 @@ public class TestResultsItem {
                 "dd MMMM yyyy HH:mm:ss",
                 Locale.getDefault()
         );
-        return sdf.format(new Date(timestampMillis)) + " (" + (new File(this.filePath).getName()) + ")";
+        return sdf.format(new Date(timestampMillis)) + " (" + getFileName(this.filePath) + ")";
     }
 }

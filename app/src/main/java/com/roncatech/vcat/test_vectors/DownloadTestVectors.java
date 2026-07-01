@@ -513,8 +513,29 @@ public class DownloadTestVectors {
     // Verify checksum (dummy implementation, replace with real logic)
     public static boolean verifyChecksum(File file, String expectedChecksum) {
         try {
-            String actualChecksum = getChecksum(file);  // Get checksum of the file
-            return actualChecksum.equals(expectedChecksum);  // Compare with the expected checksum
+            String actualChecksum = getChecksum(file);
+            return actualChecksum.equals(expectedChecksum);
+        } catch (IOException | NoSuchAlgorithmException e) {
+            e.printStackTrace();
+            return false;
+        }
+    }
+
+    public static boolean verifyChecksum(Context ctx, Uri uri, String expectedChecksum) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            try (InputStream is = ctx.getContentResolver().openInputStream(uri)) {
+                if (is == null) return false;
+                byte[] buf = new byte[8192];
+                int n;
+                while ((n = is.read(buf)) != -1) {
+                    digest.update(buf, 0, n);
+                }
+            }
+            byte[] hashBytes = digest.digest();
+            StringBuilder sb = new StringBuilder();
+            for (byte b : hashBytes) sb.append(String.format("%02x", b));
+            return sb.toString().equals(expectedChecksum);
         } catch (IOException | NoSuchAlgorithmException e) {
             e.printStackTrace();
             return false;

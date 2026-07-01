@@ -32,16 +32,12 @@
 
 package com.roncatech.vcat.ui;
 
-import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
 import android.database.Cursor;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
-import android.os.Environment;
-import android.provider.DocumentsContract;
-import android.provider.OpenableColumns;
 import android.util.Log;
 import android.view.Gravity;
 import android.view.LayoutInflater;
@@ -55,7 +51,7 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.annotation.NonNull;
-import androidx.annotation.Nullable;
+import androidx.documentfile.provider.DocumentFile;
 import androidx.fragment.app.Fragment;
 import androidx.lifecycle.ViewModelProvider;
 
@@ -69,38 +65,25 @@ import com.roncatech.vcat.tools.DeviceInfo;
 import com.roncatech.vcat.tools.StorageManager;
 import com.roncatech.vcat.video.FullScreenPlayerActivity;
 
-import java.io.File;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 
 public class FragmentMain extends Fragment implements PlaylistUpdates {
     private final static String TAG = "MainFragment";
 
     private TextView playlistFolderText;
-    private List<Uri> playlistNames;
+    private List<DocumentFile> playlists;
     private TableLayout playlistTable;
     private SharedViewModel viewModel;
 
     public FragmentMain()  {
-        this.playlistNames = new ArrayList<>();
+        this.playlists = new ArrayList<>();
     }
 
     public void onPlaylistAdded(Uri playlistUri){
-
         getPlaylistFiles();
-    }
-
-    private static String displayNameFromFileUri(Uri uri){
-        String ret = "<null>";
-        if(uri != null && uri.getPath() != null){
-            File file = new File(uri.getPath());
-            ret = file.getName();
-        }
-
-        return ret;
     }
 
     public void onPlaylistDeleted(Uri playlistUri){
@@ -151,8 +134,7 @@ public class FragmentMain extends Fragment implements PlaylistUpdates {
         playlistFolderText = view.findViewById(R.id.playlistFolderText);
         playlistTable = view.findViewById(R.id.playlistTable);
 
-        //  Set Click Listener
-        browsePlaylistsButton.setOnClickListener(v -> openFolderSelection());
+        browsePlaylistsButton.setVisibility(View.GONE);
         createPlaylistButton.setOnClickListener(v -> createPlaylist());
 
         fillDeviceLayout(view);
@@ -165,82 +147,36 @@ public class FragmentMain extends Fragment implements PlaylistUpdates {
         dialog.show(getChildFragmentManager(), "PlaylistDialog");
     }
 
-    private static final int REQUEST_CODE_OPEN_FOLDER = 100;
-    //  Open System Folder Picker
-    private void openFolderSelection() {
-        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
-        intent.addFlags(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
-        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-        intent.addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
-        startActivityForResult(intent, REQUEST_CODE_OPEN_FOLDER);
-    }
-
-    public static File safUriToFile(Context context, Uri treeUri) {
-        if (DocumentsContract.isTreeUri(treeUri)) {
-            String docId = DocumentsContract.getTreeDocumentId(treeUri);  // e.g. "primary:vcat"
-            String[] parts = docId.split(":");
-            if (parts.length == 2 && parts[0].equalsIgnoreCase("primary")) {
-                return new File(Environment.getExternalStorageDirectory(), parts[1]);
-            }
-        }
-        return null;
-    }
-
-    //  Handle Folder Selection Result
-    @Override
-    public void onActivityResult(int requestCode, int resultCode, @Nullable Intent data) {
-        super.onActivityResult(requestCode, resultCode, data);
-
-        if (requestCode == REQUEST_CODE_OPEN_FOLDER && resultCode == Activity.RESULT_OK) {
-            Uri treeUri = data.getData();
-
-            File resolved = safUriToFile(requireContext(), treeUri);
-            if (resolved != null && resolved.exists() && resolved.isDirectory()) {
-                viewModel.setFolderUri(Uri.fromFile(resolved));
-                updatePlaylistFolder();
-            } else {
-                Toast.makeText(getContext(), "Invalid folder selected", Toast.LENGTH_LONG).show();
-                // Optionally: fallback to default
-                File fallback = new File(Environment.getExternalStorageDirectory(), "vcat/playlist");
-                viewModel.setFolderUri(Uri.fromFile(fallback));
-                updatePlaylistFolder();
-            }
-        }
-    }
-
     private void updatePlaylistFolder(){
-        //  Update UI
-        if(this.viewModel.getFolderUri() != null) {
-            playlistFolderText.setText("Folder: " + this.viewModel.getFolderUri().getPath());
+        Uri folderUri = this.viewModel.getFolderUri();
+        if (folderUri != null) {
+            DocumentFile folder = DocumentFile.fromSingleUri(requireContext(), folderUri);
+            String name = folder != null ? folder.getName() : null;
+            playlistFolderText.setText("Folder: " + (name != null ? name : folderUri.toString()));
             getPlaylistFiles();
         }
     }
 
     //  Scan Selected Folder for .xspf Files
     private void getPlaylistFiles() {
-        Uri folderUri = viewModel.getFolderUri();
-        if (folderUri == null) {
-            return;
-        }
+        DocumentFile playlistDir = StorageManager.getFolder(requireContext(), StorageManager.VCATFolder.PLAYLIST);
+        if (playlistDir == null) return;
 
-        // Force refresh the folder
-        //requireActivity().getContentResolver().notifyChange(this.viewModel.getFolderUri(), null);
+        playlists.clear();
 
-        File playlistDir = new File(folderUri.getPath());
-        if (!playlistDir.exists() || !playlistDir.isDirectory()) {
-            return;
-        }
-
-        playlistNames.clear(); // Clear previous results
-
-        File[] files = playlistDir.listFiles((dir, name) -> name.endsWith(".xspf"));
+        DocumentFile[] files = playlistDir.listFiles();
         if (files != null) {
-            // Sort alphabetically (case-insensitive)
-            Arrays.sort(files, (f1, f2) -> f1.getName().compareToIgnoreCase(f2.getName()));
-
-            for (File file : files) {
-                playlistNames.add(Uri.fromFile(file));
+            for (DocumentFile f : files) {
+                String name = f.getName();
+                if (name != null && name.endsWith(".xspf")) {
+                    playlists.add(f);
+                }
             }
+            playlists.sort((a, b) -> {
+                String na = a.getName() != null ? a.getName() : "";
+                String nb = b.getName() != null ? b.getName() : "";
+                return na.compareToIgnoreCase(nb);
+            });
         }
 
         populatePlaylistTable();
@@ -248,89 +184,69 @@ public class FragmentMain extends Fragment implements PlaylistUpdates {
 
     //  Populate Table with Playlist Rows (Single Tap for Menu)
     private void populatePlaylistTable() {
-
-        // setup the last test run for resume.  To be resumable, must have valid log file
-        // with at least one entry after the headers (a valid timestamp)
-        // this is only for the most recent test and strictly managed
-
         ResumeInfo resumeInfo = ResumeInfo.empty;
-        File latest = StorageManager.findLatestLogFile();
-        if(latest != null){
-            long lastLogTimestamp = StorageManager.readLastTimestamp(latest);
-            if(lastLogTimestamp >= 0){
-                SessionHeader sh = SessionHeader.fromLogFile(latest);
-
-                if(sh != null) {
+        DocumentFile latest = StorageManager.findLatestLogFile(requireContext());
+        if (latest != null) {
+            long lastLogTimestamp = StorageManager.readLastTimestamp(requireContext(), latest);
+            if (lastLogTimestamp >= 0) {
+                SessionHeader sh = SessionHeader.fromLogFile(requireContext(), latest.getUri());
+                if (sh != null) {
                     resumeInfo = new ResumeInfo(
                             sh.getSessionInfo().playlist,
-                            latest.getAbsolutePath(),
+                            latest.getUri().toString(),
                             sh.getSessionInfo().start_time.unix_time_ms,
                             lastLogTimestamp,
-                            System.currentTimeMillis() -   lastLogTimestamp
-
+                            System.currentTimeMillis() - lastLogTimestamp
                     );
                 }
             }
         }
-        playlistTable.removeAllViews(); // Clear old rows
+        playlistTable.removeAllViews();
 
-        for (Uri playlistItem : playlistNames) {
-            addOnePlaylistTableRow(playlistItem, resumeInfo);
+        for (DocumentFile playlist : playlists) {
+            addOnePlaylistTableRow(playlist, resumeInfo);
         }
     }
 
-
-    private void addOnePlaylistTableRow(Uri playlistItem, ResumeInfo resumeInfo){
+    private void addOnePlaylistTableRow(DocumentFile playlistDoc, ResumeInfo resumeInfo){
         TableRow row = new TableRow(getContext());
 
-        //  Playlist Name (Clickable Row)
         TextView playlistText = new TextView(getContext());
-        String playlistName = displayNameFromFileUri(playlistItem);
-        playlistText.setText(playlistName);
+        String displayName = playlistDoc.getName() != null ? playlistDoc.getName() : "";
+        playlistText.setText(displayName);
         playlistText.setTextSize(16);
         playlistText.setPadding(16, 16, 16, 16);
         playlistText.setGravity(Gravity.START);
         playlistText.setBackgroundResource(android.R.drawable.list_selector_background);
 
-        //  Add to Row
         row.addView(playlistText, new TableRow.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
-        if(!playlistName.isEmpty() && resumeInfo.playlistName.equals(playlistName)){
+        String docUriStr = playlistDoc.getUri().toString();
+        if (!docUriStr.isEmpty() && resumeInfo.playlistName.equals(docUriStr)) {
             playlistText.setTag(R.id.resume_info, resumeInfo);
         }
 
-        //  Handle Click to Open PlaylistDialog
-        playlistText.setOnClickListener(v -> showPlaylistOptionsMenu_menu(v, playlistItem));
+        playlistText.setOnClickListener(v -> showPlaylistOptionsMenu_menu(v, playlistDoc));
 
-        //  Add Row to Table
         playlistTable.addView(row);
     }
 
-    private void showPlaylistOptionsMenu_menu(View view, Uri playlistUri) {
+    private void showPlaylistOptionsMenu_menu(View view, DocumentFile playlistDoc) {
         if (!isAdded() || getActivity() == null) {
-            return; // Prevent crash if fragment is detached
+            return;
         }
 
         final ResumeInfo resumeInfo;
-
         Object maybeResumeInfo = view.getTag(R.id.resume_info);
-        if (maybeResumeInfo instanceof ResumeInfo) {
-            resumeInfo = (ResumeInfo) maybeResumeInfo;
-        }
-        else {
-            resumeInfo = ResumeInfo.empty;
-        }
+        resumeInfo = (maybeResumeInfo instanceof ResumeInfo) ? (ResumeInfo) maybeResumeInfo : ResumeInfo.empty;
 
         PopupMenu popupMenu = new PopupMenu(requireContext(), view);
         popupMenu.getMenuInflater().inflate(R.menu.playlist_options_menu, popupMenu.getMenu());
 
-        if(resumeInfo != ResumeInfo.empty){
-            popupMenu.getMenu()
-                    .findItem(R.id.menu_resume)
-                    .setVisible(true);
+        if (resumeInfo != ResumeInfo.empty) {
+            popupMenu.getMenu().findItem(R.id.menu_resume).setVisible(true);
         }
 
-        // ✅ Force icons to show
         try {
             Field field = popupMenu.getClass().getDeclaredField("mPopup");
             field.setAccessible(true);
@@ -345,26 +261,21 @@ public class FragmentMain extends Fragment implements PlaylistUpdates {
         popupMenu.setOnMenuItemClickListener(item -> {
             int id = item.getItemId();
             if (id == R.id.menu_edit) {
-                openPlaylistDialog(playlistUri); // Edit Playlist
+                openPlaylistDialog(playlistDoc);
                 return true;
             } else if (id == R.id.menu_play || id == R.id.menu_resume) {
-
-                // if resumable, we will have a valid resumeInfo even if we want to play
-                // forcign to ResumeINfo.empty for play
                 ResumeInfo ri = id == R.id.menu_play ? ResumeInfo.empty : resumeInfo;
-
                 int batteryLevel = BatteryInfo.getBatteryLevel(getContext());
                 if ((this.viewModel.getRunConfig().runMode.name().equals("BATTERY")) && (this.viewModel.getRunConfig().runLimit >= (batteryLevel - 1))) {
                     Toast.makeText(requireContext(), "Battery limit must be at least 2% less than the current battery level", Toast.LENGTH_SHORT).show();
                 } else {
-                    this.viewModel.curTestDetails.startTest(playlistUri.toString());
-
+                    this.viewModel.curTestDetails.startTest(playlistDoc.getUri().toString());
                     Intent i = new Intent(getActivity(), FullScreenPlayerActivity.class);
                     startActivity(i);
                 }
                 return true;
-            }else if (id == R.id.menu_delete) {
-                deletePlaylist(getContext(), playlistUri); // Delete Playlist
+            } else if (id == R.id.menu_delete) {
+                deletePlaylist(playlistDoc);
                 return true;
             }
             return false;
@@ -373,59 +284,20 @@ public class FragmentMain extends Fragment implements PlaylistUpdates {
         popupMenu.show();
     }
 
-    void deletePlaylist(Context context, Uri playlistUri) {
-        try {
-            Uri folderUri = this.viewModel.getFolderUri();
-            if (folderUri == null) {
-                Log.e(TAG, "DeletePlaylist: No valid folder selected.");
-                return;
-            }
-
-            File folder = new File(folderUri.getPath());
-            if (!folder.exists() || !folder.isDirectory()) {
-                Log.e(TAG, "DeletePlaylist: Selected folder is invalid: " + folder.getAbsolutePath());
-                return;
-            }
-
-            // Extract the playlist file name from the Uri
-            String playlistFileName = new File(playlistUri.getPath()).getName();
-            File targetFile = new File(folder, playlistFileName);
-
-            if (targetFile.exists() && targetFile.delete()) {
-                Log.i(TAG, "Deleted playlist: " + targetFile.getAbsolutePath());
-                onPlaylistDeleted(Uri.fromFile(targetFile));
-            } else {
-                Log.e(TAG, "DeletePlaylist" + "Failed to delete playlist or file not found: " + targetFile.getAbsolutePath());
-            }
-        } catch (Exception e) {
-            Log.e(TAG, "DeletePlaylist: Error deleting playlist", e);
+    void deletePlaylist(DocumentFile playlistDoc) {
+        if (playlistDoc.delete()) {
+            Log.i(TAG, "Deleted playlist: " + playlistDoc.getUri());
+            onPlaylistDeleted(playlistDoc.getUri());
+        } else {
+            Log.e(TAG, "DeletePlaylist: Failed to delete: " + playlistDoc.getUri());
         }
     }
 
-    private String getFileNameFromUri(Context context, Uri uri) {
-        Cursor cursor = context.getContentResolver().query(uri, null, null, null, null);
-        if (cursor != null) {
-            try {
-                if (cursor.moveToFirst()) {
-                    int nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME);
-                    if (nameIndex != -1) {
-                        return cursor.getString(nameIndex);
-                    }
-                }
-            } finally {
-                cursor.close();
-            }
-        }
-        return null;
-    }
-
-    private void openPlaylistDialog(Uri playlist) {
-        if (this.viewModel.getFolderUri() == null) {
-            return;
-        }
-
-        //  Pass the `Uri` Instead of a `File`
-        PlaylistDialog dialog = new PlaylistDialog(requireContext(), displayNameFromFileUri(playlist),  playlist, this.viewModel.getFolderUri(), this);
+    private void openPlaylistDialog(DocumentFile playlistDoc) {
+        Uri folderUri = this.viewModel.getFolderUri();
+        if (folderUri == null) return;
+        String name = playlistDoc.getName() != null ? playlistDoc.getName() : "";
+        PlaylistDialog dialog = new PlaylistDialog(requireContext(), name, playlistDoc.getUri(), folderUri, this);
         dialog.show(getChildFragmentManager(), "PlaylistDialog");
     }
 }

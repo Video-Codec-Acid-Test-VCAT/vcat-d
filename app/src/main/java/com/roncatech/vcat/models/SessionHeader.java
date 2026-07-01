@@ -33,6 +33,7 @@
 package com.roncatech.vcat.models;
 
 import android.content.Context;
+import android.net.Uri;
 
 import com.google.gson.*;
 import com.google.gson.annotations.SerializedName;
@@ -41,6 +42,9 @@ import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.util.Objects;
 
 import com.roncatech.vcat.tools.DeviceInfo;
@@ -236,10 +240,17 @@ public class SessionHeader {
         try (BufferedReader r = new BufferedReader(new FileReader(telemetryFile))) {
             return fromLogFile(r);
         } catch (IOException e) {
-            // I/O error reading file
             return null;
         }
+    }
 
+    public static SessionHeader fromLogFile(Context ctx, Uri uri) {
+        try (InputStream is = ctx.getContentResolver().openInputStream(uri);
+             BufferedReader r = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8))) {
+            return fromLogFile(r);
+        } catch (IOException e) {
+            return null;
+        }
     }
     public static SessionHeader fromLogFile(BufferedReader telemetryFileReader){
         StringBuilder json = new StringBuilder();

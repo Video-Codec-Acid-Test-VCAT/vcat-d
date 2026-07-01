@@ -69,7 +69,7 @@ public class XspfBuilder {
             if (tvAsset == null) {
                 throw new IllegalStateException("Missing media asset for: " + pAsset.name);
             }
-            String location = "file://" + tvAsset.localPath.getAbsolutePath();
+            String location = tvAsset.localUri.toString();
 
             sb.append("    <track>\n")
                     .append("      <location>")

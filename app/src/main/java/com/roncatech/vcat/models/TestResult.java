@@ -32,6 +32,9 @@
 
 package com.roncatech.vcat.models;
 
+import android.content.Context;
+import android.net.Uri;
+
 import com.opencsv.CSVReaderHeaderAware;
 
 import java.io.BufferedReader;
@@ -39,8 +42,11 @@ import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.FileReader;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.io.Reader;
 import java.io.StringReader;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -60,24 +66,35 @@ public class TestResult {
         this.telemetryRows = telemetryRows;
     }
 
+    public static TestResult fromLogFile(Context ctx, Uri uri) {
+        try {
+            InputStream is = ctx.getContentResolver().openInputStream(uri);
+            if (is == null) return null;
+            return fromReader(new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8)));
+        } catch (IOException e) {
+            return null;
+        }
+    }
+
     public static TestResult fromLogFile(File telemetryFile){
-        BufferedReader r = null;
+        try {
+            return fromReader(new BufferedReader(new FileReader(telemetryFile)));
+        } catch (IOException e) {
+            return null;
+        }
+    }
+
+    private static TestResult fromReader(BufferedReader r) {
         Reader csvSource = null;
-
-        try{
-            r = new BufferedReader(new FileReader(telemetryFile));
-
-            // read session header
+        try {
             SessionHeader sh = SessionHeader.fromLogFile(r);
-
-            if(sh == null){
+            if (sh == null) {
                 Log.e(TAG, "Error reading session header");
                 return null;
             }
 
             List<Map<String,String>> telemetryRows = new ArrayList<>();
 
-            // find csv header row
             String headerLine = null;
             String line;
             while ((line = r.readLine()) != null) {
@@ -88,44 +105,30 @@ public class TestResult {
                 }
             }
 
-            if(headerLine == null){
+            if (headerLine == null) {
                 Log.e(TAG, "CSV Header not found");
                 return null;
             }
 
-            csvSource = new SequenceReader(
-                    new StringReader(headerLine+"\n"),
-                    r
-            );
+            csvSource = new SequenceReader(new StringReader(headerLine + "\n"), r);
 
             try (CSVReaderHeaderAware csv = new CSVReaderHeaderAware(csvSource)) {
-
                 Map<String, String> row;
                 while ((row = csv.readMap()) != null) {
                     telemetryRows.add(row);
                 }
-            }catch (com.opencsv.exceptions.CsvException e){
-                Log.e(TAG, "Error parsing CSV: "+ e.getLocalizedMessage());
+            } catch (com.opencsv.exceptions.CsvException e) {
+                Log.e(TAG, "Error parsing CSV: " + e.getLocalizedMessage());
                 return null;
             }
 
-
             return new TestResult(sh, telemetryRows);
         } catch (IOException e) {
-            // I/O error reading file
             return null;
-        }
-        finally{
-            if(r != null) {
-                try {
-                    r.close();
-                } catch(IOException ignored){}
-            }
-
-            if(csvSource != null){
-                try {
-                    csvSource.close();
-                } catch (IOException ignored) {}
+        } finally {
+            try { r.close(); } catch (IOException ignored) {}
+            if (csvSource != null) {
+                try { csvSource.close(); } catch (IOException ignored) {}
             }
         }
     }
