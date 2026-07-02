@@ -1,6 +1,49 @@
 # DIFF_SUMMARY
 
-Detailed description of the changes currently in the working tree (uncommitted, on `main`).
+Running summary of notable change sets on `main`, newest first. Each entry preserves the
+description of what shipped so the history is not lost when the working tree moves on.
+
+---
+
+## 2026-07-02 — Rebrand to `vcat-d`, version `0.3.0`
+
+**Theme:** Rename the app to `vcat-d` everywhere it is externally visible, and rev the
+version to `0.3.0` / code `3000`. Internal identifiers (the `com.roncatech.vcat`
+applicationId + Java package, the `Theme.VCAT.Splash` style, logcat tags, code comments)
+were intentionally left unchanged.
+
+### Version & artifact naming (`app/build.gradle`)
+- `versionCode` 76 → `3000`; `versionName` `0.2.0.46` → `0.3.0`.
+- `archivesBaseName` and release `outputFileName` prefixes `VCAT-` → `vcat-d-`
+  (release APK is now `vcat-d-0.3.0-v3000.apk`).
+- `cleanCustomRelease` fileTree include patterns `VCAT-*` → `vcat-d-*`.
+
+### Gradle project (`settings.gradle`)
+- `rootProject.name` `vcat` → `vcat-d`.
+
+### External / user-facing text
+- Display name (`app_name`), manifest `android:label`, and About strings were already
+  `vcat-d` (no change needed).
+- `README.md`: logo `alt` text → `vcat-d Logo`; H1 banner →
+  `vcat-d™ (formerly VCAT™) — Video Codec Acid Test™`. GitHub org/repo URLs
+  (`Video-Codec-Acid-Test-VCAT`) left intact — they are live links.
+
+### License text
+- License headers in 118 source files: every header `VCAT` → `vcat-d` (program-name line,
+  SPDX copyright, GPL clauses, artwork notice). Only header phrasing was touched; logcat
+  tags, comments, and the `Theme.VCAT.Splash` style id were left alone.
+- `LICENSE-PLUGIN-EXCEPTION.md`: now reads "The `vcat-d` project (formerly VCAT) …".
+- The verbatim GPL `LICENSE` file was left unmodified (must stay verbatim; it does not name
+  the app).
+
+### Left as-is (internal, per design)
+- `applicationId` / Java package `com.roncatech.vcat` — changing would create a new app
+  identity (breaks upgrades/signing).
+- `Theme.VCAT.Splash` style, `Log.x("VCAT", …)` logcat tags, and in-code comments.
+
+---
+
+## SAF storage migration + nav-bar fix (version `0.2.0.46`)
 
 **Theme:** Migration from `MANAGE_EXTERNAL_STORAGE` + raw `File` I/O to the Storage
 Access Framework (SAF) with `DocumentFile` / `ContentResolver`, plus a fix for the system

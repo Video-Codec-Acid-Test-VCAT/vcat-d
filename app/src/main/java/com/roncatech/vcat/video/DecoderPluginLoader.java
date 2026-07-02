@@ -1,7 +1,7 @@
 /*
- * VCAT (Video Codec Acid Test)
+ * vcat-d (Video Codec Acid Test)
  *
- * SPDX-FileCopyrightText: Copyright (C) 2020-2025 VCAT authors and RoncaTech
+ * SPDX-FileCopyrightText: Copyright (C) 2020-2025 vcat-d authors and RoncaTech
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 package com.roncatech.vcat.video;

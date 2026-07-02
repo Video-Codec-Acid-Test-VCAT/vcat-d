@@ -2,7 +2,7 @@
 
 ## THIS IS DRAFT TEXT AND NOT CURRENTLY ADOPTED. NO RIGHTS ARE GIVEN BY THIS DRAFT LICENSE.
 
-The VCAT project (`vcat-d`) is licensed under GNU General Public License version 3 or, at your option, any later version ("GPL-3.0-or-later").
+The `vcat-d` project (formerly VCAT) is licensed under GNU General Public License version 3 or, at your option, any later version ("GPL-3.0-or-later").
 
 As an additional permission under GPLv3 Section 7, RoncaTech LLC, as the sole copyright holder of `vcat-d`, grants the following narrow exception for decoder plugins:
 

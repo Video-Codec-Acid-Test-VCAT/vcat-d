@@ -1,18 +1,18 @@
 /*
-* VCAT (Video Codec Acid Test)
+* vcat-d (Video Codec Acid Test)
 *
-* SPDX-FileCopyrightText: Copyright (C) 2020-2025 VCAT authors and RoncaTech
+* SPDX-FileCopyrightText: Copyright (C) 2020-2025 vcat-d authors and RoncaTech
 * SPDX-License-Identifier: GPL-3.0-or-later
 *
-* This file is part of VCAT.
+* This file is part of vcat-d.
 *
-* VCAT is free software: you can redistribute it and/or modify it
+* vcat-d is free software: you can redistribute it and/or modify it
 * under the terms of the GNU General Public License as published by
 * the Free Software Foundation, either version 3 of the License, or
 * (at your option) any later version.
 *
 * You should have received a copy of the GNU General Public License
-* along with VCAT. If not, see <https://www.gnu.org/licenses/gpl-3.0.html>.
+* along with vcat-d. If not, see <https://www.gnu.org/licenses/gpl-3.0.html>.
 *
 * For commercial use, contact RoncaTech LLC for a written waiver or license:
 * https://roncatech.com/legal
@@ -98,7 +98,7 @@ Try one of these:
 ''')
 }
 
-rootProject.name = "vcat"
+rootProject.name = "vcat-d"
 include(":app")
 include(":decoder-plugin-api")
 
