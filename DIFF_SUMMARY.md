@@ -5,6 +5,27 @@ description of what shipped so the history is not lost when the working tree mov
 
 ---
 
+## 2026-07-05 — adb-usable root path in `ACTION_LOG_ROOT`, version `0.3.1`
+
+**Theme:** After the SAF migration, `ACTION_LOG_ROOT` logged only the `content://` tree URI
+(e.g. `…/tree/primary%3Avcat-d`), which `adb pull` / `adb shell ls` cannot use. Restore a
+real filesystem path in the log output.
+
+### `tools/StorageManager.java`
+- Added `getRootFsPath()`: best-effort conversion of the SAF root tree URI to an absolute
+  filesystem path. Parses the tree document id (`<volume>:<relative/path>` from the
+  `externalstorage` provider) — `primary` maps to `/sdcard`, other volumes to
+  `/storage/<volumeId>`. Returns `null` if no root is set or the volume can't be resolved.
+
+### `service/CommandReceiver.java`
+- `ACTION_LOG_ROOT` now logs `root_folder=<fs path> (uri=<tree uri>)` so the path is
+  directly usable by adb, with the raw URI kept for reference.
+
+### Version (`app/build.gradle`)
+- `versionCode` 3000 → 3001; `versionName` `0.3.0` → `0.3.1`.
+
+---
+
 ## 2026-07-02 — Rebrand to `vcat-d`, version `0.3.0`
 
 **Theme:** Rename the app to `vcat-d` everywhere it is externally visible, and rev the

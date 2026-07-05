@@ -63,7 +63,8 @@ public class CommandReceiver extends BroadcastReceiver {
         if (broadcastLogHttp.equals(intent.getAction())) {
             HttpServer.logStatus(this.viewModel.appIpAddr, this.viewModel.getHttpPort());
         } else if (broadcastLogRoot.equals(intent.getAction())) {
-            Log.i(TAG, "root_folder=" + StorageManager.getRootUri());
+            Log.i(TAG, "root_folder=" + StorageManager.getRootFsPath()
+                    + " (uri=" + StorageManager.getRootUri() + ")");
         }
     }
 }

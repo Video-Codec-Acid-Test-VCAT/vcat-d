@@ -34,6 +34,8 @@ package com.roncatech.vcat.tools;
 
 import android.content.Context;
 import android.net.Uri;
+import android.provider.DocumentsContract;
+import android.text.TextUtils;
 import android.util.Log;
 
 import androidx.annotation.Nullable;
@@ -93,6 +95,47 @@ public class StorageManager {
     @Nullable
     public static Uri getRootUri() {
         return sRootTreeUri;
+    }
+
+    /**
+     * Best-effort conversion of the SAF root tree URI to an absolute filesystem path that
+     * tools like {@code adb pull} / {@code adb shell ls} can use. SAF only hands us a
+     * {@code content://} tree URI, but for the common {@code externalstorage} provider the
+     * tree document id is {@code <volume>:<relative/path>}, which maps directly onto a real
+     * path. Returns {@code null} if no root is set or the volume can't be resolved.
+     */
+    @Nullable
+    public static String getRootFsPath() {
+        if (sRootTreeUri == null) return null;
+        String docId;
+        try {
+            docId = DocumentsContract.getTreeDocumentId(sRootTreeUri);
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+        if (docId == null) return null;
+
+        String volume;
+        String relPath;
+        int colon = docId.indexOf(':');
+        if (colon >= 0) {
+            volume = docId.substring(0, colon);
+            relPath = docId.substring(colon + 1);
+        } else {
+            volume = docId;
+            relPath = "";
+        }
+
+        String base;
+        if ("primary".equalsIgnoreCase(volume)) {
+            // /sdcard is the well-known symlink to primary shared storage and is the form
+            // most convenient for adb pull / adb shell ls.
+            base = "/sdcard";
+        } else {
+            // Removable/secondary volumes are mounted under /storage/<volumeId>.
+            base = "/storage/" + volume;
+        }
+        return TextUtils.isEmpty(relPath) ? base : base + "/" + relPath;
     }
 
     /**
