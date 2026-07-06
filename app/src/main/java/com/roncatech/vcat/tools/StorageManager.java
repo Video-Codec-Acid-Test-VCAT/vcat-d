@@ -171,9 +171,9 @@ public class StorageManager {
         long maxTs = -1L;
         for (DocumentFile file : files) {
             String name = file.getName();
-            if (name == null || !name.startsWith("logs_") || !name.endsWith(".csv")) continue;
+            if (name == null || !name.startsWith("vcatd_log_") || !name.endsWith(".csv")) continue;
             try {
-                long ts = Long.parseLong(name.substring("logs_".length(), name.length() - ".csv".length()));
+                long ts = Long.parseLong(name.substring("vcatd_log_".length(), name.length() - ".csv".length()));
                 if (ts > maxTs) {
                     maxTs = ts;
                     latest = file;
@@ -184,7 +184,7 @@ public class StorageManager {
         }
 
         if (latest == null) {
-            Log.w(TAG, "No valid logs_*.csv found");
+            Log.w(TAG, "No valid vcatd_log_*.csv found");
         }
         return latest;
     }

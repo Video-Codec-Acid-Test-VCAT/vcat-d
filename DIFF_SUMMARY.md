@@ -5,6 +5,27 @@ description of what shipped so the history is not lost when the working tree mov
 
 ---
 
+## 2026-07-05 — Rename telemetry logs to `vcatd_log_`, version `0.3.2`
+
+**Theme:** Change the telemetry CSV filename prefix from `logs_` to `vcatd_log_`.
+
+### `video/FullScreenPlayerActivity.java`
+- Telemetry file now written as `vcatd_log_<unixtime>.csv` (was `logs_<unixtime>.csv`).
+
+### `ui/FragmentTestLogs.java`, `tools/StorageManager.java`
+- Log-file list filter and `findLatestLogFile()` scan now match the `vcatd_log_` prefix.
+
+### `models/TestResultsItem.java`
+- Updated the filename-format doc comment. Fixed `getTimeStamp()` to parse the timestamp
+  from the **last** `_` (the new prefix contains two underscores; the old `indexOf('_')`
+  would have failed to parse). `lastIndexOf('_')` works for both old and new names.
+
+**Note:** the list/scan filters require the `vcatd_log_` prefix, so pre-existing
+`logs_*.csv` files on device no longer appear in the Logs tab or as "latest". Clean break —
+new runs only.
+
+---
+
 ## 2026-07-05 — adb-usable root path in `ACTION_LOG_ROOT`, version `0.3.1`
 
 **Theme:** After the SAF migration, `ACTION_LOG_ROOT` logged only the `content://` tree URI

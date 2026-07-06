@@ -100,7 +100,7 @@ public class FragmentTestLogs extends Fragment {
         if (files != null) {
             for (DocumentFile f : files) {
                 String name = f.getName();
-                if (name == null || !name.startsWith("logs_") || !name.endsWith(".csv")) continue;
+                if (name == null || !name.startsWith("vcatd_log_") || !name.endsWith(".csv")) continue;
 
                 String uriString = f.getUri().toString();
                 long timeStampMS = TestResultsItem.getTimeStamp(uriString);

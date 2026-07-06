@@ -45,11 +45,11 @@ public class TestResultsItem {
 
     /**
      * Extracts the Unix timestamp from the file path or content:// URI string.
-     * The file name format is "logs_<unixtime>.csv".
+     * The file name format is "vcatd_log_<unixtime>.csv".
      */
     public static long getTimeStamp(String filePath){
         String name = getFileName(filePath);
-        int start = name.indexOf('_') + 1;
+        int start = name.lastIndexOf('_') + 1;
         int end = name.lastIndexOf('.');
         if (start <= 0 || end < 0 || start >= end) return -1;
         try {

@@ -461,7 +461,7 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
 
         // setup telemetry file
         long startTime = System.currentTimeMillis();
-        String telemetryFileName = "logs_" + startTime + ".csv";
+        String telemetryFileName = "vcatd_log_" + startTime + ".csv";
 
         this.tl = new TelemetryLogger(this, telemetryFileName);
 
