@@ -5,6 +5,31 @@ description of what shipped so the history is not lost when the working tree mov
 
 ---
 
+## 2026-07-09 — Fix `cpu.usage.total` (compute from `/proc/stat`), version `0.3.3`
+
+**Theme:** `cpu.usage.total` always logged ~0. Replace the per-app CPU-vs-wallclock metric
+with a system-wide utilization computed from `/proc/stat`, identical to vcat-web's
+`get_cpu_stats()`.
+
+### `telemetry/TelemetryLogger.java`
+- Removed the old `CpuStats` singleton (based on `Process.getElapsedCpuTime()` with a baseline
+  primed at construction — a root cause of the ~0 readings).
+- Added `CpuUsageSampler`: reads the aggregate `cpu` line of `/proc/stat`, retains the
+  previous read as an instance field, and computes usage as a delta across one telemetry
+  interval:
+  - `deltaTotal = sum(all columns now) − sum(all columns prev)`
+  - `deltaIdle = idle_now − idle_prev` (idle = the 4th value column; **iowait excluded**)
+  - `usage = 100 * (1 − deltaIdle / deltaTotal)`, rounded to 1 decimal, guarded on
+    `deltaTotal > 0`.
+  - 0–100 as a fraction of total capacity across all cores (the `cpu` line already sums the
+    cores — no division by core count). First sample emits 0.0.
+- Sampled once per row in `logTelemetryRow()`; `cpu.usage.total` now formatted `%.1f`.
+
+**Per-core intentionally omitted:** an unprivileged app can't reliably read the per-core
+`cpuN` lines without root, so only the aggregate is reported.
+
+---
+
 ## 2026-07-05 — Rename telemetry logs to `vcatd_log_`, version `0.3.2`
 
 **Theme:** Change the telemetry CSV filename prefix from `logs_` to `vcatd_log_`.

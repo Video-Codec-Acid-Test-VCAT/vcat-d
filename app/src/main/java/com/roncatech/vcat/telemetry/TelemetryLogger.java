@@ -55,6 +55,7 @@ import com.roncatech.vcat.tools.StorageManager;
 
 import java.io.BufferedReader;
 import java.io.File;
+import java.io.FileReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
@@ -108,6 +109,7 @@ public class TelemetryLogger {
     private final String csvFileName;
     private DocumentFile csvDocFile;
     private final int numCpus;
+    private final CpuUsageSampler cpuSampler = new CpuUsageSampler();
 
     public static class VideoInfo{
         public final String fileName;
@@ -214,8 +216,7 @@ public class TelemetryLogger {
 
         for (Column col : Column.values()) {
             if (col == Column.CPU_FREQ) {
-                String[] freqs = emptyFreqs(cpuCount);
-                row.put(col, freqs);
+                row.put(col, emptyFreqs(cpuCount));
             } else {
                 // default empty string for all other columns
                 row.put(col, "");
@@ -279,7 +280,10 @@ public class TelemetryLogger {
         row.put(Column.VIDEO_CODEC_NAME, vi.codec);
         row.put(Column.VIDEO_FRAMERATE, Float.toString(vi.fps));
 
-        row.put(Column.CPU_USAGE_TOTAL, String.format(Locale.US, "%.3f", TelemetryLogger.CpuStats.getInstance().getAppCpuUsage()));
+        // System-wide CPU utilization (0–100%) from /proc/stat, sampled once per telemetry
+        // interval so each row's delta spans exactly one interval. First row emits 0.0.
+        double cpuUsageTotal = this.cpuSampler.sample();
+        row.put(Column.CPU_USAGE_TOTAL, String.format(Locale.US, "%.1f", cpuUsageTotal));
         row.put(Column.BATTERY_LEVEL, batLevelPcnt.toString());
 
         Long vcatMemUsed = AppMemoryInfo.getBytes(ct);
@@ -390,54 +394,84 @@ public class TelemetryLogger {
         return cpuCount;
     }
 
-    public static class CpuStats {
-        private static final String TAG = "CpuStats";
+    /**
+     * System-wide CPU utilization sampler backed by {@code /proc/stat}, computed identically to
+     * vcat-web's {@code get_cpu_stats()}.
+     *
+     * <p>The aggregate {@code cpu} line already sums every core; its columns are
+     * {@code user nice system idle iowait irq softirq steal guest guest_nice}. A percentage
+     * requires two samples one interval apart, so we retain the previous read and compute a
+     * delta against it:
+     * <pre>
+     *   deltaTotal = sum(all columns now) − sum(all columns prev)
+     *   deltaIdle  = idle_now − idle_prev            (idle = the 4th value column; iowait excluded)
+     *   usage      = 100 * (1 − deltaIdle / deltaTotal)   (rounded to 1 decimal)
+     * </pre>
+     * The result is 0–100 as a fraction of total capacity across all cores (no division by core
+     * count). The first sample — and any non-positive delta — yields 0.0.
+     *
+     * <p>Per-core values are intentionally not collected: an unprivileged app cannot reliably
+     * read the per-core {@code cpuN} lines without root, so only the aggregate is reported.
+     */
+    public static class CpuUsageSampler {
+        private static final String TAG = "CpuUsageSampler";
 
-        // keep your last timestamps here
-        private long lastAppCpuTimeMs = -1;
-        private long lastWallTimeMs   = -1;
+        // 0-based index (within a cpu line's value columns) of the idle field. iowait is 4.
+        private static final int IDLE_COLUMN = 3;
+
+        /** Previous read of the aggregate cpu line: {sumOfAllColumns, idle}. */
+        private long[] prev = null;
 
         /**
-         * Private constructor; primes the baseline.
+         * Read {@code /proc/stat} and compute aggregate CPU utilization (0–100%) since the
+         * previous call. Should be invoked once per telemetry interval so each delta spans
+         * exactly one interval. Returns 0.0 on the first sample.
          */
-        private CpuStats() {
-            getAppCpuUsage();
-        }
-
-        /**
-         * Holder class idiom for lazy, thread-safe singleton
-         */
-        private static class Holder {
-            private static final CpuStats INSTANCE = new CpuStats();
-        }
-
-        /**
-         * Get the one-and-only instance
-         */
-        public static CpuStats getInstance() {
-            return Holder.INSTANCE;
-        }
-
-        /**
-         * Compute app‐CPU vs. wall‐clock since last call.
-         * Marked synchronized if you might call from multiple threads.
-         */
-        public synchronized float getAppCpuUsage() {
-            long nowCpu  = android.os.Process.getElapsedCpuTime();
-            long nowWall = android.os.SystemClock.elapsedRealtime();
-
-            float usage = 0f;
-            if (lastAppCpuTimeMs >= 0 && lastWallTimeMs >= 0) {
-                long deltaCpu  = nowCpu  - lastAppCpuTimeMs;
-                long deltaWall = nowWall - lastWallTimeMs;
-                if (deltaWall > 0) {
-                    usage = deltaCpu / (float) deltaWall;
+        public synchronized double sample() {
+            long[] cur = readAggregateCpu();
+            double usage = 0.0;
+            if (prev != null && cur != null) {
+                long deltaTotal = cur[0] - prev[0];
+                long deltaIdle  = cur[1] - prev[1];
+                if (deltaTotal > 0) {
+                    usage = 100.0 * (1.0 - (double) deltaIdle / (double) deltaTotal);
+                    usage = Math.round(usage * 10.0) / 10.0;
                 }
             }
-
-            lastAppCpuTimeMs = nowCpu;
-            lastWallTimeMs   = nowWall;
+            if (cur != null) {
+                prev = cur;
+            }
             return usage;
+        }
+
+        /** Parse the aggregate {@code cpu} line of /proc/stat into {sumOfAllColumns, idle}. */
+        private static long[] readAggregateCpu() {
+            try (BufferedReader br = new BufferedReader(new FileReader("/proc/stat"))) {
+                String line;
+                while ((line = br.readLine()) != null) {
+                    // The aggregate line is exactly "cpu" (per-core lines are "cpu0", "cpu1", …).
+                    if (!line.startsWith("cpu ") && !line.startsWith("cpu\t")) continue;
+                    String[] parts = line.trim().split("\\s+");
+                    if (parts.length < 2) return null;
+                    long sum = 0L;
+                    long idle = 0L;
+                    // parts[0] is the "cpu" label; value columns start at parts[1].
+                    for (int i = 1; i < parts.length; i++) {
+                        long v;
+                        try {
+                            v = Long.parseLong(parts[i]);
+                        } catch (NumberFormatException e) {
+                            continue;
+                        }
+                        sum += v;
+                        if (i - 1 == IDLE_COLUMN) idle = v;
+                    }
+                    return new long[]{sum, idle};
+                }
+            } catch (IOException e) {
+                Log.e(TAG, "Failed to read /proc/stat: " + e.getLocalizedMessage());
+            }
+            return null;
         }
     }
 
