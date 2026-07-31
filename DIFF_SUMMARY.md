@@ -45,6 +45,24 @@ from artifactory.
   registration from libvcat's internal dav1d), native `.so` loads cleanly, and AV1 playback works.
 - Note: `decoder-plugins/*.aar` are git-ignored, so the plugin binary is not part of this commit.
 
+### Docs
+- `README.md`: removed all `libvcat`/`libvcatd` references; the Components table now lists the
+  external plugins (`vcatd-dav1d-plugin`, `vcatd-vvdec-plugin`) instead of libvcatd, AV1 is
+  described as provided by the dav1d plugin, and the build section ("Building vcat-d with decoder
+  plugins") covers building + dropping in the dav1d (prebuilt) and vvdec (from-source) `.aar`s.
+
+### Companion repo (separate git repo, not in this commit)
+- `../vcatd-dav1d-plugin` — the external AV1 plugin: repackaged out of the dead
+  `com.roncatech.libvcat.*` namespace into `com.roncatech.vcatd_dav1d_decoder` (JNI symbols
+  re-mangled to match), plus repo setup (dav1d `LICENSE` + BSD-2-Clause notice, `.gitignore`,
+  README, `vcat-d` license headers on all files).
+
+### Deferred follow-up
+- Play Protect / OEM scanners flag the plugin loader's runtime dynamic-code loading
+  (`DexClassLoader` + `System.load()` from the app data dir). Planned mitigation (not yet done):
+  load plugin dex via `InMemoryDexClassLoader` and ship plugin `.so`s in the host APK's
+  `jniLibs` so nothing executes from a writable data-dir path.
+
 ---
 
 ## 2026-07-09 — Fix `cpu.usage.total` (compute from `/proc/stat`), version `0.3.3`

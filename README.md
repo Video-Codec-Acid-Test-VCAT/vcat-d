@@ -18,8 +18,8 @@ It is designed to evaluate real-world decode performance and platform stability 
 - **Supports all system video decoders**  
   – hardware-accelerated H.264, HEVC, VP9, AV1 (where available)
 
-- **Bundled dav1d software decoder for AV1**  
-  – raises a consistent performance baseline across devices
+- **AV1 software decoding via the dav1d plugin**  
+  – a consistent performance baseline across devices, delivered as an external decoder plugin ([vcatd-dav1d-plugin](https://github.com/Video-Codec-Acid-Test-VCAT/vcatd-dav1d-plugin))
 
 - **Long-running decode workloads**  
   – e.g., battery drain testing, thermal behavior, performance throttling studies
@@ -30,7 +30,7 @@ It is designed to evaluate real-world decode performance and platform stability 
 - **Open Source — GPL-3.0-or-later**  
   – free to use, modify, and improve
 - **Clean decoder plugin model**  
-  – Special handling for decoders not supported by ExoPlayer: [vvdec example](https://github.com/Video-Codec-Acid-Test-VCAT/vcatd-vvdec-plugin)
+  – All decoders are external `.aar` plugins: [dav1d (AV1)](https://github.com/Video-Codec-Acid-Test-VCAT/vcatd-dav1d-plugin), [vvdec (VVC/H.266)](https://github.com/Video-Codec-Acid-Test-VCAT/vcatd-vvdec-plugin)
 
 ## Vision
 
@@ -62,13 +62,17 @@ The short version:
 ## Components
 | Component | Role |
 |-----------|------|
-| **vcat-d (app)** | Benchmarking UI, telemetry collection, test orchestration, reporting |
-| **[libvcatd](https://github.com/Video-Codec-Acid-Test-VCAT/libvcatd)** | Core media stack: decoder adapters (e.g., dav1d AV1, optional vvdec VVC), parsers/extractors, JNI/native glue, capability probes |
-|[vcatd-vvdec-plugin](https://github.com/Video-Codec-Acid-Test-VCAT/vcatd-vvdec-plugin)| External vvdec plugin for vcat-d|
+| **vcat-d (app)** | Benchmarking UI, telemetry, test orchestration, reporting, container parsing (MP4), and the decoder-plugin loader/registry |
+| **[vcatd-dav1d-plugin](https://github.com/Video-Codec-Acid-Test-VCAT/vcatd-dav1d-plugin)** | External AV1 software decoder plugin (dav1d) |
+| **[vcatd-vvdec-plugin](https://github.com/Video-Codec-Acid-Test-VCAT/vcatd-vvdec-plugin)** | External VVC/H.266 software decoder plugin (vvdec) |
 
-This separation keeps the app lightweight and lets media-layer work (decoders, parsing, performance hooks) evolve independently from UI and workflow code.
+Decoders are delivered as external `.aar` plugins dropped into `decoder-plugins/`. This keeps the app lightweight and lets each decoder evolve independently from the UI and workflow code.
 
-## Building vcat-d with VVC (H.266) Plugin
+## Building vcat-d with decoder plugins
+
+Decoders are external `.aar` plugins. Build the plugin(s) you need, drop the `.aar` into
+`vcat-d/decoder-plugins/`, then build the app — the `copyDecoderPluginsToAssets` task bundles
+every `.aar` in that folder automatically.
 
 ### Prerequisites
 
@@ -76,36 +80,41 @@ This separation keeps the app lightweight and lets media-layer work (decoders, p
 - JDK 17+
 - NDK 27.0.12077973 (install via Android Studio SDK Manager)
 - CMake 3.22+ and Ninja (install via SDK Manager)
-- Python 3.8+ and Meson ≥ 1.2 (`pip install meson`)
+- For the vvdec plugin only: Python 3.8+ and Meson ≥ 1.2 (`pip install meson`) — it builds vvdec from source
 
 ### Repositories
 
 Clone into the same parent directory:
 ```bash
-git clone -b plugin-decoder https://github.com/Video-Codec-Acid-Test-VCAT/vcat-d.git
-git clone https://github.com/Video-Codec-Acid-Test-VCAT/vcatd-vvdec-plugin.git
+git clone https://github.com/Video-Codec-Acid-Test-VCAT/vcat-d.git
+git clone https://github.com/Video-Codec-Acid-Test-VCAT/vcatd-dav1d-plugin.git
+git clone https://github.com/Video-Codec-Acid-Test-VCAT/vcatd-vvdec-plugin.git   # optional (VVC/H.266)
 ```
 
-### Build
+### AV1 (dav1d) plugin
 
-1. **Build the VVC decoder plugin**
+```bash
+cd vcatd-dav1d-plugin
+./gradlew :vcatd-dav1d-plugin:dist
+cp app/build/outputs/dist/vcatd-dav1d-plugin.aar ../vcat-d/decoder-plugins/
+```
+dav1d links from prebuilt static libraries bundled in the plugin, so this build is fast.
+
+### VVC / H.266 (vvdec) plugin — optional
+
 ```bash
 cd vcatd-vvdec-plugin
 ./gradlew :app:dist
-```
-
-2. **Copy the plugin into vcat-d**
-```bash
 cp app/build/outputs/dist/vcatd-vvdec-plugin.aar ../vcat-d/decoder-plugins/
 ```
+> **Note:** the vvdec plugin builds vvdec (Fraunhofer H.266 decoder) from source — the first build takes ~10–15 minutes per ABI. Subsequent builds are cached.
 
-3. **Build the vcat-d app**
+### Build the app
+
 ```bash
 cd ../vcat-d
 ./gradlew :app:assembleRelease
 ```
-
-> **Note:** Step 1 builds vvdec from source (Fraunhofer H.266 decoder). The first build takes ~10–15 minutes per ABI to compile. Subsequent builds are cached and fast.
 
 ## Project Status
 
@@ -119,7 +128,7 @@ vcat-d is currently in active development and work is ongoing.
 
 * Continuous UI improvements
 * Additional test vector libraries
-* H264, H265, VP9, and VVC bundled decoders (in libvcatd).
+* Additional decoder plugins and container-format support (IVF, MKV) beyond the current MP4 + AV1/VVC.
 * vcat-d-Neg mode to use VLC as the video player to prevent unscrupulous vendors from gaming their system when vcat-d is running.
 
 Please contribute!
@@ -134,7 +143,7 @@ Feedback is welcome — issues and PRs encouraged!
 
 ### Bugs
 
-* Open issues on vcat-d or libvcatd github projects. If unsure which to use, use vcat-d.
+* Open issues on the vcat-d GitHub project (or the relevant decoder-plugin project). If unsure, use vcat-d.
 * Include: **steps to reproduce**, **expected vs actual behavior**, **timestamp & timezone**, **browser/app version**, and **screenshots**.
 
 ## Disclaimer of Suitability
@@ -147,8 +156,8 @@ TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, IN NO EVENT WILL RONCATECH LL
 RoncaTech does not provide any remedy beyond the right to discontinue use of the software.
 
 ## Patent Notice (No Patent Rights Granted)
-vcat-d and libvcatd are distributed under GPL-3.0-or-later. Nothing in this README, the source code, or the license grants you any rights under third-party patents, including without limitation patents essential to implement or use media codecs and container formats (e.g., AVC/H.264, HEVC/H.265, VVC/H.266, MPEG-2, AAC, etc.).  
-- You are solely responsible for determining whether your use, distribution, or deployment of vcat-d/libvcatd requires patent licenses from any third party (including patent pools or individual patent holders) and for obtaining any such licenses.  
+vcat-d and its decoder plugins are distributed under GPL-3.0-or-later. Nothing in this README, the source code, or the license grants you any rights under third-party patents, including without limitation patents essential to implement or use media codecs and container formats (e.g., AVC/H.264, HEVC/H.265, VVC/H.266, AV1, MPEG-2, AAC, etc.).  
+- You are solely responsible for determining whether your use, distribution, or deployment of vcat-d requires patent licenses from any third party (including patent pools or individual patent holders) and for obtaining any such licenses.  
 - Contributions to this project may include a limited patent grant from contributors as specified by GPL-3.0-or-later, but no additional patent rights are provided, and no rights are granted on behalf of any third party.  
 - Use of bundled or integrated decoders/parsers does not imply or provide patent clearance for any jurisdiction. Your compliance with all applicable intellectual property laws remains your responsibility.
 
