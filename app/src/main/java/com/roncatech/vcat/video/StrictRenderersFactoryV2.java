@@ -14,7 +14,7 @@ import com.google.android.exoplayer2.mediacodec.MediaCodecSelector;
 import com.google.android.exoplayer2.mediacodec.MediaCodecUtil;
 import com.google.android.exoplayer2.video.MediaCodecVideoRenderer;
 import com.google.android.exoplayer2.video.VideoRendererEventListener;
-import com.roncatech.libvcat.decoder.VcatDecoderManager;
+import com.roncatech.vcat.decoder_plugin.VcatDecoderManager;
 import com.roncatech.vcat.decoder_plugin_api.VcatDecoderPlugin;
 import com.roncatech.vcat.models.SharedViewModel;
 

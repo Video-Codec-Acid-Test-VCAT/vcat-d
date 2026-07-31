@@ -88,7 +88,7 @@ import com.roncatech.vcat.tools.UriUtils;
 import com.roncatech.vcat.tools.VideoDecoderEnumerator;
 import com.roncatech.vcat.tools.XspfParser;
 import com.roncatech.vcat.R;
-import com.roncatech.libvcat.extractor.mp4.VcatMp4Extractor;
+import com.roncatech.vcat.parsers.VcatMp4Extractor;
 
 import java.util.List;
 import java.util.Locale;

@@ -5,6 +5,48 @@ description of what shipped so the history is not lost when the working tree mov
 
 ---
 
+## 2026-07-31 — Codec plugin refactor: externalize dav1d, migrate MP4 parser into host, drop libvcat (branch `codec_plugin_refactor`)
+
+**Theme:** Begin dismantling the `libvcat` binary dependency. Make all decoders external `.aar`
+plugins and move container parsing + the decoder registry into the vcat-d host, so new vcat-d no
+longer depends on `libvcat` at all. (Roadmap Steps 1–2; see `analysis/devplan.md`.)
+
+**Scope in this repo (host):** this commit is the host-side change. The companion decoder plugin
+lives in the sibling repo `../vcatd-dav1d-plugin` (committed separately); `../libvcat` is being
+emptied locally and is never republished — legacy vcat-d keeps pulling the frozen `libvcat:0.0.3.11`
+from artifactory.
+
+### Step 1 — dav1d externalized as a plugin
+- dav1d is no longer bundled/registered inside libvcat. It now ships as an external decoder
+  `.aar` (`vcatd-dav1d-plugin`, package `com.roncatech.vcatd_dav1d_decoder`, native lib
+  `libvcat_dav1d_jni.so`, MIME `video/av01`, plugin id `vcat.dav1d`), dropped into
+  `decoder-plugins/` and bundled by the existing `copyDecoderPluginsToAssets` task. No host code
+  change was needed for it to load/register.
+
+### Step 2 — MP4 parser + decoder registry migrated into the host
+- **New package `com.roncatech.vcat.parsers`** — the MP4 parser (12 classes: `VcatMp4Extractor`,
+  `AtomParsers`, `Atom`, `Sniffer`, `TrackSampleTable`, `FragmentedMp4Extractor`, `MetadataUtil`,
+  `PsshAtomUtil`, `SefReader`, `TrackFragment`, `DefaultSampleValues`, `FixedSampleSizeRechunker`)
+  migrated from `libvcat`'s `com.roncatech.libvcat.extractor.mp4`.
+- **New package `com.roncatech.vcat.decoder_plugin`** — `VcatDecoderManager` migrated from
+  `com.roncatech.libvcat.decoder`, with the `InternalDecoderLoader.loadOnce()` call removed
+  (`InternalDecoderLoader` not migrated — there are no built-in decoders anymore; all decoders are
+  external plugins).
+- **Host imports repointed** in `FullScreenPlayerActivity` (`parsers.VcatMp4Extractor`),
+  `DecoderPluginLoader`, `StrictRenderersFactoryV2`, `VideoDecoderEnumerator`
+  (`decoder_plugin.VcatDecoderManager`).
+- **`libvcat` dependency removed** from `app/build.gradle`. The migrated code compiles against the
+  host's existing deps (ExoPlayer 2.19.1 full, Guava, checker-compat-qual) — no new dependency.
+
+### Result / verification
+- Host builds with **no `libvcat` dependency**; `libvcat` is not on the runtime classpath and no
+  `com.roncatech.libvcat.*` library class appears in the installed APK's dex.
+- On-device: `DecoderPluginLoader` registers `vcat.dav1d` exactly once (no more double
+  registration from libvcat's internal dav1d), native `.so` loads cleanly, and AV1 playback works.
+- Note: `decoder-plugins/*.aar` are git-ignored, so the plugin binary is not part of this commit.
+
+---
+
 ## 2026-07-09 — Fix `cpu.usage.total` (compute from `/proc/stat`), version `0.3.3`
 
 **Theme:** `cpu.usage.total` always logged ~0. Replace the per-app CPU-vs-wallclock metric

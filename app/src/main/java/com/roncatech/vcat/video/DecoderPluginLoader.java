@@ -14,7 +14,7 @@ import androidx.annotation.Nullable;
 
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
-import com.roncatech.libvcat.decoder.VcatDecoderManager;
+import com.roncatech.vcat.decoder_plugin.VcatDecoderManager;
 import com.roncatech.vcat.decoder_plugin_api.VcatDecoderPlugin;
 
 import java.io.ByteArrayOutputStream;
