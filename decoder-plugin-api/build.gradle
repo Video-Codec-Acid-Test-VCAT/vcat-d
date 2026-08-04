@@ -31,7 +31,7 @@ plugins {
 }
 
 group   = 'com.roncatech.vcat'
-version = '1.0.1'
+version = '1.0.2'
 
 android {
     namespace 'com.roncatech.vcat.decoder_plugin_api'
@@ -64,6 +64,10 @@ dependencies {
     // Declared compileOnly: the consuming app/library provides ExoPlayer at runtime.
     compileOnly 'com.google.android.exoplayer:exoplayer-core:2.19.1'
     compileOnly 'androidx.annotation:annotation:1.7.1'
+
+    testImplementation 'junit:junit:4.13.2'
+    testImplementation 'com.google.android.exoplayer:exoplayer-core:2.19.1'
+    testImplementation 'androidx.annotation:annotation:1.7.1'
 }
 
 /* ===== Publishing ===== */

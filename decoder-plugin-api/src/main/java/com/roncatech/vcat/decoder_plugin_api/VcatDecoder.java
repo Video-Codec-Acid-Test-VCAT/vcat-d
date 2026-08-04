@@ -32,18 +32,45 @@
 
 package com.roncatech.vcat.decoder_plugin_api;
 
-/**
- * Legacy MP4 {@code stsd} sample-entry parser.
- *
- * @deprecated Use {@link Mp4DecoderPlugin} (the non-deprecated MP4 {@link ContainerParser}).
- *     Retained only so existing plugins that implement this interface — and use its
- *     {@link #mimeType()} accessor — continue to compile and run. It now extends
- *     {@code Mp4DecoderPlugin}, so such plugins are exposed as {@code Mp4DecoderPlugin} without
- *     any deprecated type appearing in {@code getSupportedContainerParsers()}.
- */
-@Deprecated
-public interface NonStdDecoderStsdParser extends Mp4DecoderPlugin {
+import android.content.Context;
+import android.os.Handler;
 
-    /** Legacy codec-MIME accessor; superseded by {@link VcatDecoder#getMimeType()}. */
-    String mimeType();
+import com.google.android.exoplayer2.Renderer;
+import com.google.android.exoplayer2.decoder.DecoderException;
+import com.google.android.exoplayer2.video.VideoRendererEventListener;
+
+import java.util.Collections;
+import java.util.List;
+
+/**
+ * Android SPI for a single-codec decoder. Supersedes {@link VcatDecoderPlugin}.
+ *
+ * <p>A decoder declares its codec once ({@link #getMimeType()}) and the container parsers it can
+ * be driven from ({@link #getSupportedContainerParsers()}), decoupling the codec from the
+ * delivery container (MP4, IVF, …).
+ */
+public interface VcatDecoder {
+
+    String getId();
+    String getDisplayName();
+    String getVersion();
+    String getMimeType();
+
+    List<ContainerParser> getSupportedContainerParsers();
+
+    Renderer createVideoRenderer(
+            Context context,
+            long allowedJoiningTimeMs,
+            Handler eventHandler,
+            VideoRendererEventListener eventListener,
+            int threads
+    ) throws DecoderException;
+
+    default boolean supports(String mime) {
+        return getMimeType().equals(mime);
+    }
+
+    default List<String> getExtended(String key) {
+        return Collections.emptyList();
+    }
 }

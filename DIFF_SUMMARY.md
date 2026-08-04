@@ -5,6 +5,55 @@ description of what shipped so the history is not lost when the working tree mov
 
 ---
 
+## 2026-08-04 — decoder-plugin-api refactor: `VcatDecoder` SPI + container parsers (branch `codec_plugin_refactor`)
+
+**Theme:** Introduce a container-agnostic decoder SPI (roadmap Step 3), decoupling codec from
+delivery container (MP4/IVF). Existing plugins keep compiling and running unchanged. API-only —
+no host loader/registry wiring yet (that is a later step). `decoder-plugin-api` bumped
+`1.0.1 → 1.0.2` (published to Maven Local; not Central).
+
+### New interfaces (`decoder-plugin-api`)
+- **`VcatDecoder`** — new single-codec SPI superseding `VcatDecoderPlugin`. Declares
+  `getSupportedContainerParsers()` (the containers a decoder can be driven from); no
+  `getSupportedProfiles()` (deferred).
+- **`ContainerParser`** — common supertype for the parser list; one method `getContainerMimeType()`
+  (defaulted by the sub-interfaces). Codec MIME is the decoder's `getMimeType()`, not duplicated.
+- **`Mp4DecoderPlugin`** — non-deprecated MP4 `stsd` parser (`sampleEntry4ccCode`,
+  `codecConfiguration4ccCode`, `parseStsd`); defaults `getContainerMimeType()="video/mp4"`.
+- **`IvfDecoderPlugin`** — IVF parser (`ivfFourCc`, `parseIvfStream`); defaults
+  `getContainerMimeType()="video/ivf"`. Color is parsed from the bitstream sequence header;
+  "unspecified" → left `Format.NO_VALUE` (no BT.709 mandate).
+- **`IvfFileHeader`** — parses the 32-byte IVF header (container metadata only; never passed to
+  the decoder).
+
+### Deprecations / bridges (backward-compatible)
+- `VcatDecoderPlugin` → `@Deprecated`, now `extends VcatDecoder`, with a default
+  `getSupportedContainerParsers()` that exposes a legacy plugin (if it is a `Mp4DecoderPlugin`)
+  as a non-deprecated `ContainerParser`.
+- `NonStdDecoderStsdParser` → `@Deprecated`, now `extends Mp4DecoderPlugin` (keeps only the legacy
+  `mimeType()` accessor). Existing plugins implementing it need **zero** new methods —
+  `getContainerMimeType()` is inherited as a default.
+- `VideoConfiguration` — unchanged functionally (no BT.709 constants; Builder color defaults stay
+  `Format.NO_VALUE`); header normalized to `vcat-d`.
+
+### Tests
+- New `DecoderPluginApiTest` (5 tests, all passing): legacy plugin needs no new methods; the
+  legacy bridge returns a non-deprecated `Mp4DecoderPlugin`; a new `VcatDecoder + IvfDecoderPlugin`
+  compiles and touches no deprecated type; `IvfFileHeader.parse` extracts fields correctly. Added
+  JUnit test deps to the module.
+
+### Verification
+- Module unit tests pass; host `:app:assembleDebug` compiles against the modified module (via
+  `project(':decoder-plugin-api')`). On-device: all three plugins (`vcat.dav1d`, `vcat.damo266d`,
+  `vcat.vvdec`) load/register, no `UnsatisfiedLinkError`. The dav1d plugin, rebuilt against api
+  `1.0.2`, now compiles with a deprecation notice on `VcatDecoderPlugin` (still functional).
+
+### Deferred (not in this commit)
+- Migrate plugins + host loader/registry from `VcatDecoderPlugin` to `VcatDecoder`, and add the
+  IVF `Extractor` (Step 4). Until then the new SPI is inert in the host.
+
+---
+
 ## 2026-07-31 — Codec plugin refactor: externalize dav1d, migrate MP4 parser into host, drop libvcat (branch `codec_plugin_refactor`)
 
 **Theme:** Begin dismantling the `libvcat` binary dependency. Make all decoders external `.aar`

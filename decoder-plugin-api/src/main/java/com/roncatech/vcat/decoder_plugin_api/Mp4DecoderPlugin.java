@@ -33,17 +33,27 @@
 package com.roncatech.vcat.decoder_plugin_api;
 
 /**
- * Legacy MP4 {@code stsd} sample-entry parser.
+ * ContainerParser for non-standard codecs carried in MP4, parsed from the {@code stsd}
+ * sample entry. MP4 analog of {@link IvfDecoderPlugin}.
  *
- * @deprecated Use {@link Mp4DecoderPlugin} (the non-deprecated MP4 {@link ContainerParser}).
- *     Retained only so existing plugins that implement this interface — and use its
- *     {@link #mimeType()} accessor — continue to compile and run. It now extends
- *     {@code Mp4DecoderPlugin}, so such plugins are exposed as {@code Mp4DecoderPlugin} without
- *     any deprecated type appearing in {@code getSupportedContainerParsers()}.
+ * <p>The MP4 parser matches a track's sample-entry FourCC against registered parsers'
+ * {@link #sampleEntry4ccCode()} values, then calls {@link #parseStsd(byte[])} to produce a
+ * {@link VideoConfiguration} for the decoder.
+ *
+ * <p>{@link #getContainerMimeType()} defaults to {@code "video/mp4"}; the codec MIME is the
+ * owning decoder's {@link VcatDecoder#getMimeType()} (not duplicated here).
  */
-@Deprecated
-public interface NonStdDecoderStsdParser extends Mp4DecoderPlugin {
+public interface Mp4DecoderPlugin extends ContainerParser {
 
-    /** Legacy codec-MIME accessor; superseded by {@link VcatDecoder#getMimeType()}. */
-    String mimeType();
+    @Override
+    default String getContainerMimeType() { return "video/mp4"; }
+
+    /** FourCC of the MP4 sample entry this parser handles (e.g. {@code "vvc1"}). */
+    int sampleEntry4ccCode();
+
+    /** FourCC of the codec configuration box (e.g. {@code "vvcC"}). */
+    int codecConfiguration4ccCode();
+
+    /** Parse the {@code stsd} sample-entry bytes into a {@link VideoConfiguration}. */
+    VideoConfiguration parseStsd(byte[] data);
 }

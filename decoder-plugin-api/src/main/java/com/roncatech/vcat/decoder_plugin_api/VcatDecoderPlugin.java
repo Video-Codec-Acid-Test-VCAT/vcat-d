@@ -1,30 +1,30 @@
 /*
- * VCAT (Video Codec Acid Test)
+ * vcat-d (Video Codec Acid Test)
  *
- * SPDX-FileCopyrightText: Copyright (C) 2020-2025 VCAT authors and RoncaTech
+ * SPDX-FileCopyrightText: Copyright (C) 2020-2025 vcat-d authors and RoncaTech
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
- * This file is part of VCAT.
+ * This file is part of vcat-d.
  *
- * VCAT is free software: you can redistribute it and/or modify it
+ * vcat-d is free software: you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
  *
- * VCAT is distributed in the hope that it will be useful,
+ * vcat-d is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with VCAT. If not, see <https://www.gnu.org/licenses/gpl-3.0.html>.
+ * along with vcat-d. If not, see <https://www.gnu.org/licenses/gpl-3.0.html>.
  *
  * For proprietary/commercial use cases, a written GPL-3.0 waiver or
  * a separate commercial license is required from RoncaTech LLC.
  *
- * All VCAT artwork is owned exclusively by RoncaTech LLC. Use of VCAT logos
+ * All vcat-d artwork is owned exclusively by RoncaTech LLC. Use of vcat-d logos
  * and artwork is permitted for the purpose of discussing, documenting,
- * or promoting VCAT itself. Any other use requires prior written permission
+ * or promoting vcat-d itself. Any other use requires prior written permission
  * from RoncaTech LLC.
  *
  * Contact: legal@roncatech.com
@@ -42,8 +42,15 @@ import com.google.android.exoplayer2.decoder.DecoderException;
 import java.util.Collections;
 import java.util.List;
 
-/** Android SPI for single-codec decoder plugins (ExoPlayer video renderer). */
-public interface VcatDecoderPlugin {
+/**
+ * Android SPI for single-codec decoder plugins (ExoPlayer video renderer).
+ *
+ * @deprecated Superseded by {@link VcatDecoder}. Retained (extends {@code VcatDecoder}) so
+ *     existing plugins compile and run unchanged; new plugins should implement
+ *     {@link VcatDecoder} directly.
+ */
+@Deprecated
+public interface VcatDecoderPlugin extends VcatDecoder {
     String getId();               // e.g., "vvdec", "libdav1d-av1"
     String getDisplayName();      // e.g., "vvdec VVC Decoder"
     String getVersion();          // e.g., "1.0.0"
@@ -82,4 +89,17 @@ public interface VcatDecoderPlugin {
 
     /** Optional extension hook (bitDepths, tiers, hdr formats, CPU features, etc.). */
     default List<String> getExtended(String key) { return Collections.emptyList(); }
+
+    /**
+     * Bridge for the {@link VcatDecoder} SPI: a legacy plugin that also implements a
+     * {@link ContainerParser} (e.g. {@link Mp4DecoderPlugin}) exposes itself as that parser
+     * (a non-deprecated type); otherwise it advertises no container parsers.
+     */
+    @Override
+    default List<ContainerParser> getSupportedContainerParsers() {
+        if (this instanceof Mp4DecoderPlugin) {
+            return Collections.singletonList((ContainerParser) this);
+        }
+        return Collections.emptyList();
+    }
 }
