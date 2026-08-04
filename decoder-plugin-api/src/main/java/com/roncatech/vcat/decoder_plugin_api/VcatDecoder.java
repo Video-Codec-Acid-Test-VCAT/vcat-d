@@ -73,4 +73,13 @@ public interface VcatDecoder {
     default List<String> getExtended(String key) {
         return Collections.emptyList();
     }
+
+    /**
+     * Version of the plugin SPI this decoder targets. Decoders on the current {@code VcatDecoder}
+     * SPI report {@code "0.1.0"}; legacy decoders on {@link VcatDecoderPlugin} report {@code "0.0.1"}
+     * (see its override). Lets tooling/overlays distinguish new vs. legacy decoders at runtime.
+     */
+    default String getPluginApiVersion() {
+        return "0.1.0";
+    }
 }

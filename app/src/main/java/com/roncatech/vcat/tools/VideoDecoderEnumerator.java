@@ -39,7 +39,7 @@ import androidx.annotation.NonNull;
 
 import com.google.android.exoplayer2.mediacodec.MediaCodecUtil;
 import com.roncatech.vcat.decoder_plugin.VcatDecoderManager;
-import com.roncatech.vcat.decoder_plugin_api.VcatDecoderPlugin;
+import com.roncatech.vcat.decoder_plugin_api.VcatDecoder;
 import com.roncatech.vcat.video.StrictRenderersFactoryV2;
 
 import org.jetbrains.annotations.Contract;
@@ -102,7 +102,7 @@ public class VideoDecoderEnumerator {
     }
 
     public static String firstRegisteredDecoder(String mimeType){
-        List<VcatDecoderPlugin> decoders = VcatDecoderManager.getInstance().getDecodersForMimeType(mimeType.toString());
+        List<VcatDecoder> decoders = VcatDecoderManager.getInstance().getDecodersForMimeType(mimeType.toString());
         if(decoders.size() > 0){
             return decoders.get(0).getId();
         }
@@ -121,7 +121,7 @@ public class VideoDecoderEnumerator {
 
         List<String> decoders = new ArrayList<>();
 
-        for(VcatDecoderPlugin cur : VcatDecoderManager.getInstance().getDecodersForMimeType(mimeType.toString())){
+        for(VcatDecoder cur : VcatDecoderManager.getInstance().getDecodersForMimeType(mimeType.toString())){
             decoders.add(cur.getId());
         }
 

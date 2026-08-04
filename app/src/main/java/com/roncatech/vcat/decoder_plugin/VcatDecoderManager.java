@@ -33,7 +33,7 @@ package com.roncatech.vcat.decoder_plugin;
  */
 
 import com.roncatech.vcat.decoder_plugin_api.NonStdDecoderStsdParser;
-import com.roncatech.vcat.decoder_plugin_api.VcatDecoderPlugin;
+import com.roncatech.vcat.decoder_plugin_api.VcatDecoder;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -48,7 +48,7 @@ import java.util.concurrent.ConcurrentMap;
 public final class VcatDecoderManager {
 
     private static final VcatDecoderManager INSTANCE = new VcatDecoderManager();
-    private final ConcurrentMap<String, VcatDecoderPlugin> decoders = new ConcurrentHashMap<>();
+    private final ConcurrentMap<String, VcatDecoder> decoders = new ConcurrentHashMap<>();
 
     private VcatDecoderManager() {
     }
@@ -58,7 +58,7 @@ public final class VcatDecoderManager {
     }
 
     /** Register/replace a decoder by its ID (last registration wins). */
-    public boolean registerDecoder(VcatDecoderPlugin decoder) {
+    public boolean registerDecoder(VcatDecoder decoder) {
         Objects.requireNonNull(decoder, "decoder");
         String id = Objects.requireNonNull(decoder.getId(), "decoder.getId()");
 
@@ -70,20 +70,20 @@ public final class VcatDecoderManager {
         return false;
     }
 
-    public VcatDecoderPlugin getDecoder(String id){
+    public VcatDecoder getDecoder(String id){
         return this.decoders.getOrDefault(id, null);
     }
 
     /** Snapshot list of all registered decoders. */
-    public List<VcatDecoderPlugin> getDecoders() {
+    public List<VcatDecoder> getDecoders() {
         return Collections.unmodifiableList(new ArrayList<>(decoders.values()));
     }
 
     /** Snapshot list of all registered decoders for specified mime type. */
-    public List<VcatDecoderPlugin> getDecodersForMimeType(String mimeType) {
-        List<VcatDecoderPlugin> decodersForMimeType = new ArrayList<>();
+    public List<VcatDecoder> getDecodersForMimeType(String mimeType) {
+        List<VcatDecoder> decodersForMimeType = new ArrayList<>();
 
-        for(VcatDecoderPlugin curDecoder : decoders.values()){
+        for(VcatDecoder curDecoder : decoders.values()){
             if(curDecoder.getMimeType().equals(mimeType)){
                 decodersForMimeType.add(curDecoder);
             }
@@ -91,14 +91,14 @@ public final class VcatDecoderManager {
         return Collections.unmodifiableList(decodersForMimeType);
     }
 
-    public List<VcatDecoderPlugin> getAllDecoderse() {
+    public List<VcatDecoder> getAllDecoderse() {
         return Collections.unmodifiableList(new ArrayList<>(decoders.values()));
     }
 
     public Map<Integer, NonStdDecoderStsdParser> getNonStandardDecoders(){
         Map<Integer, NonStdDecoderStsdParser> nonStandardDecoders = new HashMap();
 
-        for(VcatDecoderPlugin curDecoder : decoders.values()){
+        for(VcatDecoder curDecoder : decoders.values()){
             if(curDecoder instanceof NonStdDecoderStsdParser){
                 NonStdDecoderStsdParser nonStd = (NonStdDecoderStsdParser) curDecoder;
                 nonStandardDecoders.put(nonStd.sampleEntry4ccCode(), nonStd);

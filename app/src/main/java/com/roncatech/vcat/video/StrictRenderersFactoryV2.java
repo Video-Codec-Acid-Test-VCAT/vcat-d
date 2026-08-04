@@ -15,7 +15,7 @@ import com.google.android.exoplayer2.mediacodec.MediaCodecUtil;
 import com.google.android.exoplayer2.video.MediaCodecVideoRenderer;
 import com.google.android.exoplayer2.video.VideoRendererEventListener;
 import com.roncatech.vcat.decoder_plugin.VcatDecoderManager;
-import com.roncatech.vcat.decoder_plugin_api.VcatDecoderPlugin;
+import com.roncatech.vcat.decoder_plugin_api.VcatDecoder;
 import com.roncatech.vcat.models.SharedViewModel;
 
 import java.util.ArrayList;
@@ -67,7 +67,7 @@ public final class StrictRenderersFactoryV2 extends DefaultRenderersFactory {
         // 1) Software plugin decoders first so they can claim their formats before MediaCodec.
         //    Enumerate all distinct MIME types from registered plugins — no hardcoded codec list.
         LinkedHashSet<String> pluginMimeTypes = new LinkedHashSet<>();
-        for (VcatDecoderPlugin p : VcatDecoderManager.getInstance().getDecoders()) {
+        for (VcatDecoder p : VcatDecoderManager.getInstance().getDecoders()) {
             pluginMimeTypes.add(p.getMimeType());
         }
         for (String mimeType : pluginMimeTypes) {
@@ -104,9 +104,9 @@ public final class StrictRenderersFactoryV2 extends DefaultRenderersFactory {
             String selectedId,
             ArrayList<Renderer> out) {
 
-        List<VcatDecoderPlugin> candidates;
+        List<VcatDecoder> candidates;
         if (selectedId != null && !selectedId.isEmpty()) {
-            VcatDecoderPlugin plugin = VcatDecoderManager.getInstance().getDecoder(selectedId);
+            VcatDecoder plugin = VcatDecoderManager.getInstance().getDecoder(selectedId);
             if (plugin == null) {
                 Log.w(TAG, "Decoder not found in registry: " + selectedId);
                 return;
@@ -120,7 +120,7 @@ public final class StrictRenderersFactoryV2 extends DefaultRenderersFactory {
             }
         }
 
-        for (VcatDecoderPlugin plugin : candidates) {
+        for (VcatDecoder plugin : candidates) {
             try {
                 out.add(plugin.createVideoRenderer(context, allowedVideoJoiningTimeMs,
                         eventHandler, eventListener,

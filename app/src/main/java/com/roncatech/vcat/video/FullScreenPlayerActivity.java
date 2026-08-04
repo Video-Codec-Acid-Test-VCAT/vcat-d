@@ -658,6 +658,19 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
 
     }
 
+    /**
+     * Plugin-SPI version reported by the decoder plugin registered for {@code mime}, so the
+     * overlay can show whether the active decoder is on the new {@code VcatDecoder} SPI
+     * ("0.1.0") or the legacy {@code VcatDecoderPlugin} SPI ("0.1"). Hardware-only codecs
+     * (no registered plugin) show "n/a".
+     */
+    private String pluginApiForMime(String mime) {
+        java.util.List<com.roncatech.vcat.decoder_plugin_api.VcatDecoder> ds =
+                com.roncatech.vcat.decoder_plugin.VcatDecoderManager.getInstance()
+                        .getDecodersForMimeType(mime);
+        return ds.isEmpty() ? "n/a (hardware)" : ds.get(0).getPluginApiVersion();
+    }
+
     private void logTelemetry(boolean endOfFile) {
 
         TelemetryLogger.VideoInfo vi = getTlVideoInfo(this.testClips.get(this.curFileIndex), this.viewModel.curTestDetails);
@@ -687,6 +700,7 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
                             "Bitrate: %s\n" +
                             "Codec: %s\n" +
                             "Decoder: %s\n" +
+                            "Plugin API: %s\n" +
                             "Framerate: %.2f fps\n"+
                             "Display: %d%%\n" +
                             "Run Mode: %s\n" +
@@ -699,6 +713,7 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
                     vi.bitrate,
                     vi.codec,
                     vi.decoderName,
+                    pluginApiForMime(vi.mimeType),
                     vi.fps,
                     this.viewModel.getRunConfig().screenBrightness,
                     this.viewModel.getRunConfig().runModeStr(),

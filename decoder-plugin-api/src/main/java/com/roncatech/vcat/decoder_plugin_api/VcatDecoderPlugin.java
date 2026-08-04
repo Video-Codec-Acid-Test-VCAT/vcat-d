@@ -90,6 +90,10 @@ public interface VcatDecoderPlugin extends VcatDecoder {
     /** Optional extension hook (bitDepths, tiers, hdr formats, CPU features, etc.). */
     default List<String> getExtended(String key) { return Collections.emptyList(); }
 
+    /** Legacy decoders report the older plugin-API version. */
+    @Override
+    default String getPluginApiVersion() { return "0.0.1"; }
+
     /**
      * Bridge for the {@link VcatDecoder} SPI: a legacy plugin that also implements a
      * {@link ContainerParser} (e.g. {@link Mp4DecoderPlugin}) exposes itself as that parser

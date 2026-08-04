@@ -5,6 +5,39 @@ description of what shipped so the history is not lost when the working tree mov
 
 ---
 
+## 2026-08-04 — Host + dav1d on `VcatDecoder`; plugin-API-version overlay (branch `codec_plugin_refactor`)
+
+**Theme:** Put a decoder onto the new `VcatDecoder` SPI end-to-end (dav1d), retype the host to
+the base SPI so it can load such decoders, and surface each decoder's SPI version in the info
+overlay so new vs. legacy decoders are visible at runtime.
+
+### Host retyped to the `VcatDecoder` base type
+- `VcatDecoderManager`, `DecoderPluginLoader` (the load-time cast), `StrictRenderersFactoryV2`,
+  and `VideoDecoderEnumerator` changed `VcatDecoderPlugin` → `VcatDecoder`. Since
+  `VcatDecoderPlugin extends VcatDecoder`, legacy plugins (vvdec, damo266d) still load unchanged,
+  and decoders on the new SPI (dav1d) now load too. `getNonStandardDecoders()` still uses
+  `NonStdDecoderStsdParser` for MP4 `stsd` routing.
+
+### Plugin-API version reporting
+- `decoder-plugin-api`: added `VcatDecoder.getPluginApiVersion()` (default `"0.1.0"`);
+  `VcatDecoderPlugin` overrides it to `"0.0.1"`. Resolves at runtime from the host's api module
+  (plugins share the host's interfaces via the parent classloader), so no api republish or plugin
+  rebuild is required for the value to take effect.
+- `FullScreenPlayerActivity` info overlay: new **`Plugin API`** line under `Decoder`, showing the
+  API version of the plugin registered for the clip's MIME (`n/a (hardware)` when none). Lets you
+  see new-SPI decoders (`0.1.0`, e.g. dav1d) vs. legacy ones (`0.0.1`, e.g. vvdec/damo266d).
+
+### Verification
+- Host builds; on-device all three plugins register and load: `vcat.dav1d` (now via `VcatDecoder`,
+  reports `0.1.0`), `vcat.vvdec` + `vcat.damo266d` (legacy `VcatDecoderPlugin`, report `0.0.1`).
+  No `ClassCast`/`UnsatisfiedLinkError`.
+
+### Companion repo
+- The dav1d plugin's migration to `VcatDecoder` (+ its own `CHANGE_SUMMARY.md`) is committed in
+  `../vcatd-dav1d-plugin`.
+
+---
+
 ## 2026-08-04 — decoder-plugin-api refactor: `VcatDecoder` SPI + container parsers (branch `codec_plugin_refactor`)
 
 **Theme:** Introduce a container-agnostic decoder SPI (roadmap Step 3), decoupling codec from

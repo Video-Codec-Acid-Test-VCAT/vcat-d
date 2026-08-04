@@ -15,7 +15,7 @@ import androidx.annotation.Nullable;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.roncatech.vcat.decoder_plugin.VcatDecoderManager;
-import com.roncatech.vcat.decoder_plugin_api.VcatDecoderPlugin;
+import com.roncatech.vcat.decoder_plugin_api.VcatDecoder;
 
 import java.io.ByteArrayOutputStream;
 import java.util.ArrayList;
@@ -110,7 +110,7 @@ public final class DecoderPluginLoader {
             }
 
             // Load the plugin class via its own DexClassLoader; parent = app classloader
-            // so shared interfaces (VcatDecoderPlugin, etc.) resolve to the same Class objects.
+            // so shared interfaces (VcatDecoder, etc.) resolve to the same Class objects.
             // Override findLibrary() to directly probe nativeLibDir by filename — the default
             // BaseDexClassLoader search can silently miss the file on some devices/OS versions.
             DexClassLoader loader = new DexClassLoader(
@@ -149,7 +149,7 @@ public final class DecoderPluginLoader {
             }
 
             Class<?> clazz = loader.loadClass(manifest.pluginClass);
-            VcatDecoderPlugin plugin = (VcatDecoderPlugin) clazz.getDeclaredConstructor().newInstance();
+            VcatDecoder plugin = (VcatDecoder) clazz.getDeclaredConstructor().newInstance();
             boolean registered = VcatDecoderManager.getInstance().registerDecoder(plugin);
             Log.i(TAG, (registered ? "Registered" : "Already registered") + " decoder plugin: " + plugin.getId());
         } catch (Exception e) {
