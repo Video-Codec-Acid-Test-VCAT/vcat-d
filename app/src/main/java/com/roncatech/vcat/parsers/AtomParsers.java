@@ -36,7 +36,8 @@ import com.google.android.exoplayer2.extractor.ExtractorUtil;
 import com.google.android.exoplayer2.extractor.GaplessInfoHolder;
 import com.google.android.exoplayer2.extractor.mp4.Track;
 import com.google.android.exoplayer2.extractor.mp4.TrackEncryptionBox;
-import com.roncatech.vcat.decoder_plugin_api.NonStdDecoderStsdParser;
+import com.roncatech.vcat.decoder_plugin_api.Mp4DecoderPlugin;
+import com.roncatech.vcat.decoder_plugin_api.VcatDecoder;
 import com.roncatech.vcat.decoder_plugin.VcatDecoderManager;
 import com.roncatech.vcat.decoder_plugin_api.VideoConfiguration;
 import com.roncatech.vcat.parsers.Atom.LeafAtom;
@@ -1176,7 +1177,7 @@ import org.checkerframework.checker.nullness.compatqual.NullableType;
 
   private static boolean isNonStandardVideo(int sampleEntryFourCC, int videoCfgFourCC){
     if(VcatDecoderManager.getInstance().getNonStandardDecoders().containsKey(sampleEntryFourCC)){
-      NonStdDecoderStsdParser parser =VcatDecoderManager.getInstance().getNonStandardDecoders().get(sampleEntryFourCC);
+      Mp4DecoderPlugin parser =VcatDecoderManager.getInstance().getNonStandardDecoders().get(sampleEntryFourCC);
       return parser.codecConfiguration4ccCode() == videoCfgFourCC;
     }
 
@@ -1277,8 +1278,10 @@ import org.checkerframework.checker.nullness.compatqual.NullableType;
         parent.setPosition(childStartPosition);
         parent.readBytes(atomBuffer, 0, childAtomSize);
 
-        NonStdDecoderStsdParser parser =VcatDecoderManager.getInstance().getNonStandardDecoders().get(atomType);
-        mimeType = parser.mimeType();
+        Mp4DecoderPlugin parser =VcatDecoderManager.getInstance().getNonStandardDecoders().get(atomType);
+        // Codec MIME comes from the decoder (the parser is always a VcatDecoder from the registry);
+        // NonStdDecoderStsdParser.mimeType() is gone in the new SPI.
+        mimeType = ((VcatDecoder) parser).getMimeType();
 
         VideoConfiguration cfg = parser.parseStsd(atomBuffer);
         if(cfg != null) {

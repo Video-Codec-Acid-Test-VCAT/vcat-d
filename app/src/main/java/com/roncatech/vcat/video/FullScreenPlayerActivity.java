@@ -665,10 +665,23 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
      * (no registered plugin) show "n/a".
      */
     private String pluginApiForMime(String mime) {
-        java.util.List<com.roncatech.vcat.decoder_plugin_api.VcatDecoder> ds =
-                com.roncatech.vcat.decoder_plugin.VcatDecoderManager.getInstance()
-                        .getDecodersForMimeType(mime);
-        return ds.isEmpty() ? "n/a (hardware)" : ds.get(0).getPluginApiVersion();
+        com.roncatech.vcat.decoder_plugin.VcatDecoderManager mgr =
+                com.roncatech.vcat.decoder_plugin.VcatDecoderManager.getInstance();
+        com.roncatech.vcat.decoder_plugin_api.VcatDecoder d = null;
+        // Mirror StrictRenderersFactoryV2's selection so the overlay reflects the decoder actually
+        // used: a user-selected decoder id wins; otherwise the first plugin registered for the MIME
+        // (which is also what ExoPlayer picks). Avoids reporting the wrong plugin when several
+        // register for the same MIME (e.g. vvdec + damo266d both handle video/vvc).
+        String selectedId = this.viewModel.getRunConfig().decoderCfg.getDecoder(mime);
+        if (selectedId != null && !selectedId.isEmpty()) {
+            d = mgr.getDecoder(selectedId);
+        }
+        if (d == null) {
+            java.util.List<com.roncatech.vcat.decoder_plugin_api.VcatDecoder> ds =
+                    mgr.getDecodersForMimeType(mime);
+            if (!ds.isEmpty()) d = ds.get(0);
+        }
+        return d == null ? "n/a (hardware)" : d.getPluginApiVersion();
     }
 
     private void logTelemetry(boolean endOfFile) {

@@ -32,7 +32,7 @@ package com.roncatech.vcat.decoder_plugin;
  * Contact: legal@roncatech.com
  */
 
-import com.roncatech.vcat.decoder_plugin_api.NonStdDecoderStsdParser;
+import com.roncatech.vcat.decoder_plugin_api.Mp4DecoderPlugin;
 import com.roncatech.vcat.decoder_plugin_api.VcatDecoder;
 
 import java.util.ArrayList;
@@ -95,12 +95,12 @@ public final class VcatDecoderManager {
         return Collections.unmodifiableList(new ArrayList<>(decoders.values()));
     }
 
-    public Map<Integer, NonStdDecoderStsdParser> getNonStandardDecoders(){
-        Map<Integer, NonStdDecoderStsdParser> nonStandardDecoders = new HashMap();
+    public Map<Integer, Mp4DecoderPlugin> getNonStandardDecoders(){
+        Map<Integer, Mp4DecoderPlugin> nonStandardDecoders = new HashMap();
 
         for(VcatDecoder curDecoder : decoders.values()){
-            if(curDecoder instanceof NonStdDecoderStsdParser){
-                NonStdDecoderStsdParser nonStd = (NonStdDecoderStsdParser) curDecoder;
+            if(curDecoder instanceof Mp4DecoderPlugin){
+                Mp4DecoderPlugin nonStd = (Mp4DecoderPlugin) curDecoder;
                 nonStandardDecoders.put(nonStd.sampleEntry4ccCode(), nonStd);
             }
         }

@@ -5,6 +5,37 @@ description of what shipped so the history is not lost when the working tree mov
 
 ---
 
+## 2026-08-05 — vvdec on `VcatDecoder`; MP4 `stsd` routing via `Mp4DecoderPlugin`; overlay fix (branch `codec_plugin_refactor`)
+
+**Theme:** Migrate the vvdec plugin (a codec that needs **non-standard MP4 `stsd` parsing**) to
+the new SPI — the path dav1d didn't exercise — and route the host's `stsd` lookup through the
+non-deprecated `Mp4DecoderPlugin`.
+
+### Host
+- `VcatDecoderManager.getNonStandardDecoders()` and `AtomParsers` now key on **`Mp4DecoderPlugin`**
+  instead of the deprecated `NonStdDecoderStsdParser`. This matches the migrated vvdec **and** the
+  still-legacy `damo266d` (a `Mp4DecoderPlugin` via the deprecated interface's inheritance), so
+  VVC-in-MP4 parsing keeps working for both.
+- Codec MIME for a non-standard track now comes from the decoder — `((VcatDecoder) parser)
+  .getMimeType()` (the parser is always a `VcatDecoder` from the registry) — since the legacy
+  `mimeType()` accessor is gone.
+- Info-overlay `pluginApiForMime()` now **honors the selected decoder id** (mirrors
+  `StrictRenderersFactoryV2`) instead of blindly taking the first plugin for the MIME. Fixes the
+  `Plugin API` line showing `0.0.1` for vvdec when `damo266d` (also `video/vvc`) was returned
+  first — it now reflects the decoder actually selected/in use.
+
+### Result (on-device)
+- `vcat.dav1d` and `vcat.vvdec` report **`0.1.0`** (new `VcatDecoder` SPI); `vcat.damo266d` reports
+  **`0.0.1`** (legacy `VcatDecoderPlugin`, intentional backward-compat control). All register and
+  load. `NonStdDecoderStsdParser` is no longer referenced by any first-party code (kept in the api
+  only for legacy plugins like damo266d).
+
+### Companion repo
+- vvdec's migration to `VcatDecoder` + `Mp4DecoderPlugin` (+ its `DIFF_SUMMARY.md`) is committed in
+  `../vcatd-vvdec-plugin`.
+
+---
+
 ## 2026-08-04 — Host + dav1d on `VcatDecoder`; plugin-API-version overlay (branch `codec_plugin_refactor`)
 
 **Theme:** Put a decoder onto the new `VcatDecoder` SPI end-to-end (dav1d), retype the host to
