@@ -59,8 +59,8 @@ public class DecoderPluginApiTest {
         List<ContainerParser> parsers = p.getSupportedContainerParsers();
         assertEquals(1, parsers.size());
         assertSame(p, parsers.get(0));
-        // The bridge exposes the plugin via the non-deprecated Mp4DecoderPlugin type.
-        assertTrue(parsers.get(0) instanceof Mp4DecoderPlugin);
+        // The bridge exposes the plugin via the non-deprecated Mp4ParserExtension type.
+        assertTrue(parsers.get(0) instanceof Mp4ParserExtension);
         assertEquals("video/mp4", parsers.get(0).getContainerMimeType());
     }
 
@@ -69,7 +69,7 @@ public class DecoderPluginApiTest {
     @Test
     public void newMp4DecoderUsesNonDeprecatedApiOnly() {
         NewMp4Decoder d = new NewMp4Decoder();
-        assertTrue(d instanceof Mp4DecoderPlugin);
+        assertTrue(d instanceof Mp4ParserExtension);
         assertTrue(d instanceof ContainerParser);
         assertFalse("new MP4 plugin must not touch the deprecated SPI",
                 ((Object) d) instanceof NonStdDecoderStsdParser);
@@ -142,7 +142,7 @@ public class DecoderPluginApiTest {
     }
 
     /** New-style MP4 decoder on the non-deprecated SPI (no NonStdDecoderStsdParser). */
-    static final class NewMp4Decoder implements VcatDecoder, Mp4DecoderPlugin {
+    static final class NewMp4Decoder implements VcatDecoder, Mp4ParserExtension {
         @Override public String getId() { return "test.mp4"; }
         @Override public String getDisplayName() { return "mp4"; }
         @Override public String getVersion() { return "0"; }

@@ -5,6 +5,25 @@ description of what shipped so the history is not lost when the working tree mov
 
 ---
 
+## 2026-08-07 — Rename `Mp4DecoderPlugin` → `Mp4ParserExtension`; api `1.0.3` (branch `codec_plugin_refactor`)
+
+**Theme:** Rename the non-deprecated MP4 `stsd` container-parser interface to a clearer name.
+Pure rename — no behavior change.
+
+- `decoder-plugin-api`: `Mp4DecoderPlugin` → **`Mp4ParserExtension`** (file renamed). Updated in
+  `NonStdDecoderStsdParser` (`extends Mp4ParserExtension`), the `VcatDecoderPlugin`
+  `getSupportedContainerParsers()` bridge (`instanceof Mp4ParserExtension`), `ContainerParser`
+  javadoc, and the unit test.
+- Host: `VcatDecoderManager.getNonStandardDecoders()` and `AtomParsers` `stsd` routing updated to
+  `Mp4ParserExtension`.
+- api version bumped **`1.0.2 → 1.0.3`** (Maven Local) so plugins can compile against the renamed
+  symbol.
+- Verified: api unit tests 5/5, host builds. The vvdec plugin is updated to implement
+  `Mp4ParserExtension` in its own repo (dep → `1.0.3`). The dav1d plugin is unaffected (it doesn't
+  reference the interface; stays on api `1.0.2`).
+
+---
+
 ## 2026-08-05 — vvdec on `VcatDecoder`; MP4 `stsd` routing via `Mp4DecoderPlugin`; overlay fix (branch `codec_plugin_refactor`)
 
 **Theme:** Migrate the vvdec plugin (a codec that needs **non-standard MP4 `stsd` parsing**) to

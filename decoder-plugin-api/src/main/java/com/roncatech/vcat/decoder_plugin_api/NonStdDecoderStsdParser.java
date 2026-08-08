@@ -35,14 +35,14 @@ package com.roncatech.vcat.decoder_plugin_api;
 /**
  * Legacy MP4 {@code stsd} sample-entry parser.
  *
- * @deprecated Use {@link Mp4DecoderPlugin} (the non-deprecated MP4 {@link ContainerParser}).
+ * @deprecated Use {@link Mp4ParserExtension} (the non-deprecated MP4 {@link ContainerParser}).
  *     Retained only so existing plugins that implement this interface — and use its
  *     {@link #mimeType()} accessor — continue to compile and run. It now extends
- *     {@code Mp4DecoderPlugin}, so such plugins are exposed as {@code Mp4DecoderPlugin} without
+ *     {@code Mp4ParserExtension}, so such plugins are exposed as {@code Mp4ParserExtension} without
  *     any deprecated type appearing in {@code getSupportedContainerParsers()}.
  */
 @Deprecated
-public interface NonStdDecoderStsdParser extends Mp4DecoderPlugin {
+public interface NonStdDecoderStsdParser extends Mp4ParserExtension {
 
     /** Legacy codec-MIME accessor; superseded by {@link VcatDecoder#getMimeType()}. */
     String mimeType();

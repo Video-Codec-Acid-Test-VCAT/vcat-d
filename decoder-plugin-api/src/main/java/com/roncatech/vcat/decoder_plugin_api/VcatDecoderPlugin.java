@@ -96,12 +96,12 @@ public interface VcatDecoderPlugin extends VcatDecoder {
 
     /**
      * Bridge for the {@link VcatDecoder} SPI: a legacy plugin that also implements a
-     * {@link ContainerParser} (e.g. {@link Mp4DecoderPlugin}) exposes itself as that parser
+     * {@link ContainerParser} (e.g. {@link Mp4ParserExtension}) exposes itself as that parser
      * (a non-deprecated type); otherwise it advertises no container parsers.
      */
     @Override
     default List<ContainerParser> getSupportedContainerParsers() {
-        if (this instanceof Mp4DecoderPlugin) {
+        if (this instanceof Mp4ParserExtension) {
             return Collections.singletonList((ContainerParser) this);
         }
         return Collections.emptyList();

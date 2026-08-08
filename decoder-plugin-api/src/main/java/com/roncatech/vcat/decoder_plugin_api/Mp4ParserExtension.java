@@ -43,7 +43,7 @@ package com.roncatech.vcat.decoder_plugin_api;
  * <p>{@link #getContainerMimeType()} defaults to {@code "video/mp4"}; the codec MIME is the
  * owning decoder's {@link VcatDecoder#getMimeType()} (not duplicated here).
  */
-public interface Mp4DecoderPlugin extends ContainerParser {
+public interface Mp4ParserExtension extends ContainerParser {
 
     @Override
     default String getContainerMimeType() { return "video/mp4"; }

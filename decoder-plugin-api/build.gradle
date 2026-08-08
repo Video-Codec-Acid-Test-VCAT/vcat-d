@@ -31,7 +31,7 @@ plugins {
 }
 
 group   = 'com.roncatech.vcat'
-version = '1.0.2'
+version = '1.0.3'
 
 android {
     namespace 'com.roncatech.vcat.decoder_plugin_api'
