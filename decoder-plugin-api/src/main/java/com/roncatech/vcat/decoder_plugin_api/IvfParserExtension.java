@@ -32,17 +32,23 @@
 
 package com.roncatech.vcat.decoder_plugin_api;
 
+import com.google.android.exoplayer2.extractor.ExtractorInput;
+
+import java.io.IOException;
+
 /**
  * ContainerParser for IVF-wrapped codecs.
  *
  * The IVF extractor matches the file header FourCC against registered
- * parsers' ivfFourCc() values, then calls parseIvfStream() to produce a
- * VideoConfiguration for the decoder.
+ * parsers' ivfFourCc() values, then calls parseHeader() to produce a
+ * VideoConfiguration for the decoder. The host does not pass any IVF file
+ * header to the plugin — the plugin derives all configuration from the
+ * bitstream alone.
  *
  * getContainerMimeType() defaults to "video/ivf"; the codec MIME is the
  * owning decoder's VcatDecoder.getMimeType() (not duplicated here).
  */
-public interface IvfDecoderPlugin extends ContainerParser {
+public interface IvfParserExtension extends ContainerParser {
 
     @Override
     default String getContainerMimeType() {
@@ -59,24 +65,26 @@ public interface IvfDecoderPlugin extends ContainerParser {
     int ivfFourCc();
 
     /**
-     * Build a VideoConfiguration from the IVF file header and the first
-     * frame payload. The parser is responsible for extracting all
-     * codec-level initialization data from the first frame payload
-     * (e.g. AV1 sequence header OBU, MLVC sequence config) and
-     * populating VideoConfiguration accordingly.
+     * Parse codec sequence-level configuration from a stream positioned at the
+     * first byte of the first frame payload.
      *
-     * Width and height may be read from ivfHeader or from the first
-     * frame payload — whichever is authoritative for this codec.
+     * The implementation reads only as many bytes as needed to extract the
+     * sequence header (SPS/PPS or equivalent) — typically by peeking. It must
+     * not consume beyond the sequence header: the extractor feeds the full
+     * frame as the first sample afterwards. The plugin extracts all
+     * codec-level initialization data (e.g. AV1 sequence header OBU, MLVC
+     * sequence config), width/height, and color from the bitstream.
      *
-     * Color: parse color_config from the sequence header and set
-     * VideoConfiguration.Builder.colorSpace / colorRange / colorTransfer from
-     * it. If the stream signals "unspecified" (or the codec carries no color
-     * info), leave those fields at Format.NO_VALUE so the renderer applies its
-     * normal inference. Do NOT hard-code BT.709.
+     * Color: set VideoConfiguration.Builder.colorSpace / colorRange /
+     * colorTransfer from the parsed sequence header. If the stream signals
+     * "unspecified" (or the codec carries no color info), leave those fields
+     * at Format.NO_VALUE so the renderer applies its normal inference. Do NOT
+     * hard-code BT.709.
      *
-     * @param ivfHeader       parsed IVF file header
-     * @param firstFrameBytes raw bytes of the first IVF frame payload
+     * @param input     stream positioned at the first byte of the first frame payload
+     * @param frameSize total byte length of the first frame payload
      * @return populated VideoConfiguration
      */
-    VideoConfiguration parseIvfStream(IvfFileHeader ivfHeader, byte[] firstFrameBytes);
+    VideoConfiguration parseHeader(ExtractorInput input, int frameSize)
+            throws IOException, InterruptedException;
 }

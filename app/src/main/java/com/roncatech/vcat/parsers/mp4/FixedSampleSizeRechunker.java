@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.roncatech.vcat.parsers;
+package com.roncatech.vcat.parsers.mp4;
 import static java.lang.Math.max;
 import static java.lang.Math.min;
 

@@ -5,6 +5,44 @@ description of what shipped so the history is not lost when the working tree mov
 
 ---
 
+## 2026-08-14 — IVF extractor (Phase 1) + `parsers` package split (branch `codec_plugin_refactor`)
+
+**Theme:** Roadmap Step 4, host side. Add the IVF container extractor + the plugin SPI for IVF
+parsers, and reorganize the `parsers` package. **IVF container framing + AV1 sequence-header
+parsing are implemented and unit-validated; end-to-end IVF _playback_ is deferred** (the dav1d
+renderer's IVF sample delivery isn't wired yet).
+
+### decoder-plugin-api (`1.0.3 → 1.0.4`)
+- `IvfDecoderPlugin` → **`IvfParserExtension`** (pairs with `Mp4ParserExtension`; both extend
+  `ContainerParser`). Signature `parseIvfStream(IvfFileHeader, byte[])` →
+  `parseHeader(ExtractorInput, int)` — the plugin peeks only the sequence header, no full-frame
+  buffering.
+- `IvfFileHeader` **removed from the api and moved into the host** (it's container metadata, never
+  passed to plugins).
+- `DecoderPluginApiTest` updated accordingly.
+
+### Host
+- New **`com.roncatech.vcat.parsers.ivf`**: `VcatIvfExtractor` (ExoPlayer `Extractor` — `DKIF`
+  sniff, per-frame samples, correct IVF timebase `ptsUs = pts × scale / rate` with
+  rate=bytes16-19 / scale=bytes20-23, `SeekMap.Unseekable`) + `IvfFileHeader` (no width/height;
+  `timeBaseRate`/`timeBaseScale`). **12 unit tests.**
+- `VcatDecoderManager.findIvfPlugin(fourCc)`; `FullScreenPlayerActivity` extractor lambda now
+  `{ VcatIvfExtractor, VcatMp4Extractor }` (IVF first — `DKIF` never false-positives on MP4).
+- **`parsers` package split:** MP4 parser → `com.roncatech.vcat.parsers.mp4` (12 files); IVF →
+  `com.roncatech.vcat.parsers.ivf`.
+- **`copyDecoderPluginsToAssets` is now a `Sync` task** — `assets/decoder-plugins/` mirrors
+  `decoder-plugins/` exactly and prunes stale `.aar`s, removing build ambiguity.
+
+### Verification
+- `decoder-plugin-api` tests + `VcatIvfExtractorTest` (12/12) pass; `:app:assembleDebug` builds;
+  on-device `vcat.dav1d` + `vcat.vvdec` register (damo266d removed for now).
+
+### Companion / deferred
+- dav1d's `Av1IvfParser` (AV1 OBU sequence-header parse) is committed in `../vcatd-dav1d-plugin`.
+  End-to-end IVF playback is deferred pending dav1d renderer IVF-delivery support.
+
+---
+
 ## 2026-08-07 — Rename `Mp4DecoderPlugin` → `Mp4ParserExtension`; api `1.0.3` (branch `codec_plugin_refactor`)
 
 **Theme:** Rename the non-deprecated MP4 `stsd` container-parser interface to a clearer name.

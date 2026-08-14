@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.roncatech.vcat.parsers;
+package com.roncatech.vcat.parsers.mp4;
 
 import static com.google.android.exoplayer2.util.Assertions.checkNotNull;
 import static com.google.android.exoplayer2.util.MimeTypes.getMimeTypeFromMp4ObjectType;
@@ -40,7 +40,7 @@ import com.roncatech.vcat.decoder_plugin_api.Mp4ParserExtension;
 import com.roncatech.vcat.decoder_plugin_api.VcatDecoder;
 import com.roncatech.vcat.decoder_plugin.VcatDecoderManager;
 import com.roncatech.vcat.decoder_plugin_api.VideoConfiguration;
-import com.roncatech.vcat.parsers.Atom.LeafAtom;
+import com.roncatech.vcat.parsers.mp4.Atom.LeafAtom;
 import com.google.android.exoplayer2.metadata.Metadata;
 import com.google.android.exoplayer2.metadata.mp4.SmtaMetadataEntry;
 import com.google.android.exoplayer2.util.CodecSpecificDataUtil;

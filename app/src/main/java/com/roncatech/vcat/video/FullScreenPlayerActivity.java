@@ -88,7 +88,8 @@ import com.roncatech.vcat.tools.UriUtils;
 import com.roncatech.vcat.tools.VideoDecoderEnumerator;
 import com.roncatech.vcat.tools.XspfParser;
 import com.roncatech.vcat.R;
-import com.roncatech.vcat.parsers.VcatMp4Extractor;
+import com.roncatech.vcat.parsers.ivf.VcatIvfExtractor;
+import com.roncatech.vcat.parsers.mp4.VcatMp4Extractor;
 
 import java.util.List;
 import java.util.Locale;
@@ -515,7 +516,7 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
                         .setMediaSourceFactory(
                                 new DefaultMediaSourceFactory(
                                         this,
-                                        () -> new Extractor[] { new VcatMp4Extractor(/* flags if any */) } // ONLY your extractor
+                                        () -> new Extractor[] { new VcatIvfExtractor(), new VcatMp4Extractor(/* flags if any */) } // IVF (DKIF) first, then MP4
                                 )
                         )
                         .setVideoChangeFrameRateStrategy(C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_OFF)

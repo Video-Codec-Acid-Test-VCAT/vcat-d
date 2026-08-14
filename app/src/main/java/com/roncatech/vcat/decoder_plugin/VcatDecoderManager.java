@@ -32,6 +32,10 @@ package com.roncatech.vcat.decoder_plugin;
  * Contact: legal@roncatech.com
  */
 
+import androidx.annotation.Nullable;
+
+import com.roncatech.vcat.decoder_plugin_api.ContainerParser;
+import com.roncatech.vcat.decoder_plugin_api.IvfParserExtension;
 import com.roncatech.vcat.decoder_plugin_api.Mp4ParserExtension;
 import com.roncatech.vcat.decoder_plugin_api.VcatDecoder;
 
@@ -105,5 +109,21 @@ public final class VcatDecoderManager {
             }
         }
         return Collections.unmodifiableMap(nonStandardDecoders);
+    }
+
+    /** Find the registered IVF parser handling {@code fourCc}, or {@code null} if none. */
+    @Nullable
+    public IvfParserExtension findIvfPlugin(int fourCc) {
+        for (VcatDecoder decoder : getDecoders()) {
+            for (ContainerParser parser : decoder.getSupportedContainerParsers()) {
+                if (parser instanceof IvfParserExtension) {
+                    IvfParserExtension ivf = (IvfParserExtension) parser;
+                    if (ivf.ivfFourCc() == fourCc) {
+                        return ivf;
+                    }
+                }
+            }
+        }
+        return null;
     }
 }

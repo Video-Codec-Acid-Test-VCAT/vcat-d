@@ -32,10 +32,12 @@ import android.os.Handler;
 
 import com.google.android.exoplayer2.Renderer;
 import com.google.android.exoplayer2.decoder.DecoderException;
+import com.google.android.exoplayer2.extractor.ExtractorInput;
 import com.google.android.exoplayer2.video.VideoRendererEventListener;
 
 import org.junit.Test;
 
+import java.io.IOException;
 import java.util.Collections;
 import java.util.List;
 
@@ -79,38 +81,8 @@ public class DecoderPluginApiTest {
         assertEquals("video/mp4", parsers.get(0).getContainerMimeType());
     }
 
-    // ---- #7: IvfFileHeader.parse extracts the fields from a known 32-byte header ----
-
-    @Test
-    public void ivfHeaderParsesKnownBytes() {
-        byte[] h = new byte[32];
-        h[0] = 'D'; h[1] = 'K'; h[2] = 'I'; h[3] = 'F';   // signature
-        // header length 32 at bytes 6-7
-        h[6] = 32;
-        // FourCC "AV01" at bytes 8-11
-        h[8] = 'A'; h[9] = 'V'; h[10] = '0'; h[11] = '1';
-        // width 1920 (0x0780) at 12-13
-        h[12] = (byte) 0x80; h[13] = 0x07;
-        // height 1080 (0x0438) at 14-15
-        h[14] = (byte) 0x38; h[15] = 0x04;
-        // timebase numerator 1 at 16-19
-        h[16] = 1;
-        // timebase denominator 30 at 20-23
-        h[20] = 30;
-        // frame count 300 (0x012C) at 24-27
-        h[24] = (byte) 0x2C; h[25] = 0x01;
-
-        IvfFileHeader p = IvfFileHeader.parse(h);
-        assertEquals(0x31305641, p.fourCc);        // "AV01" little-endian
-        assertEquals(1920, p.width);
-        assertEquals(1080, p.height);
-        assertEquals(1, p.timebaseNumerator);
-        assertEquals(30, p.timebaseDenominator);
-        assertEquals(300, p.frameCount);
-        assertEquals(30f, p.frameRate, 0.0001f);   // den/num
-    }
-
-    // ---- #5: a new VcatDecoder + IvfDecoderPlugin compiles (see NewIvfDecoder below) ----
+    // ---- #5: a new VcatDecoder + IvfParserExtension compiles (see NewIvfDecoder below) ----
+    // (IvfFileHeader.parse() is now host-internal — see VcatIvfExtractorTest.)
 
     @Test
     public void newIvfDecoderCompilesAndAdvertisesItsParser() {
@@ -161,13 +133,14 @@ public class DecoderPluginApiTest {
     }
 
     /** New-style decoder on the non-deprecated SPI, IVF-capable. */
-    static final class NewIvfDecoder implements VcatDecoder, IvfDecoderPlugin {
+    static final class NewIvfDecoder implements VcatDecoder, IvfParserExtension {
         @Override public String getId() { return "test.ivf"; }
         @Override public String getDisplayName() { return "ivf"; }
         @Override public String getVersion() { return "0"; }
         @Override public String getMimeType() { return "video/av01"; }
         @Override public int ivfFourCc() { return 0x31305641; } // "AV01"
-        @Override public VideoConfiguration parseIvfStream(IvfFileHeader h, byte[] firstFrame) {
+        @Override public VideoConfiguration parseHeader(ExtractorInput input, int frameSize)
+                throws IOException, InterruptedException {
             return null; // never invoked here
         }
         @Override public List<ContainerParser> getSupportedContainerParsers() {

@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.roncatech.vcat.parsers;
+package com.roncatech.vcat.parsers.mp4;
 
 import androidx.annotation.Nullable;
 import com.google.android.exoplayer2.extractor.ExtractorInput;

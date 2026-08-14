@@ -36,7 +36,7 @@ package com.roncatech.vcat.decoder_plugin_api;
  * Common supertype for container parsers, so a decoder can advertise which containers it can be
  * driven from ({@link VcatDecoder#getSupportedContainerParsers()}) and the host can route by
  * container MIME without {@code instanceof}. Implemented by {@link Mp4ParserExtension} (MP4) and
- * {@link IvfDecoderPlugin} (IVF), each of which defaults {@link #getContainerMimeType()} — so
+ * {@link IvfParserExtension} (IVF), each of which defaults {@link #getContainerMimeType()} — so
  * implementers add no MIME accessor methods. The codec MIME is the owning decoder's
  * {@link VcatDecoder#getMimeType()} and is not duplicated here.
  */

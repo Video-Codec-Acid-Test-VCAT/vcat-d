@@ -34,7 +34,7 @@ package com.roncatech.vcat.decoder_plugin_api;
 
 /**
  * ContainerParser for non-standard codecs carried in MP4, parsed from the {@code stsd}
- * sample entry. MP4 analog of {@link IvfDecoderPlugin}.
+ * sample entry. MP4 analog of {@link IvfParserExtension}.
  *
  * <p>The MP4 parser matches a track's sample-entry FourCC against registered parsers'
  * {@link #sampleEntry4ccCode()} values, then calls {@link #parseStsd(byte[])} to produce a

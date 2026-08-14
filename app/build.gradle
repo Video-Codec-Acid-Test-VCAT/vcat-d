@@ -34,8 +34,8 @@
             applicationId "com.roncatech.vcat"
             minSdk 30
             targetSdk 35
-            versionCode 3003
-            versionName "0.3.3"
+            versionCode 3004
+            versionName "0.3.4"
 
             testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
             buildConfigField "String", "VERSION_NAME", "\"${versionName}\""
@@ -115,8 +115,10 @@
 
 /* ===== Decoder plugin assets ===== */
 
-tasks.register('copyDecoderPluginsToAssets', Copy) {
-    description 'Copies *.aar from decoder-plugins/ into assets/decoder-plugins/'
+// Sync (not Copy) so assets/decoder-plugins/ EXACTLY mirrors decoder-plugins/ — stale .aar
+// files (e.g. a removed plugin) are pruned, so the bundled set is never ambiguous.
+tasks.register('copyDecoderPluginsToAssets', Sync) {
+    description 'Mirrors *.aar from decoder-plugins/ into assets/decoder-plugins/ (prunes stale)'
     from(rootProject.file('decoder-plugins')) { include '*.aar' }
     into file('src/main/assets/decoder-plugins')
 }
@@ -144,6 +146,7 @@ tasks.named('preBuild').configure { dependsOn 'copyDecoderPluginsToAssets' }
         implementation 'com.google.android.material:material:1.9.0'
         implementation "androidx.appcompat:appcompat:1.6.1"
         testImplementation "org.robolectric:robolectric:4.11.1"
+        testImplementation "com.google.android.exoplayer:exoplayer-testutils:2.19.1"
         // OkHttp dependency
         implementation 'com.squareup.okhttp3:okhttp:4.12.0'
         implementation "androidx.core:core-splashscreen:1.0.1"

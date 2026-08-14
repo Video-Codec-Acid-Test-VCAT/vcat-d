@@ -13,12 +13,12 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.roncatech.vcat.parsers;
+package com.roncatech.vcat.parsers.mp4;
 import static com.google.android.exoplayer2.util.Assertions.checkNotNull;
 import static com.google.android.exoplayer2.util.Util.castNonNull;
-import static com.roncatech.vcat.parsers.AtomParsers.parseTraks;
-import static com.roncatech.vcat.parsers.Sniffer.BRAND_HEIC;
-import static com.roncatech.vcat.parsers.Sniffer.BRAND_QUICKTIME;
+import static com.roncatech.vcat.parsers.mp4.AtomParsers.parseTraks;
+import static com.roncatech.vcat.parsers.mp4.Sniffer.BRAND_HEIC;
+import static com.roncatech.vcat.parsers.mp4.Sniffer.BRAND_QUICKTIME;
 import static java.lang.Math.max;
 import static java.lang.Math.min;
 import static java.lang.annotation.ElementType.TYPE_USE;
