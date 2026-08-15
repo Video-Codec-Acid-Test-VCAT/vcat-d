@@ -172,6 +172,7 @@ public class SetupLocalVectors {
         if (lower.endsWith(".webm")) return "video/webm";
         if (lower.endsWith(".mkv")) return "video/x-matroska";
         if (lower.endsWith(".ts")) return "video/mp2t";
+        if (lower.endsWith(".ivf")) return "video/ivf";
         return "video/mp4";
     }
 }

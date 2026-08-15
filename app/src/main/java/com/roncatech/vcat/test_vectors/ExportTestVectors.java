@@ -233,6 +233,8 @@ public class ExportTestVectors {
             return "video/quicktime";
         } else if (lower.endsWith(".ts")) {
             return "video/mp2t";
+        } else if (lower.endsWith(".ivf")) {
+            return "video/ivf";
         }
         return "video/mp4";
     }

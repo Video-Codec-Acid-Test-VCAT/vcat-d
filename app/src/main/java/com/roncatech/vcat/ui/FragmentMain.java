@@ -74,12 +74,29 @@ public class FragmentMain extends Fragment implements PlaylistUpdates {
     private final static String TAG = "MainFragment";
 
     private TextView playlistFolderText;
-    private List<DocumentFile> playlists;
     private TableLayout playlistTable;
     private SharedViewModel viewModel;
 
     public FragmentMain()  {
-        this.playlists = new ArrayList<>();
+    }
+
+    /** Pre-resolved playlist metadata. {@code DocumentFile.getName()} is a SAF IPC query, so we
+     *  resolve the name/uri once on a background thread and never touch SAF on the UI thread. */
+    private static final class PlaylistEntry {
+        final DocumentFile doc;
+        final String name;
+        final String uriStr;
+        PlaylistEntry(DocumentFile doc, String name, String uriStr) {
+            this.doc = doc;
+            this.name = name;
+            this.uriStr = uriStr;
+        }
+    }
+
+    private void runOnUiThreadIfAdded(Runnable r) {
+        if (isAdded() && getActivity() != null) {
+            getActivity().runOnUiThread(r);
+        }
     }
 
     public void onPlaylistAdded(Uri playlistUri){
@@ -157,41 +174,45 @@ public class FragmentMain extends Fragment implements PlaylistUpdates {
         }
     }
 
-    //  Scan Selected Folder for .xspf Files
+    //  Scan Selected Folder for .xspf Files.
+    //  Every DocumentFile.getName() is a SAF ContentResolver.query (IPC); the listing, the sort
+    //  comparator, and the resume-info log scan all hit SAF, so doing this on the UI thread ANRs
+    //  (input-dispatch timeout) — especially after a save. Gather everything on a background
+    //  thread, then render the table on the UI thread from pre-resolved values.
     private void getPlaylistFiles() {
-        DocumentFile playlistDir = StorageManager.getFolder(requireContext(), StorageManager.VCATFolder.PLAYLIST);
-        if (playlistDir == null) return;
-
-        playlists.clear();
-
-        DocumentFile[] files = playlistDir.listFiles();
-        if (files != null) {
-            for (DocumentFile f : files) {
-                String name = f.getName();
-                if (name != null && name.endsWith(".xspf")) {
-                    playlists.add(f);
+        final Context ctx = requireContext().getApplicationContext();
+        new Thread(() -> {
+            List<PlaylistEntry> entries = new ArrayList<>();
+            DocumentFile playlistDir = StorageManager.getFolder(ctx, StorageManager.VCATFolder.PLAYLIST);
+            if (playlistDir != null) {
+                DocumentFile[] files = playlistDir.listFiles();
+                if (files != null) {
+                    for (DocumentFile f : files) {
+                        String name = f.getName();               // one IPC per file
+                        if (name != null && name.endsWith(".xspf")) {
+                            entries.add(new PlaylistEntry(f, name, f.getUri().toString()));
+                        }
+                    }
+                    entries.sort((a, b) -> a.name.compareToIgnoreCase(b.name)); // cached names, no IPC
                 }
             }
-            playlists.sort((a, b) -> {
-                String na = a.getName() != null ? a.getName() : "";
-                String nb = b.getName() != null ? b.getName() : "";
-                return na.compareToIgnoreCase(nb);
-            });
-        }
+            ResumeInfo resumeInfo = computeResumeInfo(ctx);
 
-        populatePlaylistTable();
+            final List<PlaylistEntry> finalEntries = entries;
+            final ResumeInfo finalResume = resumeInfo;
+            runOnUiThreadIfAdded(() -> populatePlaylistTable(finalEntries, finalResume));
+        }).start();
     }
 
-    //  Populate Table with Playlist Rows (Single Tap for Menu)
-    private void populatePlaylistTable() {
-        ResumeInfo resumeInfo = ResumeInfo.empty;
-        DocumentFile latest = StorageManager.findLatestLogFile(requireContext());
+    // Resolve resume info from the latest log file. Touches SAF — must run off the UI thread.
+    private ResumeInfo computeResumeInfo(Context ctx) {
+        DocumentFile latest = StorageManager.findLatestLogFile(ctx);
         if (latest != null) {
-            long lastLogTimestamp = StorageManager.readLastTimestamp(requireContext(), latest);
+            long lastLogTimestamp = StorageManager.readLastTimestamp(ctx, latest);
             if (lastLogTimestamp >= 0) {
-                SessionHeader sh = SessionHeader.fromLogFile(requireContext(), latest.getUri());
+                SessionHeader sh = SessionHeader.fromLogFile(ctx, latest.getUri());
                 if (sh != null) {
-                    resumeInfo = new ResumeInfo(
+                    return new ResumeInfo(
                             sh.getSessionInfo().playlist,
                             latest.getUri().toString(),
                             sh.getSessionInfo().start_time.unix_time_ms,
@@ -201,19 +222,22 @@ public class FragmentMain extends Fragment implements PlaylistUpdates {
                 }
             }
         }
-        playlistTable.removeAllViews();
+        return ResumeInfo.empty;
+    }
 
-        for (DocumentFile playlist : playlists) {
-            addOnePlaylistTableRow(playlist, resumeInfo);
+    //  Populate Table with Playlist Rows (Single Tap for Menu). UI thread only — no SAF calls.
+    private void populatePlaylistTable(List<PlaylistEntry> entries, ResumeInfo resumeInfo) {
+        playlistTable.removeAllViews();
+        for (PlaylistEntry entry : entries) {
+            addOnePlaylistTableRow(entry, resumeInfo);
         }
     }
 
-    private void addOnePlaylistTableRow(DocumentFile playlistDoc, ResumeInfo resumeInfo){
+    private void addOnePlaylistTableRow(PlaylistEntry entry, ResumeInfo resumeInfo){
         TableRow row = new TableRow(getContext());
 
         TextView playlistText = new TextView(getContext());
-        String displayName = playlistDoc.getName() != null ? playlistDoc.getName() : "";
-        playlistText.setText(displayName);
+        playlistText.setText(entry.name);
         playlistText.setTextSize(16);
         playlistText.setPadding(16, 16, 16, 16);
         playlistText.setGravity(Gravity.START);
@@ -221,12 +245,12 @@ public class FragmentMain extends Fragment implements PlaylistUpdates {
 
         row.addView(playlistText, new TableRow.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
-        String docUriStr = playlistDoc.getUri().toString();
+        String docUriStr = entry.uriStr;
         if (!docUriStr.isEmpty() && resumeInfo.playlistName.equals(docUriStr)) {
             playlistText.setTag(R.id.resume_info, resumeInfo);
         }
 
-        playlistText.setOnClickListener(v -> showPlaylistOptionsMenu_menu(v, playlistDoc));
+        playlistText.setOnClickListener(v -> showPlaylistOptionsMenu_menu(v, entry.doc));
 
         playlistTable.addView(row);
     }

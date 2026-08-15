@@ -70,6 +70,7 @@ import androidx.fragment.app.DialogFragment;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
+import com.roncatech.vcat.tools.StorageManager;
 import com.roncatech.vcat.tools.XSPFPlaylistCreator;
 
 public class PlaylistDialog extends DialogFragment {
@@ -197,7 +198,12 @@ public class PlaylistDialog extends DialogFragment {
     private void getNewPlaylistFile() {
         Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
         intent.addCategory(Intent.CATEGORY_OPENABLE);
-        intent.setType("video/*"); // Restrict selection to video files
+        // ".ivf" (and other raw bitstream containers) have no registered video/* MIME, so a
+        // "video/*" filter hides them. Use "*/*" biased toward video plus octet-stream — the
+        // MIME Android's MimeTypeMap falls back to for unregistered extensions like .ivf.
+        intent.setType("*/*");
+        intent.putExtra(Intent.EXTRA_MIME_TYPES,
+                new String[]{"video/*", "application/octet-stream"});
 
         startActivityForResult(intent, REQUEST_CODE_PICK_FILE);
     }
@@ -246,27 +252,53 @@ public class PlaylistDialog extends DialogFragment {
             return;
         }
 
-        try {
-            String filename = getFileNameFromURI(context, playlistUri);
-            if (filename == null) {
-                Log.e("PlaylistDialog", "Failed to retrieve filename.");
-                return;
+        // SAF delete/create/write are synchronous IPC to the storage provider; running them on
+        // the UI thread times out input dispatching (ANR). Do the I/O on a background thread and
+        // only touch the dialog on the UI thread.
+        final Context appContext = context.getApplicationContext();
+        final Uri existingUri = this.playlistUri;
+        final Uri folderUri = this.selectedFolderUri;
+        final List<String> entries = new ArrayList<>(this.playlistEntries);
+
+        new Thread(() -> {
+            try {
+                String filename = getFileNameFromURI(appContext, existingUri);
+                if (filename == null) {
+                    Log.e("PlaylistDialog", "Failed to retrieve filename.");
+                    return;
+                }
+
+                deletePlaylist(appContext, existingUri);
+
+                Uri recreated = createFileInSelectedFolder(appContext, folderUri, filename);
+                if (recreated == null) {
+                    Log.e("PlaylistDialog", "Failed to recreate playlist file");
+                    return;
+                }
+
+                XSPFPlaylistCreator.writePlaylistFile(appContext, recreated, entries);
+
+                runOnUiThread(() -> {
+                    this.playlistUri = recreated;
+                    dismissSafely();
+                });
+            } catch (Exception e) {
+                Log.e("PlaylistDialog", "Error clearing and recreating playlist file", e);
             }
+        }).start();
+    }
 
-            deletePlaylist(context, playlistUri);
-
-            playlistUri = createFileInSelectedFolder(selectedFolderUri, filename);
-            if (playlistUri == null) {
-                Log.e("PlaylistDialog", "Failed to recreate playlist file");
-                return;
-            }
-
-            XSPFPlaylistCreator.writePlaylistFile(this.context, this.playlistUri, this.playlistEntries);
-        } catch (Exception e) {
-            Log.e("PlaylistDialog", "Error clearing and recreating playlist file", e);
+    private void runOnUiThread(Runnable r) {
+        Activity a = getActivity();
+        if (a != null) {
+            a.runOnUiThread(r);
         }
+    }
 
-        dismiss();
+    private void dismissSafely() {
+        if (isAdded()) {
+            dismiss();
+        }
     }
 
     private void deletePlaylist(Context context, Uri playlistUri) {
@@ -324,31 +356,44 @@ public class PlaylistDialog extends DialogFragment {
                 filename += ".xspf"; // Ensure correct file extension
             }
 
-            // Create a Uri for the new file inside the selected folder
-            Uri newPlaylistUri = createFileInSelectedFolder(selectedFolderUri, filename);
-            if(selectedFolderUri == null){
+            if (selectedFolderUri == null) {
                 Toast.makeText(context, "Please select a playlist folder first.", Toast.LENGTH_SHORT).show();
+                return;
             }
-            else if (newPlaylistUri != null) {
-                // Save the playlist to the new Uri
-                XSPFPlaylistCreator.writePlaylistFile(this.context, newPlaylistUri, this.playlistEntries);
-                if(this.listener != null){
-                    this.listener.onPlaylistAdded(newPlaylistUri);
-                }
 
-                dismiss(); // Close the dialog after saving
-            } else {
-                Log.e("PlaylistDialog", "Failed to create playlist file in selected folder.");
-            }
+            // Offload the SAF create/write off the UI thread (see savePlaylist()).
+            final Context appContext = context.getApplicationContext();
+            final Uri folderUri = this.selectedFolderUri;
+            final List<String> entries = new ArrayList<>(this.playlistEntries);
+            final String fname = filename;
+
+            new Thread(() -> {
+                Uri newPlaylistUri = createFileInSelectedFolder(appContext, folderUri, fname);
+                if (newPlaylistUri == null) {
+                    Log.e("PlaylistDialog", "Failed to create playlist file in selected folder.");
+                    return;
+                }
+                XSPFPlaylistCreator.writePlaylistFile(appContext, newPlaylistUri, entries);
+                runOnUiThread(() -> {
+                    if (this.listener != null) {
+                        this.listener.onPlaylistAdded(newPlaylistUri);
+                    }
+                    dismissSafely(); // Close the dialog after saving
+                });
+            }).start();
         });
 
         builder.show();
     }
 
-    private Uri createFileInSelectedFolder(Uri folderUri, String filename) {
-        DocumentFile folder = DocumentFile.fromTreeUri(context, folderUri);
+    private Uri createFileInSelectedFolder(Context ctx, Uri folderUri, String filename) {
+        // Playlists live in the fixed PLAYLIST subfolder — the same folder FragmentMain lists.
+        // Resolve it via StorageManager rather than DocumentFile.fromTreeUri(folderUri): the latter
+        // always resolves back to the tree root, so saved playlists would land in the root and
+        // never appear in the list (and pile up as "name (N).xspf" dedup copies).
+        DocumentFile folder = StorageManager.getFolder(ctx, StorageManager.VCATFolder.PLAYLIST);
         if (folder == null || !folder.isDirectory()) {
-            Log.e("PlaylistDialog", "Invalid folder: " + folderUri);
+            Log.e("PlaylistDialog", "Invalid playlist folder (root not selected?)");
             return null;
         }
         DocumentFile newFile = folder.createFile("application/xspf+xml", filename);

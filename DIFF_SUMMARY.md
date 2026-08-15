@@ -5,12 +5,39 @@ description of what shipped so the history is not lost when the working tree mov
 
 ---
 
+## 2026-08-15 — IVF playlist support + playlist save/refresh ANR & folder fixes (branch `codec_plugin_refactor`)
+
+**Theme:** Make IVF usable end-to-end from the UI, and fix playlist save regressions surfaced
+along the way. **Confirmed on-device: AV1-from-IVF plays back end-to-end** (the dav1d renderer
+accepts IVF-delivered frames with no extra wiring — the earlier "playback deferred" caveat is
+resolved).
+
+- **IVF files are now selectable** when building a playlist. `PlaylistDialog`'s picker used
+  `setType("video/*")`, but Android's `MimeTypeMap` has no `.ivf → video/*` mapping so SAF hid
+  them. Now `setType("*/*")` + `EXTRA_MIME_TYPES {"video/*", "application/octet-stream"}` (the
+  octet-stream fallback surfaces unregistered extensions like `.ivf`).
+- **Playlist save no longer ANRs.** The save path (`deleteDocument`/`createFile`/`openOutputStream`/
+  `MediaScanner`) and the post-save refresh (`getPlaylistFiles`→`populatePlaylistTable`, where every
+  `DocumentFile.getName()` is a SAF IPC — called in the filter loop, the sort comparator, and per
+  row) all ran on the UI thread. Both are now off-thread: `PlaylistDialog` does its I/O on a worker
+  and only touches the dialog on the UI thread; `FragmentMain` resolves each name **once** into a
+  `PlaylistEntry {doc,name,uriStr}` on a worker, then renders the table (no SAF on the UI thread).
+- **Playlist save now actually persists to the right folder.** `createFileInSelectedFolder` used
+  `DocumentFile.fromTreeUri(folderUri)`, which always resolves to the tree **root**, so playlists
+  were written to `<root>/` while the list only scans `<root>/playlist` — saved playlists never
+  appeared and piled up as `name (N).xspf`. It now resolves the target via the same
+  `StorageManager.getFolder(PLAYLIST)` the list uses. Also fixed save-as creating the file before
+  the null-folder check.
+- `.ivf → "video/ivf"` added to the extension→MIME maps in `SetupLocalVectors` / `ExportTestVectors`.
+
+---
+
 ## 2026-08-14 — IVF extractor (Phase 1) + `parsers` package split (branch `codec_plugin_refactor`)
 
 **Theme:** Roadmap Step 4, host side. Add the IVF container extractor + the plugin SPI for IVF
-parsers, and reorganize the `parsers` package. **IVF container framing + AV1 sequence-header
-parsing are implemented and unit-validated; end-to-end IVF _playback_ is deferred** (the dav1d
-renderer's IVF sample delivery isn't wired yet).
+parsers, and reorganize the `parsers` package. IVF container framing + AV1 sequence-header parsing
+are implemented and unit-validated. _(End-to-end IVF playback was expected to need further renderer
+work; it turned out to work on-device — see the 2026-08-15 entry.)_
 
 ### decoder-plugin-api (`1.0.3 → 1.0.4`)
 - `IvfDecoderPlugin` → **`IvfParserExtension`** (pairs with `Mp4ParserExtension`; both extend
