@@ -214,7 +214,10 @@ public class TestResultsDetailDialog extends DialogFragment {
                     "dd MMMM yyyy HH:mm:ss", Locale.getDefault());
 
             tvStart.setText("Start Time: " + sdf.format(new Date(startTime.unix_time_ms)));
-            tvDuration.setText("Test Duration: " + durationSecs + " secs");
+            // Seconds stay the primary figure (they're what the telemetry records), with hours
+            // alongside so a long run is readable at a glance: "18171s (5.05h)".
+            tvDuration.setText(String.format(Locale.US, "Test Duration: %ds (%.2fh)",
+                    durationSecs, durationSecs / 3600.0));
 
             tvBatStart.setText(String.format("Battery: %.2f%% -> %.2f%%", batteryStart, batteryEnd*100));
 

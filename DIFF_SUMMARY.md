@@ -5,6 +5,65 @@ description of what shipped so the history is not lost when the working tree mov
 
 ---
 
+## 2026-08-30 — Test Duration shows hours; AV2 freeze root-caused to dav2d (host exonerated)
+
+**Theme:** A small results-UI change, plus the host-side conclusion of an AV2 playback
+investigation that turned out not to be a host bug.
+
+### `ui/TestResultsDetailDialog.java`
+
+- Test Duration now reads `18171s (5.05h)` instead of `18171 secs`. Seconds stay the primary
+  figure — they are what the telemetry records — with hours alongside so a long run is legible at
+  a glance. `Locale.US` so the decimal separator matches the `%.2f` usage already in the file.
+
+### AV2-from-IVF freeze — not a host defect
+
+AV2 playback showed the first frame and then froze with the UI still responsive. The host was the
+prime suspect (IVF timebase math, `VcatIvfExtractor`, the sample pipeline) and was cleared:
+
+- `VcatIvfExtractor.toMicros` is correct: `raw × 1e6 × scale / rate`, reading rate at bytes 16–19
+  and scale at 20–23.
+- The test file's header was parsed by hand to confirm the inputs — `DKIF`/`AV02`, 1920×1080 (and
+  a 640×360 sibling), rate 30 / scale 1, 390 frames, first frame pts 0 — so `ptsUs = N × 33333`.
+- On-device tracing showed the host queueing exactly those values to the decoder
+  (`queued_pts=1000000000000, …033333, …066666`; the 1e12 offset is ExoPlayer's normal sample
+  offset).
+
+**The fault is in dav2d**, which has timestamp propagation compiled out (`#if 0` around both
+`dav2d_data_props_copy()` calls in its `src/picture.c`), so every output picture carries
+`INT64_MIN`. ExoPlayer's earliness check `bufferPresentationTimeUs - positionUs` then *overflows*
+into a large positive value, so frames are held rather than dropped — hence
+`video.frames_dropped = 0`, `cpu.usage.total` at 3–9%, and a frozen first frame. Worked around in
+the dav2d plugin by carrying the PTS there; see that repo's DIFF_SUMMARY.
+
+Two host-side notes from the investigation:
+
+- `video.frames_dropped = 0` alongside frozen video is not contradictory — it distinguishes "held
+  by the renderer" from "dropped as late", which is what made the diagnosis tractable. Worth
+  remembering when reading telemetry from a stalled run.
+- The AV2 path had never actually worked end-to-end. The dav2d plugin's "AV1-from-IVF confirmed
+  operational" entry was copied text from the dav1d plugin, so there was no real baseline to
+  regress from.
+
+### Decoder plugin consistency
+
+The dav1d and dav2d plugins were audited file-by-file (identifiers normalized) since the decoders
+are architecturally identical outside codec tools. Two inconsistencies found sit in the **dav1d**
+plugin and affect the host's behavior, so they are recorded here too:
+
+1. **`RunConfig.errorResilient` is inert for AV1.** The host threads the flag through
+   `StrictRenderersFactoryV2` to the api-1.1.0 6-arg `VcatDecoder.createVideoRenderer`, and dav2d
+   honors it, but the dav1d plugin never implements that overload — so the conditions-tab checkbox
+   silently affects AV2 only.
+2. **dav1d lacks dav2d's segment-splice flush.** dav2d detects a subsequent sequence header and
+   flushes so frame-parallel workers quiesce, without which feeding the new-sequence keyframe races
+   the decoder's reference-buffer reset and crashes at `threads > 1`. Playlists splice
+   independently-encoded clips, so AV1 playlists are exposed to the same race.
+
+Neither is fixed yet.
+
+---
+
 ## 2026-08-30 — Playlist UUID identity + telemetry `execution_id`; Resume; CPU/thermal telemetry; error-resilient decode (branch `initial_av2`)
 
 **Theme:** Remove the ambiguity of identifying a playlist by its file name, and identify each
