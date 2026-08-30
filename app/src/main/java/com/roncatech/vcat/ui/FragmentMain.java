@@ -60,6 +60,7 @@ import com.roncatech.vcat.models.ResumeInfo;
 import com.roncatech.vcat.models.SessionHeader;
 import com.roncatech.vcat.models.SharedViewModel;
 import com.roncatech.vcat.tools.BatteryInfo;
+import com.roncatech.vcat.tools.PlaylistConformance;
 import com.roncatech.vcat.tools.CpuInfo;
 import com.roncatech.vcat.tools.DeviceInfo;
 import com.roncatech.vcat.tools.StorageManager;
@@ -67,7 +68,6 @@ import com.roncatech.vcat.video.FullScreenPlayerActivity;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
-import java.util.ArrayList;
 import java.util.List;
 
 public class FragmentMain extends Fragment implements PlaylistUpdates {
@@ -78,19 +78,6 @@ public class FragmentMain extends Fragment implements PlaylistUpdates {
     private SharedViewModel viewModel;
 
     public FragmentMain()  {
-    }
-
-    /** Pre-resolved playlist metadata. {@code DocumentFile.getName()} is a SAF IPC query, so we
-     *  resolve the name/uri once on a background thread and never touch SAF on the UI thread. */
-    private static final class PlaylistEntry {
-        final DocumentFile doc;
-        final String name;
-        final String uriStr;
-        PlaylistEntry(DocumentFile doc, String name, String uriStr) {
-            this.doc = doc;
-            this.name = name;
-            this.uriStr = uriStr;
-        }
     }
 
     private void runOnUiThreadIfAdded(Runnable r) {
@@ -182,23 +169,13 @@ public class FragmentMain extends Fragment implements PlaylistUpdates {
     private void getPlaylistFiles() {
         final Context ctx = requireContext().getApplicationContext();
         new Thread(() -> {
-            List<PlaylistEntry> entries = new ArrayList<>();
-            DocumentFile playlistDir = StorageManager.getFolder(ctx, StorageManager.VCATFolder.PLAYLIST);
-            if (playlistDir != null) {
-                DocumentFile[] files = playlistDir.listFiles();
-                if (files != null) {
-                    for (DocumentFile f : files) {
-                        String name = f.getName();               // one IPC per file
-                        if (name != null && name.endsWith(".xspf")) {
-                            entries.add(new PlaylistEntry(f, name, f.getUri().toString()));
-                        }
-                    }
-                    entries.sort((a, b) -> a.name.compareToIgnoreCase(b.name)); // cached names, no IPC
-                }
-            }
+            // Only conformant playlists are listed: one without an <identifier> has no identity to
+            // record in telemetry, so it is omitted rather than run ambiguously. MainActivity
+            // offers to update those on launch.
+            PlaylistConformance.Scan scan = PlaylistConformance.scan(ctx);
             ResumeInfo resumeInfo = computeResumeInfo(ctx);
 
-            final List<PlaylistEntry> finalEntries = entries;
+            final List<PlaylistConformance.Entry> finalEntries = scan.conformant;
             final ResumeInfo finalResume = resumeInfo;
             runOnUiThreadIfAdded(() -> populatePlaylistTable(finalEntries, finalResume));
         }).start();
@@ -213,7 +190,8 @@ public class FragmentMain extends Fragment implements PlaylistUpdates {
                 SessionHeader sh = SessionHeader.fromLogFile(ctx, latest.getUri());
                 if (sh != null) {
                     return new ResumeInfo(
-                            sh.getSessionInfo().playlist,
+                            sh.getSessionInfo().playlist.id,
+                            sh.getSessionInfo().playlist.name,
                             latest.getUri().toString(),
                             sh.getSessionInfo().start_time.unix_time_ms,
                             lastLogTimestamp,
@@ -225,15 +203,20 @@ public class FragmentMain extends Fragment implements PlaylistUpdates {
         return ResumeInfo.empty;
     }
 
+    /** Re-reads the playlist folder; used after playlists are updated into conformance. */
+    public void refreshPlaylists() {
+        getPlaylistFiles();
+    }
+
     //  Populate Table with Playlist Rows (Single Tap for Menu). UI thread only — no SAF calls.
-    private void populatePlaylistTable(List<PlaylistEntry> entries, ResumeInfo resumeInfo) {
+    private void populatePlaylistTable(List<PlaylistConformance.Entry> entries, ResumeInfo resumeInfo) {
         playlistTable.removeAllViews();
-        for (PlaylistEntry entry : entries) {
+        for (PlaylistConformance.Entry entry : entries) {
             addOnePlaylistTableRow(entry, resumeInfo);
         }
     }
 
-    private void addOnePlaylistTableRow(PlaylistEntry entry, ResumeInfo resumeInfo){
+    private void addOnePlaylistTableRow(PlaylistConformance.Entry entry, ResumeInfo resumeInfo){
         TableRow row = new TableRow(getContext());
 
         TextView playlistText = new TextView(getContext());
@@ -245,17 +228,19 @@ public class FragmentMain extends Fragment implements PlaylistUpdates {
 
         row.addView(playlistText, new TableRow.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
-        String docUriStr = entry.uriStr;
-        if (!docUriStr.isEmpty() && resumeInfo.playlistName.equals(docUriStr)) {
+        // Offer Resume on the playlist whose identity matches the latest log's. Identity, not the
+        // display name this once compared: a name does not survive a rename and is not unique
+        // across folders, so Resume could attach to the wrong playlist or to none at all.
+        if (entry.playlistId.equals(resumeInfo.playlistId)) {
             playlistText.setTag(R.id.resume_info, resumeInfo);
         }
 
-        playlistText.setOnClickListener(v -> showPlaylistOptionsMenu_menu(v, entry.doc));
+        playlistText.setOnClickListener(v -> showPlaylistOptionsMenu_menu(v, entry.doc, entry.playlistId));
 
         playlistTable.addView(row);
     }
 
-    private void showPlaylistOptionsMenu_menu(View view, DocumentFile playlistDoc) {
+    private void showPlaylistOptionsMenu_menu(View view, DocumentFile playlistDoc, String playlistId) {
         if (!isAdded() || getActivity() == null) {
             return;
         }
@@ -293,7 +278,17 @@ public class FragmentMain extends Fragment implements PlaylistUpdates {
                 if ((this.viewModel.getRunConfig().runMode.name().equals("BATTERY")) && (this.viewModel.getRunConfig().runLimit >= (batteryLevel - 1))) {
                     Toast.makeText(requireContext(), "Battery limit must be at least 2% less than the current battery level", Toast.LENGTH_SHORT).show();
                 } else {
-                    this.viewModel.curTestDetails.startTest(playlistDoc.getUri().toString());
+                    String playlistUri = playlistDoc.getUri().toString();
+                    // Hand the resume state to the player (empty for a normal Play).
+                    this.viewModel.resumeInfo = ri;
+                    if (ri != ResumeInfo.empty) {
+                        // Resume: continue the prior run's elapsed clock, excluding the stopped gap
+                        // (effective start = originalStart + gap). Player appends to the same log.
+                        this.viewModel.curTestDetails.startTest(
+                                playlistUri, playlistId, ri.testStartTime + ri.logTimestampOffset);
+                    } else {
+                        this.viewModel.curTestDetails.startTest(playlistUri, playlistId);
+                    }
                     Intent i = new Intent(getActivity(), FullScreenPlayerActivity.class);
                     startActivity(i);
                 }

@@ -114,10 +114,20 @@ public class TestVectorManifests {
         public final String createdAt;
 
         public Header(String name, String description, String createdBy) {
+            this(name, description, createdBy, UUID.randomUUID().toString());
+        }
+
+        /**
+         * @param uuid an identity carried over from elsewhere rather than minted here. Exporting a
+         *            playlist passes its {@code <identifier>} id, so a playlist exported from one
+         *            device and imported on another keeps a single identity and telemetry from both
+         *            devices can be grouped by playlist.
+         */
+        public Header(String name, String description, String createdBy, String uuid) {
             this.name = name;
             this.description = description;
             this.createdBy = createdBy;
-            this.uuid = UUID.randomUUID().toString();
+            this.uuid = uuid != null ? uuid : UUID.randomUUID().toString();
             this.createdAt = java.time.LocalDateTime.now().toString();
         }
 

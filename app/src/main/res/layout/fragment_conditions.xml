@@ -246,6 +246,17 @@ All vcat-d artwork is owned exclusively by RoncaTech LLC. Use of vcat-d logos an
                         android:spinnerMode="dropdown"/>
                 </LinearLayout>
 
+                <!-- Decoder error resilience -->
+                <CheckBox
+                    android:id="@+id/errorResilientCheck"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:layout_marginStart="12dp"
+                    android:layout_marginEnd="12dp"
+                    android:text="Decoder error resilience (skip undecodable frames)"
+                    android:textSize="14sp"/>
+
             </LinearLayout>
         </androidx.cardview.widget.CardView>
 

@@ -53,8 +53,15 @@ public class UriUtils {
     }
 
     public static String fileNameFromURI(String uriString){
-        String[] parts = uriString.split("/");
-        return parts[parts.length - 1];
+        if (uriString == null || uriString.isEmpty()) return "";
+        // Decode so a content:// document URI's %2F-encoded path separators become real '/', then
+        // take the last segment. Without decoding, split("/") returns the whole encoded document id
+        // (e.g. "primary%3Avcat-d%2Fmedia%2Fav2%2Fclip.ivf") — the long string that filled the overlay.
+        String s = Uri.decode(uriString);
+        int frag = s.indexOf('?'); if (frag >= 0) s = s.substring(0, frag);
+        while (s.endsWith("/")) s = s.substring(0, s.length() - 1);
+        int slash = s.lastIndexOf('/');
+        return slash >= 0 ? s.substring(slash + 1) : s;
     }
 
     public static String makeBaseUrlWithUri(String url) {
@@ -120,7 +127,15 @@ public class UriUtils {
      * in the current SAF media tree. Falls back to filename-only lookup if needed.
      */
     public static Uri resolveMediaUri(Context ctx, Uri uri) {
-        if (!"file".equals(uri.getScheme())) return uri;
+        // Re-map both legacy file:// paths AND standalone content:// document URIs to a
+        // tree-derived URI under the current MEDIA tree, so playback relies on the app's PERSISTED
+        // tree grant rather than a per-file grant. Picker-added content:// entries otherwise carry
+        // only a transient grant and fail to open after an app restart/reinstall. Other schemes
+        // (http/https/etc.) pass through untouched.
+        String scheme = uri.getScheme();
+        if (!"file".equals(scheme) && !"content".equals(scheme)) return uri;
+        // For externalstorage document URIs, getPath() decodes the document id (e.g.
+        // "/document/primary:vcat-d/media/av2/clip.ivf"), so the "/media/" split below still works.
         String path = uri.getPath();
         if (path == null) return uri;
 

@@ -119,5 +119,17 @@ public class BatteryInfo {
         return (level * 100) / scale;
     }
 
+    /**
+     * Current battery temperature in °C, read from the ACTION_BATTERY_CHANGED sticky intent
+     * (EXTRA_TEMPERATURE is tenths of a degree C). Returns -1 if unavailable.
+     */
+    public static double getBatteryTemperatureC(Context context) {
+        IntentFilter ifilter = new IntentFilter(Intent.ACTION_BATTERY_CHANGED);
+        Intent status = context.registerReceiver(null, ifilter);
+        if (status == null) return -1;
+        int tenthsC = status.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, Integer.MIN_VALUE);
+        return (tenthsC == Integer.MIN_VALUE) ? -1 : tenthsC / 10.0;
+    }
+
 }
 

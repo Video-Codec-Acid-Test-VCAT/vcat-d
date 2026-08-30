@@ -66,6 +66,7 @@ import com.roncatech.vcat.http.HttpRequestHandler;
 import com.roncatech.vcat.http.HttpServer;
 import com.roncatech.vcat.models.SharedViewModel;
 import com.roncatech.vcat.service.CommandReceiver;
+import com.roncatech.vcat.tools.PlaylistConformance;
 import com.roncatech.vcat.tools.StorageManager;
 
 import java.io.IOException;
@@ -259,6 +260,76 @@ public class MainActivity extends AppCompatActivity {
         bottomNav.setOnItemSelectedListener(this::onNavItemSelected);
 
         hideSystemNavBar();
+
+        verifyPlaylistConformance();
+    }
+
+    /**
+     * Verifies every playlist against the format VCAT requires, on each launch.
+     *
+     * <p>Non-conformant playlists are already omitted from the UI by the listing itself (see
+     * {@link PlaylistConformance}); this prompt exists so a user whose playlists predate playlist
+     * ids is told why they vanished and can restore them in one tap. Declining is allowed — the
+     * playlists simply stay hidden rather than running without an identity to log.
+     */
+    private void verifyPlaylistConformance() {
+        final Context ctx = getApplicationContext();
+        // SAF reads: one open+parse per playlist file, so never on the UI thread.
+        new Thread(() -> {
+            PlaylistConformance.Scan scan = PlaylistConformance.scan(ctx);
+            if (!scan.hasNonConformant()) {
+                return;
+            }
+            runOnUiThread(() -> promptPlaylistUpdate(scan));
+        }).start();
+    }
+
+    private void promptPlaylistUpdate(PlaylistConformance.Scan scan) {
+        if (isFinishing() || isDestroyed()) {
+            return;
+        }
+
+        List<String> names = scan.nonConformantNames();
+        StringBuilder msg = new StringBuilder();
+        msg.append(names.size() == 1
+                ? "This playlist is missing a playlist id and is hidden until updated:\n\n"
+                : names.size() + " playlists are missing a playlist id and are hidden until updated:\n\n");
+        for (String name : names) {
+            msg.append("  • ").append(name).append('\n');
+        }
+        msg.append("\nUpdating adds an id to each file. Playlist contents are not changed.");
+
+        new AlertDialog.Builder(this)
+                .setTitle("Playlists need updating")
+                .setMessage(msg.toString())
+                .setPositiveButton("Update", (dialog, which) -> repairPlaylists(scan))
+                .setNegativeButton("Not now", null)
+                .show();
+    }
+
+    private void repairPlaylists(PlaylistConformance.Scan scan) {
+        final Context ctx = getApplicationContext();
+        final List<PlaylistConformance.Entry> targets = scan.nonConformant;
+        final int attempted = targets.size();
+        // SAF parse + rewrite per file.
+        new Thread(() -> {
+            int repaired = PlaylistConformance.repair(ctx, targets);
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) {
+                    return;
+                }
+                String result = repaired == attempted
+                        ? "Updated " + repaired + " playlist(s)"
+                        : "Updated " + repaired + " of " + attempted + " playlist(s); the rest stay hidden";
+                Toast.makeText(this, result, Toast.LENGTH_LONG).show();
+
+                // Repaired playlists are now conformant, so bring them into the visible list.
+                Fragment current = getSupportFragmentManager().findFragmentById(R.id.fragment_container);
+                if (current instanceof FragmentMain) {
+                    ((FragmentMain) current).refreshPlaylists();
+                }
+            });
+        }).start();
     }
 
     /**

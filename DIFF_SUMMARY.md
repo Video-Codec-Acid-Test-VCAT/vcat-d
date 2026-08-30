@@ -5,6 +5,146 @@ description of what shipped so the history is not lost when the working tree mov
 
 ---
 
+## 2026-08-30 — Playlist UUID identity + telemetry `execution_id`; Resume; CPU/thermal telemetry; error-resilient decode (branch `initial_av2`)
+
+**Theme:** Remove the ambiguity of identifying a playlist by its file name, and identify each
+telemetry file. Six independent change sets that accumulated in one working tree.
+
+### Playlist identity (`<identifier>`) and `execution_id`
+
+The file name was doing the job of an identity: it is not unique across folders, it changes on
+rename, and a telemetry log recording only `"playlist": "av2-1080p30.xspf"` could not say which
+playlist produced it.
+
+- **Playlists carry a UUID.** New `tools/PlaylistIdentity` owns the id format: the XSPF-standard
+  playlist-scope `<identifier>`, whose value the spec requires to be a URI — hence
+  `<identifier>urn:uuid:3f2504e0-…</identifier>`, written as the first child of `<playlist>`,
+  above `<trackList>`. `canonicalize()` rejects values `UUID.fromString` accepts but that would
+  not compare equal later (`1-2-3-4-5`); `canonicalizeOrNew()` is used on every write path so VCAT
+  can never emit a playlist its own reader would reject.
+- **All writers stamp it:** both `XSPFPlaylistCreator` write paths (new `writePlaylistFile`
+  overload taking an explicit id) and `XspfBuilder`. `XspfParser.parseIdentifier` reads it,
+  stopping at `<trackList>` — XSPF allows a per-`<track>` `<identifier>` too, and a track's id is
+  not the playlist's.
+- **Identity is preserved, not re-minted.** Editing a playlist re-reads its id before the
+  delete/recreate save (`PlaylistDialog`), so telemetry from before and after an edit still refers
+  to one playlist. An imported playlist takes its id from the manifest uuid, and
+  `ExportTestVectors` now writes the source playlist's id into the exported manifest header (new
+  4-arg `TestVectorManifests.Header` ctor) — so a playlist exported from one device and imported on
+  another keeps one identity, and telemetry from both devices can be grouped by playlist.
+- **Telemetry header.** `execution_id` (uuid) added immediately after `header_version` at the same
+  scope, minted in `TelemetryLogger.writeHeaderRows`. That placement is what makes it per-file:
+  Resume appends to an existing CSV and skips header writing entirely, so resumed rows stay under
+  the execution_id the file was created with. `session_info.playlist` changed from a bare string to
+  `{"id", "name"}`.
+- **Backward compatible reads.** `SessionInfo` accepts both playlist shapes (legacy string → nil
+  id, name preserved) and `SessionHeader` defaults a missing `execution_id` to the nil uuid, so
+  pre-existing logs still open in the Results tab. The nil UUID
+  (`00000000-0000-0000-0000-000000000000`) is used rather than a non-UUID placeholder so consumers
+  can parse it instead of special-casing it.
+- **Conformance is verified on every launch.** New `tools/PlaylistConformance` partitions the
+  playlist folder by whether each `.xspf` carries a usable id. Non-conformant playlists are
+  **omitted from the UI entirely** — enforced at the listing level in both `FragmentMain` and
+  `FragmentVectorExport`, not by the dialog, so declining the prompt cannot leave a hidden playlist
+  reachable. `MainActivity` prompts with the offending names and offers one-tap repair
+  (`XSPFPlaylistCreator.stampIdentifier`, in-place, `"wt"` to truncate). Repair is per-file, so a
+  partial run is safe to re-attempt next launch. The HTTP/command surface has no playlist-start
+  path, so there is no bypass there.
+- **Resume now matches on identity**, in `FragmentMain` and `FullScreenPlayerActivity`, replacing a
+  display-name comparison that could neither survive a rename nor distinguish same-named playlists
+  in different folders. `ResumeInfo` gains `playlistId`; `TestStatus` gains `playlist_id` (also
+  exposed in the status JSON) and `startTest` takes the id.
+- **Tests:** `PlaylistIdentityTest` (URN round-trip, case/whitespace normalization, rejection of
+  malformed and non-`urn:uuid:` values, write-path guarantees) and `SessionInfoPlaylistTest`
+  (object form, round-trip, legacy bare-string log, missing fields).
+
+### Resume
+
+- `TestStatus.startTest(uri, id, startEpochMs)` takes an explicit effective start —
+  `originalStart + stoppedGap` — so elapsed/run-limit time continues from where the prior run left
+  off with the stopped gap excluded.
+- `TelemetryLogger` takes a `timestampOffsetMs` and subtracts it from logged timestamps, so
+  1h run + 5h stopped + 1h run reads as 2h of test time, not 7h. Duration is measured from the raw
+  clock against the already-shifted effective start, so both reduce to
+  (logged timestamp − original start) — the offset must not be subtracted twice.
+- `FullScreenPlayerActivity` appends to the prior CSV with no second header block, and the resume
+  request is consumed so a later normal Play does not re-resume.
+- Deliberately **no staleness or completion gating** on eligibility: Resume is for continuing a
+  test a short time after stopping it, the offset math is gap-size-agnostic, and the single most
+  recent log is offered regardless of age.
+
+### `cpu.usage.total` — supersedes the 2026-07-09 entry
+
+That fix computed utilization from the system-wide `/proc/stat`. **It never worked:** SELinux
+denies `untrusted_app` read access to `/proc/stat` on modern Android, so every read failed and the
+column was silently pinned at 0.0 — the same symptom the 2026-07-09 entry set out to fix.
+
+- `CpuUsageSampler` now reads **`/proc/self/stat`**. A process's own `/proc/self` entries carry its
+  own domain label and AOSP policy grants `allow domain self:file r_file_perms`, so this is
+  readable on every AOSP-derived device with no kernel-config dependency.
+- Fields 14/15 (`utime`/`stime`) are cumulative for the whole thread group including exited
+  threads, so in-process software decoders (dav1d, vvdec) are fully accounted for. **Hardware
+  decode runs in a separate vendor process and is NOT included.**
+- `usage = 100 × (Δticks / TICKS_PER_SEC) / (Δwall × numCpus)`, wall time from
+  `SystemClock.elapsedRealtimeNanos()` (monotonic — unaffected by clock adjustments during a long
+  run), `TICKS_PER_SEC` from `sysconf(_SC_CLK_TCK)` falling back to 100. Same 0–100 scale as
+  before. Parsing starts after the **last** `)` because field 2 (`comm`) may itself contain spaces
+  or `)`.
+- Primed in the constructor so the first row reports a real value, capped at 100 for tick
+  quantization, and a 250 ms minimum interval returns the previous value — rows are also logged
+  out-of-band (end of file, resume), which can land two samples close together.
+- **Note for comparisons:** logs written before this change have an all-zero `cpu.usage.total` and
+  cannot serve as a baseline.
+
+### Error-resilient decoding
+
+- New `RunConfig.errorResilient`, **default off** so a decode error still fails the run and
+  surfaces bad content. Included in `equals`/`hashCode`/comparator/copy-ctor.
+- Checkbox in the conditions tab (`fragment_conditions.xml`, `FragmentTestConditions`).
+- Threaded through `StrictRenderersFactoryV2` to a new **default 6-arg**
+  `VcatDecoder.createVideoRenderer` overload that delegates to the 5-arg form, so existing decoders
+  need no change; decoders that honor the flag override it.
+- **`decoder-plugin-api` `1.0.4 → 1.1.0`** — the one change here with an external consumer.
+
+### Thermal / battery overlay
+
+- `BatteryInfo.getBatteryTemperatureC` (from the `ACTION_BATTERY_CHANGED` sticky intent,
+  `EXTRA_TEMPERATURE` is tenths °C, −1 when unavailable).
+- Player overlay tracks battery temp and `PowerManager.getCurrentThermalStatus()` (0–6, the only
+  system thermal metric available to an app) as session cur:max, so the reading reflects the whole
+  run regardless of when the overlay is opened.
+
+### URI handling
+
+- `UriUtils.fileNameFromURI` decodes before splitting: without it, `split("/")` on a `content://`
+  document URI returned the whole encoded document id
+  (`primary%3Avcat-d%2Fmedia%2Fav2%2Fclip.ivf`) — the long string that filled the overlay. Also
+  strips a query and trailing slashes, and handles null/empty.
+- `UriUtils.resolveMediaUri` re-maps standalone `content://` document URIs as well as legacy
+  `file://` paths onto the current MEDIA tree, so playback relies on the app's **persisted tree
+  grant** rather than a per-file grant. Picker-added `content://` entries otherwise carry only a
+  transient grant and fail to open after a restart or reinstall. Other schemes pass through.
+
+### Player controller UX
+
+- `setControllerAutoShow(false)` + start hidden, so the controller and its synced overlay appear
+  only on a screen touch rather than at playback start and at each playlist item.
+
+### Verification
+
+- `./gradlew compileDebugJavaWithJavac` clean; full unit suite passes.
+- **On-device (CPH2629, Android 15, debug build):** all 35 previously-unstamped playlists were
+  hidden, the launch prompt listed them, and one tap stamped all 35 with **35 distinct** ids,
+  correctly placed above `<trackList>` with track locations preserved. The run logged during that
+  session shows `execution_id` after `header_version` and `playlist: {id, name}`, with the logged
+  `playlist.id` matching the stamped file's id exactly.
+- Release build (unsigned by config — no release `signingConfig`; signed with the debug keystore
+  for testing) installed on SM-S938U1, Android 16.
+- **Not yet verified:** Resume end-to-end — stopping a run and resuming it, then confirming the
+  appended rows stay under the original `execution_id` with no second header block.
+
+---
+
 ## 2026-08-15 — IVF playlist support + playlist save/refresh ANR & folder fixes (branch `codec_plugin_refactor`)
 
 **Theme:** Make IVF usable end-to-end from the UI, and fix playlist save regressions surfaced

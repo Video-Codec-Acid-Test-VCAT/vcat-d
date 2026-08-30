@@ -33,6 +33,7 @@
 package com.roncatech.vcat.ui;
 
 import android.app.AlertDialog;
+import android.content.Context;
 import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -53,9 +54,8 @@ import androidx.documentfile.provider.DocumentFile;
 
 import com.roncatech.vcat.R;
 import com.roncatech.vcat.test_vectors.ExportTestVectors;
-import com.roncatech.vcat.tools.StorageManager;
+import com.roncatech.vcat.tools.PlaylistConformance;
 
-import java.util.ArrayList;
 import java.util.List;
 
 public class FragmentVectorExport extends Fragment implements ExportTestVectorsDialog.Listener {
@@ -98,35 +98,31 @@ public class FragmentVectorExport extends Fragment implements ExportTestVectorsD
     }
 
     private void loadPlaylists() {
-        DocumentFile playlistDir = StorageManager.getFolder(requireContext(), StorageManager.VCATFolder.PLAYLIST);
-
         tableExport.removeAllViews();
         selectedPlaylist = null;
         selectedRow = null;
         btnExport.setEnabled(false);
 
-        if (playlistDir == null) return;
+        final Context ctx = requireContext().getApplicationContext();
+        // Non-conformant playlists are omitted here as they are in the Playlists tab: exporting one
+        // would propagate a playlist with no identity. The scan reads every playlist file (SAF
+        // IPC), so it runs off the UI thread and the table is built from its result.
+        new Thread(() -> {
+            final List<PlaylistConformance.Entry> entries = PlaylistConformance.scan(ctx).conformant;
+            if (!isAdded() || getActivity() == null) return;
+            getActivity().runOnUiThread(() -> populateExportTable(entries));
+        }).start();
+    }
 
-        DocumentFile[] allFiles = playlistDir.listFiles();
-        if (allFiles == null || allFiles.length == 0) return;
+    // UI thread only — entries carry pre-resolved names, so no SAF calls here.
+    private void populateExportTable(List<PlaylistConformance.Entry> entries) {
+        if (!isAdded() || tableExport == null) return;
 
-        List<DocumentFile> xspfFiles = new ArrayList<>();
-        for (DocumentFile f : allFiles) {
-            String name = f.getName();
-            if (name != null && name.toLowerCase().endsWith(".xspf")) {
-                xspfFiles.add(f);
-            }
-        }
-        if (xspfFiles.isEmpty()) return;
-
-        xspfFiles.sort((a, b) -> {
-            String na = a.getName() != null ? a.getName() : "";
-            String nb = b.getName() != null ? b.getName() : "";
-            return na.compareToIgnoreCase(nb);
-        });
+        tableExport.removeAllViews();
 
         LayoutInflater inflater = getLayoutInflater();
-        for (DocumentFile f : xspfFiles) {
+        for (PlaylistConformance.Entry entry : entries) {
+            final DocumentFile f = entry.doc;
             TableRow row = (TableRow) inflater.inflate(
                     R.layout.row_test_vector, tableExport, false);
 
@@ -134,7 +130,7 @@ public class FragmentVectorExport extends Fragment implements ExportTestVectorsD
             cb.setChecked(false);
 
             TextView tv = row.findViewById(R.id.tvRowText);
-            tv.setText(f.getName());
+            tv.setText(entry.name);
 
             row.setTag(f);
 

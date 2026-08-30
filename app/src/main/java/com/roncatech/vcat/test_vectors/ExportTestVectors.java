@@ -110,6 +110,10 @@ public class ExportTestVectors {
                 List<Uri> mediaUris = XspfParser.parsePlaylist(context, playlistUri);
                 if (mediaUris.isEmpty()) throw new IOException("No media files found in playlist");
 
+                // Carry the source playlist's identity into the exported manifest so importing it
+                // elsewhere reproduces the same playlist id rather than minting a new one.
+                String playlistId = XspfParser.parseIdentifier(context, playlistUri);
+
                 Gson gson = new GsonBuilder().setPrettyPrinting().create();
                 List<TestVectorManifests.PlaylistAsset> playlistAssets = new ArrayList<>();
 
@@ -156,7 +160,8 @@ public class ExportTestVectors {
 
                 TestVectorManifests.PlaylistManifest playlistManifest =
                         new TestVectorManifests.PlaylistManifest(
-                                new TestVectorManifests.Header(vectorName, description, createdBy),
+                                new TestVectorManifests.Header(vectorName, description, createdBy,
+                                        playlistId),
                                 playlistAssets);
 
                 String playlistManifestName = safeName + "_playlist.json";

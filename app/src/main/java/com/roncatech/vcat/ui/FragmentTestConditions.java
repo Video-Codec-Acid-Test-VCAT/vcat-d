@@ -85,6 +85,7 @@ public class FragmentTestConditions extends Fragment {
     EditText httpPortEditText;
 
     private Spinner videoOrientationSpinner;
+    private CheckBox errorResilientCheck;
 
     ImageButton aboutButton;
 
@@ -234,6 +235,14 @@ public class FragmentTestConditions extends Fragment {
                 @Override public void onNothingSelected(AdapterView<?> parent) {}
             });
 
+        }
+
+        // Decoder error resilience toggle
+        errorResilientCheck = view.findViewById(R.id.errorResilientCheck);
+        if (errorResilientCheck != null) {
+            errorResilientCheck.setChecked(runConfig.errorResilient);
+            errorResilientCheck.setOnCheckedChangeListener(
+                    (buttonView, isChecked) -> runConfig.errorResilient = isChecked);
         }
 
         // ✅ Radio Buttons for Run Mode

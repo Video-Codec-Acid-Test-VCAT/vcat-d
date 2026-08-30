@@ -539,8 +539,12 @@ public class FragmentVectorImport extends Fragment implements OpenCatalogDialog.
                         if (playlistDir != null) {
                             DocumentFile newXspf = playlistDir.createFile("application/xspf+xml", xspfName);
                             if (newXspf != null) {
+                                // Identity comes from the manifest, so an imported playlist and
+                                // the manifest it came from share one id — and a playlist exported
+                                // from another device keeps the id it had there.
                                 XSPFPlaylistCreator.writePlaylistFile(
-                                        requireContext(), newXspf.getUri(), playlistFiles);
+                                        requireContext(), newXspf.getUri(), playlistFiles,
+                                        manifest.header.uuid);
                             }
                         }
                         main.post(() -> {

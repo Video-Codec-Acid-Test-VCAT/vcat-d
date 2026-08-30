@@ -79,4 +79,41 @@ public class XspfParser {
         }
         return uris;
     }
+
+    /**
+     * Reads the playlist-scope {@code <identifier>} and returns the playlist id it carries.
+     *
+     * <p>Scanning stops at {@code <trackList>}: XSPF permits an {@code <identifier>} inside each
+     * {@code <track>} too, and a track's identifier is not the playlist's.
+     *
+     * @return the bare UUID, or null if the playlist has no conformant identifier (missing element,
+     *         a non-{@code urn:uuid:} value, or an unreadable file).
+     */
+    public static String parseIdentifier(Context context, Uri playlistUri) {
+        XmlPullParser parser = Xml.newPullParser();
+        try (InputStream in = context.getContentResolver().openInputStream(playlistUri)) {
+            if (in == null) {
+                Log.w(TAG, "Unable to open URI: " + playlistUri);
+                return null;
+            }
+            parser.setFeature(XmlPullParser.FEATURE_PROCESS_NAMESPACES, false);
+            parser.setInput(in, "UTF-8");
+            int eventType = parser.getEventType();
+            while (eventType != XmlPullParser.END_DOCUMENT) {
+                if (eventType == XmlPullParser.START_TAG) {
+                    String tag = parser.getName();
+                    if ("trackList".equals(tag)) {
+                        break;
+                    }
+                    if ("identifier".equals(tag) && parser.next() == XmlPullParser.TEXT) {
+                        return PlaylistIdentity.fromUrn(parser.getText());
+                    }
+                }
+                eventType = parser.next();
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error reading identifier from playlist " + playlistUri, e);
+        }
+        return null;
+    }
 }

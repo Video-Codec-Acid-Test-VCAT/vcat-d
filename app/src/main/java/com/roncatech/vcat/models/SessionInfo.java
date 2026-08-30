@@ -41,12 +41,14 @@ import android.os.BatteryManager;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.google.gson.TypeAdapter;
 import com.google.gson.annotations.SerializedName;
 import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonWriter;
+import com.roncatech.vcat.tools.PlaylistIdentity;
 
 import java.io.IOException;
 import java.time.Instant;
@@ -60,7 +62,7 @@ public class SessionInfo {
     public final Battery battery;
 
     @SerializedName("playlist")
-    public final String playlist;
+    public final Playlist playlist;
 
     @SerializedName("start_time")
     public final StartTime start_time;
@@ -84,6 +86,40 @@ public class SessionInfo {
     @Override
     public int hashCode() {
         return Objects.hash(this.vcat_version, this.playlist, this.battery, this.start_time);
+    }
+
+    /**
+     * The playlist a run was launched from, recorded as identity plus display name.
+     *
+     * <p>This replaced a bare file-name string: a name is not unique across folders and changes
+     * when a playlist is renamed, so it could not answer "which playlist produced this log". The
+     * {@code id} is the playlist's {@code <identifier>} (see
+     * {@link com.roncatech.vcat.tools.PlaylistIdentity}); {@code name} is kept for display only.
+     */
+    public static class Playlist {
+        @SerializedName("id")
+        public final String id;
+
+        @SerializedName("name")
+        public final String name;
+
+        public Playlist(String id, String name) {
+            this.id = id != null ? id : PlaylistIdentity.NIL;
+            this.name = name != null ? name : "";
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) return true;
+            if (!(o instanceof Playlist)) return false;
+            Playlist that = (Playlist) o;
+            return this.id.equals(that.id) && this.name.equals(that.name);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(this.id, this.name);
+        }
     }
 
     public static class StartTime {
@@ -160,7 +196,7 @@ public class SessionInfo {
         }
     }
 
-    public SessionInfo(Context context, long startTime, String playlist, double initial_level_pct, long capacity_ma) {
+    public SessionInfo(Context context, long startTime, Playlist playlist, double initial_level_pct, long capacity_ma) {
 
         this.start_time = new StartTime(startTime);
         this.vcat_version = getAppVersion(context);
@@ -168,7 +204,7 @@ public class SessionInfo {
         this.playlist = playlist;
     }
 
-    public SessionInfo(StartTime start_Time, String vcat_version, Battery battery, String playlist){
+    public SessionInfo(StartTime start_Time, String vcat_version, Battery battery, Playlist playlist){
         this.start_time = start_Time;
         this.vcat_version = vcat_version;
         this.battery = battery;
@@ -195,6 +231,27 @@ public class SessionInfo {
         }
     }
 
+    /**
+     * Reads either playlist shape: the current object form, or the pre-identifier bare string that
+     * held just a file name. Logs written before playlists carried an id therefore still parse,
+     * with a nil id — which is what keeps existing test results readable in the Results tab.
+     */
+    private static Playlist readPlaylist(JsonElement el) {
+        if (el == null || el.isJsonNull()) {
+            return new Playlist(PlaylistIdentity.NIL, "");
+        }
+        if (el.isJsonObject()) {
+            JsonObject o = el.getAsJsonObject();
+            JsonElement idEl = o.get("id");
+            JsonElement nameEl = o.get("name");
+            return new Playlist(
+                    idEl != null && !idEl.isJsonNull() ? idEl.getAsString() : PlaylistIdentity.NIL,
+                    nameEl != null && !nameEl.isJsonNull() ? nameEl.getAsString() : "");
+        }
+        // Legacy: "playlist": "av2-1080p30.xspf"
+        return new Playlist(PlaylistIdentity.NIL, el.getAsString());
+    }
+
     public static final TypeAdapter<SessionInfo> TYPE_ADAPTER =
             new TypeAdapter<SessionInfo>() {
                 @Override
@@ -209,8 +266,12 @@ public class SessionInfo {
                     out.name("initial_level_pct").value(src.battery.initial_level_pct);
                     out.endObject();
 
-                    // 2) playlist
-                    out.name("playlist").value(src.playlist);
+                    // 2) playlist — object form: {"id", "name"}
+                    out.name("playlist");
+                    out.beginObject();
+                    out.name("id").value(src.playlist.id);
+                    out.name("name").value(src.playlist.name);
+                    out.endObject();
 
                     // 3) start_time
                     out.name("start_time");
@@ -237,7 +298,7 @@ public class SessionInfo {
                             batJ.get("initial_level_pct").getAsDouble()
                     );
 
-                    String play = o.get("playlist").getAsString();
+                    Playlist play = readPlaylist(o.get("playlist"));
 
                     JsonObject stJ = o.getAsJsonObject("start_time");
                     StartTime st = new StartTime(

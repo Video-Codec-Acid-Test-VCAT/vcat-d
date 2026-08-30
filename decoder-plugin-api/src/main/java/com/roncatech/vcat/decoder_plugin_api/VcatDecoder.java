@@ -66,6 +66,25 @@ public interface VcatDecoder {
             int threads
     ) throws DecoderException;
 
+    /**
+     * Run-condition-aware overload. The host calls this; the default delegates to the 5-arg form
+     * (ignoring the flags), so existing decoders need no change. Decoders that honor a flag override
+     * this method.
+     *
+     * @param errorResilient when {@code true}, the decoder should skip frames it cannot decode and
+     *                       keep playing instead of raising a fatal error.
+     */
+    default Renderer createVideoRenderer(
+            Context context,
+            long allowedJoiningTimeMs,
+            Handler eventHandler,
+            VideoRendererEventListener eventListener,
+            int threads,
+            boolean errorResilient
+    ) throws DecoderException {
+        return createVideoRenderer(context, allowedJoiningTimeMs, eventHandler, eventListener, threads);
+    }
+
     default boolean supports(String mime) {
         return getMimeType().equals(mime);
     }

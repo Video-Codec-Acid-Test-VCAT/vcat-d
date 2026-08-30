@@ -80,10 +80,12 @@ import com.google.android.exoplayer2.ui.PlayerView;
 import com.google.android.exoplayer2.video.VideoSize;
 import com.roncatech.vcat.models.TestStatus;
 import com.roncatech.vcat.models.RunConfig;
+import com.roncatech.vcat.models.ResumeInfo;
 import com.roncatech.vcat.models.SharedViewModel;
 import com.roncatech.vcat.service.PlayerCommandBus;
 import com.roncatech.vcat.telemetry.TelemetryLogger;
 import com.roncatech.vcat.tools.BatteryInfo;
+import com.roncatech.vcat.tools.PlaylistIdentity;
 import com.roncatech.vcat.tools.UriUtils;
 import com.roncatech.vcat.tools.VideoDecoderEnumerator;
 import com.roncatech.vcat.tools.XspfParser;
@@ -107,6 +109,11 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
 
     private List<Uri> testClips;
     private int curFileIndex;
+
+    // Session cur/max for the status overlay. Battery temp in °C; system value is the
+    // PowerManager thermal status (0–6) — the only system-thermal metric available to an app.
+    private double curBatteryTempC = 0, maxBatteryTempC = 0;
+    private int curSysThermal = 0, maxSysThermal = 0;
 
     private TelemetryLogger tl;
 
@@ -442,6 +449,9 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
         playerView.setUseController(true);
         playerView.setControllerShowTimeoutMs(3000);
         playerView.setControllerHideOnTouch(true);
+        // Don't auto-reveal the controller when playback starts / each playlist item begins;
+        // it should only appear on a screen touch.
+        playerView.setControllerAutoShow(false);
 
         // Keep the overlay in lockstep with the controller visibility
         playerView.setControllerVisibilityListener(new PlayerControlView.VisibilityListener() {
@@ -451,8 +461,8 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
             }
         });
 
-        // Optional: start with controller visible so buttons appear initially
-        playerView.showController();
+        // Start with the controller (and the synced overlay) hidden; a screen touch reveals it.
+        playerView.hideController();
 
         // Wire button actions
         stopButton.setOnClickListener(v -> stopTestAndCleanup());
@@ -460,14 +470,34 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
             onToggleVideoInfo();
         });
 
-        // setup telemetry file
-        long startTime = System.currentTimeMillis();
-        String telemetryFileName = "vcatd_log_" + startTime + ".csv";
+        // setup telemetry file. On Resume, append to the prior run's CSV (no new header block);
+        // otherwise create a fresh vcatd_log_<start>.csv with header rows.
+        ResumeInfo resume = viewModel.resumeInfo;
+        // Confirm the Resume targets the same playlist the prior run used, by identity. This
+        // compared display names before playlists carried ids, and a bare name could neither
+        // survive a rename nor distinguish same-named playlists in different folders.
+        String playlistId = viewModel.curTestDetails.getPlaylistId();
+        boolean resuming = resume != null && resume != ResumeInfo.empty
+                && !PlaylistIdentity.isNilOrEmpty(playlistId)
+                && playlistId.equals(resume.playlistId);
+        // Effective start (set by TestStatus.startTest): "now" for Play, originalStart+gap for Resume.
+        long startTime = viewModel.curTestDetails.getStartTimeAsEpoch();
+        String telemetryFileName = resuming
+                ? UriUtils.fileNameFromURI(resume.logFileUri)
+                : "vcatd_log_" + startTime + ".csv";
 
-        this.tl = new TelemetryLogger(this, telemetryFileName);
+        // On Resume, shift logged timestamps back by the stopped gap so a 1h run + 5h stopped + 1h
+        // run reads as 2h of elapsed test time, not 7h.
+        this.tl = new TelemetryLogger(this, telemetryFileName,
+                resuming ? resume.logTimestampOffset : 0L);
 
-        this.tl.writeHeaderRows(this, viewModel.curTestDetails.getPlaylistFileName(), this.viewModel.getRunConfig(), startTime);
-        this.tl.writeCsvHeader();
+        if (!resuming) {
+            this.tl.writeHeaderRows(this, playlistId, viewModel.curTestDetails.getPlaylistFileName(),
+                    this.viewModel.getRunConfig(), startTime);
+            this.tl.writeCsvHeader();
+        }
+        // Consume the one-shot resume request so a subsequent normal Play doesn't re-resume.
+        viewModel.resumeInfo = ResumeInfo.empty;
 
         testClips = XspfParser.parsePlaylist(this, Uri.parse(viewModel.curTestDetails.getPlaylist()));
         for (int i = 0; i < testClips.size(); i++) {
@@ -705,6 +735,14 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
                     vi.fps));
         }
 
+        // Track battery temp (°C) and system thermal status each tick, keeping the session max,
+        // so the overlay's cur:max reflects the whole run regardless of when it's opened.
+        curBatteryTempC = BatteryInfo.getBatteryTemperatureC(this);
+        if (curBatteryTempC > maxBatteryTempC) maxBatteryTempC = curBatteryTempC;
+        android.os.PowerManager pm = getSystemService(android.os.PowerManager.class);
+        curSysThermal = (pm != null) ? pm.getCurrentThermalStatus() : 0;
+        if (curSysThermal > maxSysThermal) maxSysThermal = curSysThermal;
+
         // if video overlay is vidible, populate
         if (this.videoOverlay != null && this.videoOverlay.getVisibility() == View.VISIBLE) {
             this.videoOverlay.setText(String.format(Locale.US,
@@ -718,7 +756,8 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
                             "Framerate: %.2f fps\n"+
                             "Display: %d%%\n" +
                             "Run Mode: %s\n" +
-                            "Battery Level: %d%%\n"+
+                            "Battery: %d%% %.1f:%.1f\n"+
+                            "System Thermal Status: %d:%d\n"+
                             "Run Duration: %s",
                     UriUtils.fileNameFromURI(vi.fileName),
                     vi.width,
@@ -732,6 +771,8 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
                     this.viewModel.getRunConfig().screenBrightness,
                     this.viewModel.getRunConfig().runModeStr(),
                     (int) BatteryInfo.getBatteryLevel(this),
+                    curBatteryTempC, maxBatteryTempC,
+                    curSysThermal, maxSysThermal,
                     this.viewModel.curTestDetails.getElapsedSinceStartHms()
             ));
         }
@@ -794,8 +835,10 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
         // Frame rate (may be <= 0 if unspecified in the container)
         float fps = fmt.frameRate > 0 ? fmt.frameRate : -1f;
 
+        // Log the display name, not the raw URI: a SAF content:// URI is an opaque, percent-encoded
+        // document id that makes test.filename unreadable in the results CSV and the overlay.
         TelemetryLogger.VideoInfo vi = new TelemetryLogger.VideoInfo(
-                /* path     = */ videoFileUri.toString(),
+                /* path     = */ UriUtils.fileNameFromURI(videoFileUri.toString()),
                 /* width    = */ width,
                 /* height   = */ height,
                 /* mimeType = */ mime,

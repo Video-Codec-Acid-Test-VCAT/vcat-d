@@ -41,6 +41,9 @@ import android.net.Uri;
 import android.os.BatteryManager;
 import android.os.Build;
 import android.os.PowerManager;
+import android.os.SystemClock;
+import android.system.Os;
+import android.system.OsConstants;
 import android.util.Log;
 
 import androidx.documentfile.provider.DocumentFile;
@@ -64,6 +67,7 @@ import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.UUID;
 import java.util.Map;
 
 /**
@@ -109,7 +113,9 @@ public class TelemetryLogger {
     private final String csvFileName;
     private DocumentFile csvDocFile;
     private final int numCpus;
-    private final CpuUsageSampler cpuSampler = new CpuUsageSampler();
+    private final CpuUsageSampler cpuSampler;
+    /** Resume: ms spent stopped, subtracted from logged timestamps. 0 for a normal start. */
+    private final long timestampOffsetMs;
 
     public static class VideoInfo{
         public final String fileName;
@@ -144,9 +150,21 @@ public class TelemetryLogger {
     }
 
     public TelemetryLogger(Context ctx, String csvFileName){
+        this(ctx, csvFileName, 0L);
+    }
+
+    /**
+     * @param timestampOffsetMs on Resume, the accumulated stopped-gap in ms; subtracted from
+     *                          {@code test.timestamp} so the logged clock continues from where the
+     *                          prior run left off instead of jumping by the time spent stopped.
+     *                          0 for a normal start.
+     */
+    public TelemetryLogger(Context ctx, String csvFileName, long timestampOffsetMs){
         this.ctx = ctx.getApplicationContext();
         this.csvFileName = csvFileName;
+        this.timestampOffsetMs = timestampOffsetMs;
         this.numCpus = getTotalCpus();
+        this.cpuSampler = new CpuUsageSampler(this.numCpus);
     }
 
     private DocumentFile getOrCreateCsvDocFile() {
@@ -237,9 +255,14 @@ public class TelemetryLogger {
     public void logTelemetryRow(Context ct, long startTimeMS, VideoInfo vi, Integer frameDrops, boolean isResume, boolean isEndOfCurFile){
         Map<Column, Object> row = initRow(this.numCpus);
 
-        Long curTime = System.currentTimeMillis();
+        // Two clocks, deliberately: the logged timestamp is shifted back by the resume gap so the
+        // series is continuous across a stop/resume, while duration is measured from the raw clock
+        // against the already-gap-shifted effective start (TestStatus.startTest). Both therefore
+        // reduce to (logged timestamp − original start) — do not subtract the offset twice.
+        long rawNow = System.currentTimeMillis();
+        Long curTime = rawNow - this.timestampOffsetMs;
         row.put(Column.TEST_TIMESTAMP, curTime.toString());
-        row.put(Column.TEST_DURATION, Long.toString(curTime - startTimeMS));
+        row.put(Column.TEST_DURATION, Long.toString(rawNow - startTimeMS));
         row.put(Column.TEST_RESTART, Boolean.toString(isResume));
         row.put(Column.TEST_FILENAME, vi.fileName);
         row.put(Column.TEST_END_OF_CUR_FILE, Boolean.toString(isEndOfCurFile));
@@ -280,8 +303,8 @@ public class TelemetryLogger {
         row.put(Column.VIDEO_CODEC_NAME, vi.codec);
         row.put(Column.VIDEO_FRAMERATE, Float.toString(vi.fps));
 
-        // System-wide CPU utilization (0–100%) from /proc/stat, sampled once per telemetry
-        // interval so each row's delta spans exactly one interval. First row emits 0.0.
+        // vcat's own CPU utilization (0–100% of total device capacity) from /proc/self/stat,
+        // sampled once per telemetry interval so each row's delta spans exactly one interval.
         double cpuUsageTotal = this.cpuSampler.sample();
         row.put(Column.CPU_USAGE_TOTAL, String.format(Locale.US, "%.1f", cpuUsageTotal));
         row.put(Column.BATTERY_LEVEL, batLevelPcnt.toString());
@@ -395,95 +418,153 @@ public class TelemetryLogger {
     }
 
     /**
-     * System-wide CPU utilization sampler backed by {@code /proc/stat}, computed identically to
-     * vcat-web's {@code get_cpu_stats()}.
+     * CPU utilization sampler for the vcat process, backed by {@code /proc/self/stat}.
      *
-     * <p>The aggregate {@code cpu} line already sums every core; its columns are
-     * {@code user nice system idle iowait irq softirq steal guest guest_nice}. A percentage
-     * requires two samples one interval apart, so we retain the previous read and compute a
-     * delta against it:
+     * <p>This deliberately does NOT use the system-wide {@code /proc/stat}: SELinux denies
+     * {@code untrusted_app} read access to it on modern Android, so every read failed and the
+     * column was silently pinned to 0.0. A process's own {@code /proc/self} entries carry the
+     * process's own domain label and AOSP policy grants {@code allow domain self:file
+     * r_file_perms}, so {@code /proc/self/stat} is readable on every AOSP-derived device with no
+     * kernel config dependency.
+     *
+     * <p>Fields 14 ({@code utime}) and 15 ({@code stime}) are cumulative clock ticks for the whole
+     * thread group — including threads that have already exited — so in-process software decoders
+     * (dav1d, vvdec) are fully accounted for. Work performed by a hardware decoder runs in a
+     * separate vendor process and is therefore NOT included in this figure.
+     *
+     * <p>A percentage requires two samples an interval apart, so the previous read is retained and
+     * a delta computed against it:
      * <pre>
-     *   deltaTotal = sum(all columns now) − sum(all columns prev)
-     *   deltaIdle  = idle_now − idle_prev            (idle = the 4th value column; iowait excluded)
-     *   usage      = 100 * (1 − deltaIdle / deltaTotal)   (rounded to 1 decimal)
+     *   deltaCpuSeconds  = (utime + stime now − prev) / TICKS_PER_SEC
+     *   deltaWallSeconds = (elapsedRealtimeNanos now − prev) / 1e9
+     *   usage            = 100 * deltaCpuSeconds / (deltaWallSeconds * numCpus)
      * </pre>
-     * The result is 0–100 as a fraction of total capacity across all cores (no division by core
-     * count). The first sample — and any non-positive delta — yields 0.0.
+     * The result is 0–100 as a fraction of total device capacity across all cores, matching the
+     * scale this column used previously. Wall time comes from
+     * {@link SystemClock#elapsedRealtimeNanos()} — monotonic, and unaffected by wall-clock
+     * adjustments during a long run.
      *
-     * <p>Per-core values are intentionally not collected: an unprivileged app cannot reliably
-     * read the per-core {@code cpuN} lines without root, so only the aggregate is reported.
+     * <p>Per-core values are not available: the per-core {@code cpuN} lines live in the same
+     * unreadable {@code /proc/stat}, and the cgroup cpuacct fallbacks are gone on current Android.
      */
     public static class CpuUsageSampler {
         private static final String TAG = "CpuUsageSampler";
 
-        // 0-based index (within a cpu line's value columns) of the idle field. iowait is 4.
-        private static final int IDLE_COLUMN = 3;
-
-        /** Previous read of the aggregate cpu line: {sumOfAllColumns, idle}. */
-        private long[] prev = null;
+        /** USER_HZ — the unit of the utime/stime fields in /proc/self/stat. */
+        private static final long TICKS_PER_SEC = clockTicksPerSecond();
 
         /**
-         * Read {@code /proc/stat} and compute aggregate CPU utilization (0–100%) since the
-         * previous call. Should be invoked once per telemetry interval so each delta spans
-         * exactly one interval. Returns 0.0 on the first sample.
+         * Intervals shorter than this can't be measured meaningfully against a 10ms tick, so the
+         * previous value is reported instead. Telemetry normally ticks every 30s–5min, but rows
+         * are also logged out-of-band (end of file, resume), which can land two samples close
+         * together.
          */
-        public synchronized double sample() {
-            long[] cur = readAggregateCpu();
-            double usage = 0.0;
-            if (prev != null && cur != null) {
-                long deltaTotal = cur[0] - prev[0];
-                long deltaIdle  = cur[1] - prev[1];
-                if (deltaTotal > 0) {
-                    usage = 100.0 * (1.0 - (double) deltaIdle / (double) deltaTotal);
-                    usage = Math.round(usage * 10.0) / 10.0;
-                }
-            }
-            if (cur != null) {
-                prev = cur;
-            }
-            return usage;
+        private static final long MIN_INTERVAL_NANOS = 250_000_000L;
+
+        private final int numCpus;
+
+        /** Cumulative utime+stime in ticks at the previous sample; -1 until primed. */
+        private long prevTicks = -1L;
+        /** Monotonic timestamp captured alongside prevTicks. */
+        private long prevNanos = 0L;
+        /** Last computed utilization, reported when an interval is too short to measure. */
+        private double lastUsage = 0.0;
+
+        public CpuUsageSampler(int numCpus) {
+            this.numCpus = Math.max(1, numCpus);
+            // Prime immediately so the first logged row spans construction→first row and reports
+            // a real value rather than a placeholder 0.0.
+            sample();
         }
 
-        /** Parse the aggregate {@code cpu} line of /proc/stat into {sumOfAllColumns, idle}. */
-        private static long[] readAggregateCpu() {
-            try (BufferedReader br = new BufferedReader(new FileReader("/proc/stat"))) {
-                String line;
-                while ((line = br.readLine()) != null) {
-                    // The aggregate line is exactly "cpu" (per-core lines are "cpu0", "cpu1", …).
-                    if (!line.startsWith("cpu ") && !line.startsWith("cpu\t")) continue;
-                    String[] parts = line.trim().split("\\s+");
-                    if (parts.length < 2) return null;
-                    long sum = 0L;
-                    long idle = 0L;
-                    // parts[0] is the "cpu" label; value columns start at parts[1].
-                    for (int i = 1; i < parts.length; i++) {
-                        long v;
-                        try {
-                            v = Long.parseLong(parts[i]);
-                        } catch (NumberFormatException e) {
-                            continue;
-                        }
-                        sum += v;
-                        if (i - 1 == IDLE_COLUMN) idle = v;
-                    }
-                    return new long[]{sum, idle};
+        /**
+         * Read {@code /proc/self/stat} and compute this process's CPU utilization (0–100% of total
+         * device capacity) since the previous call. Should be invoked once per telemetry interval
+         * so each delta spans exactly one interval.
+         */
+        public synchronized double sample() {
+            long ticks = readSelfCpuTicks();
+            // Timestamp as close to the read as possible so the delta pairs with the tick delta.
+            long nanos = SystemClock.elapsedRealtimeNanos();
+
+            if (ticks < 0) return lastUsage;
+
+            if (prevTicks >= 0) {
+                long deltaNanos = nanos - prevNanos;
+                if (deltaNanos < MIN_INTERVAL_NANOS) {
+                    // Leave prev untouched so the next sample spans a measurable window.
+                    return lastUsage;
                 }
-            } catch (IOException e) {
-                Log.e(TAG, "Failed to read /proc/stat: " + e.getLocalizedMessage());
+                long deltaTicks = ticks - prevTicks;
+                if (deltaTicks >= 0) {
+                    double cpuSeconds  = (double) deltaTicks / TICKS_PER_SEC;
+                    double wallSeconds = deltaNanos / 1_000_000_000.0;
+                    double usage = 100.0 * cpuSeconds / (wallSeconds * numCpus);
+                    // Tick quantization can nudge a fully-saturated interval just past 100.
+                    lastUsage = Math.min(100.0, usage);
+                }
             }
-            return null;
+
+            prevTicks = ticks;
+            prevNanos = nanos;
+            return lastUsage;
+        }
+
+        /**
+         * @return cumulative utime+stime for this process in clock ticks, or -1 if unreadable.
+         */
+        private static long readSelfCpuTicks() {
+            try (BufferedReader br = new BufferedReader(new FileReader("/proc/self/stat"), 512)) {
+                String line = br.readLine();
+                if (line == null) return -1L;
+
+                // Field 2 (comm) is parenthesised and may itself contain spaces or ')', so field
+                // splitting has to start after the LAST ')'. The first token after it is field 3.
+                int close = line.lastIndexOf(')');
+                if (close < 0 || close + 2 >= line.length()) return -1L;
+
+                String[] f = line.substring(close + 2).split("\\s+");
+                // f[0] == field 3 (state), so field N is at f[N - 3]: utime 14, stime 15.
+                if (f.length < 13) return -1L;
+                return Long.parseLong(f[11]) + Long.parseLong(f[12]);
+            } catch (IOException | NumberFormatException e) {
+                Log.e(TAG, "Failed to read /proc/self/stat: " + e.getLocalizedMessage());
+                return -1L;
+            }
+        }
+
+        /** @return sysconf(_SC_CLK_TCK), falling back to the universal Android value of 100. */
+        private static long clockTicksPerSecond() {
+            try {
+                long hz = Os.sysconf(OsConstants._SC_CLK_TCK);
+                if (hz > 0) return hz;
+            } catch (Throwable t) {
+                Log.w(TAG, "sysconf(_SC_CLK_TCK) failed, assuming 100: " + t.getLocalizedMessage());
+            }
+            return 100L;
         }
     }
 
-    public void writeHeaderRows(Context ct, String playlist, RunConfig runCfg, long startTime){
+    /**
+     * Writes the JSON header block that opens a telemetry file.
+     *
+     * <p>The {@code execution_id} is minted here, which is precisely what makes it a per-file id:
+     * a Resume appends to an existing file and skips this method entirely, so the resumed rows stay
+     * under the execution_id the file was created with.
+     *
+     * @param playlistId the playlist's {@code <identifier>} id
+     * @param playlistName the playlist file name, recorded for display only
+     */
+    public void writeHeaderRows(Context ct, String playlistId, String playlistName, RunConfig runCfg, long startTime){
 
         List<String> rows = new ArrayList<>();
 
         double batLevelPct = BatteryInfo.getBatteryLevel(ct) / 100.0;
         long capacityMA = (long) BatteryInfo.getBatteryDesignCapacity(ct);
-        SessionInfo si = new SessionInfo(ct, startTime, playlist, batLevelPct, capacityMA);
+        SessionInfo si = new SessionInfo(ct, startTime,
+                new SessionInfo.Playlist(playlistId, playlistName), batLevelPct, capacityMA);
 
-        SessionHeader sh = new SessionHeader(ct, runCfg, si);
+        SessionHeader sh = new SessionHeader(ct, UUID.randomUUID().toString(), runCfg, si);
 
         rows.add(SessionHeader.gson.toJson(sh, SessionHeader.class).toString());
 

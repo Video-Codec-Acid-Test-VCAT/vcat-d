@@ -70,8 +70,10 @@ import androidx.fragment.app.DialogFragment;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
+import com.roncatech.vcat.tools.PlaylistIdentity;
 import com.roncatech.vcat.tools.StorageManager;
 import com.roncatech.vcat.tools.XSPFPlaylistCreator;
+import com.roncatech.vcat.tools.XspfParser;
 
 public class PlaylistDialog extends DialogFragment {
 
@@ -204,6 +206,10 @@ public class PlaylistDialog extends DialogFragment {
         intent.setType("*/*");
         intent.putExtra(Intent.EXTRA_MIME_TYPES,
                 new String[]{"video/*", "application/octet-stream"});
+        // Request a persistable read grant so the entry survives app restarts (otherwise the
+        // player hits a SecurityException reading the content:// URI after a relaunch/reinstall).
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION
+                | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
 
         startActivityForResult(intent, REQUEST_CODE_PICK_FILE);
     }
@@ -219,6 +225,13 @@ public class PlaylistDialog extends DialogFragment {
         if (requestCode == REQUEST_CODE_PICK_FILE && resultCode == Activity.RESULT_OK && data != null) {
             Uri fileUri = data.getData();
             if (fileUri != null) {
+                // Persist the read grant so playback can open this URI after an app restart.
+                try {
+                    context.getContentResolver().takePersistableUriPermission(
+                            fileUri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                } catch (SecurityException e) {
+                    Log.w("PlaylistDialog", "Could not persist read permission for " + fileUri, e);
+                }
                 addNewEntry(fileUri);
             }
         }
@@ -268,6 +281,14 @@ public class PlaylistDialog extends DialogFragment {
                     return;
                 }
 
+                // Read the id before the file goes away: an edited playlist keeps its identity, so
+                // telemetry from before and after the edit still refers to the same playlist. A
+                // playlist with no id yet gets one here.
+                String playlistId = XspfParser.parseIdentifier(appContext, existingUri);
+                if (playlistId == null) {
+                    playlistId = PlaylistIdentity.newId();
+                }
+
                 deletePlaylist(appContext, existingUri);
 
                 Uri recreated = createFileInSelectedFolder(appContext, folderUri, filename);
@@ -276,7 +297,7 @@ public class PlaylistDialog extends DialogFragment {
                     return;
                 }
 
-                XSPFPlaylistCreator.writePlaylistFile(appContext, recreated, entries);
+                XSPFPlaylistCreator.writePlaylistFile(appContext, recreated, entries, playlistId);
 
                 runOnUiThread(() -> {
                     this.playlistUri = recreated;
