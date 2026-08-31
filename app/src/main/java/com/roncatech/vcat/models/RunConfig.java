@@ -43,9 +43,6 @@ import java.util.Objects;
 public class RunConfig {
     public int screenBrightness;
     public int threads;
-    /** When true, plugin decoders skip frames they cannot decode and keep playing, instead of
-     *  raising a fatal error. Off by default (a decode error fails the run, surfacing bad content). */
-    public boolean errorResilient;
     public enum RunMode{ONCE, BATTERY, TIME};
 
     public enum VideoOrientation{
@@ -105,7 +102,6 @@ public class RunConfig {
         if(this.threads != that.threads){return false;}
         if(this.screenBrightness != that.screenBrightness){return false;}
         if(this.videoOrientation != that.videoOrientation){return false;}
-        if(this.errorResilient != that.errorResilient){return false;}
 
         return Objects.equals(this.decoderCfg, that.decoderCfg);
     }
@@ -117,7 +113,6 @@ public class RunConfig {
                 threads,
                 runMode,
                 runLimit,
-                errorResilient,
                 decoderCfg
         );
     }
@@ -130,7 +125,6 @@ public class RunConfig {
         this.runLimit = 15;
         this.decoderCfg = new DecoderConfig();
         this.videoOrientation = VideoOrientation.MATCH_VIDEO;
-        this.errorResilient = false;
     }
 
     public RunConfig(final RunConfig copyFrom){
@@ -141,7 +135,6 @@ public class RunConfig {
                 copyFrom.runLimit,
                 copyFrom.decoderCfg,
                 copyFrom.videoOrientation);
-        this.errorResilient = copyFrom.errorResilient;
     }
 
     // Constructor with parameters
@@ -200,10 +193,6 @@ public class RunConfig {
 
             if(config1.videoOrientation != config2.videoOrientation){
                 return Integer.compare(config1.videoOrientation.ordinal(), config2.videoOrientation.ordinal());
-            }
-
-            if(config1.errorResilient != config2.errorResilient){
-                return Boolean.compare(config1.errorResilient, config2.errorResilient);
             }
 
             // now compare the decoder cfg

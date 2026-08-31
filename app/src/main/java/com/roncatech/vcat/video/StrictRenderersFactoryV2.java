@@ -124,8 +124,7 @@ public final class StrictRenderersFactoryV2 extends DefaultRenderersFactory {
             try {
                 out.add(plugin.createVideoRenderer(context, allowedVideoJoiningTimeMs,
                         eventHandler, eventListener,
-                        this.viewModel.getRunConfig().threads,
-                        this.viewModel.getRunConfig().errorResilient));
+                        this.viewModel.getRunConfig().threads));
                 Log.i(TAG, "Added plugin renderer: " + plugin.getId());
             } catch (DecoderException e) {
                 Log.e(TAG, "Plugin renderer not added: " + plugin.getId(), e);

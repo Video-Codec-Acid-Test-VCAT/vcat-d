@@ -5,6 +5,33 @@ description of what shipped so the history is not lost when the working tree mov
 
 ---
 
+## 2026-08-30 — Remove error-resilient decode; decoder-plugin-api back to `1.0.4`
+
+**Theme:** Error resilience was scaffolding for an immature dav2d. dav2d now decodes AV2 cleanly on
+both test devices, so the option is removed: for a benchmarking tool, failing on a decode error is
+the correct behavior. A run that dies is a result; a run that silently skips frames and still emits
+telemetry is a bad number that looks like a good one.
+
+- `RunConfig.errorResilient` removed, with its `equals` / `hashCode` / comparator / copy-ctor /
+  default sites, the conditions-tab checkbox (`FragmentTestConditions`,
+  `fragment_conditions.xml`), and the flag argument in `StrictRenderersFactoryV2`.
+- **`decoder-plugin-api` `1.1.0` → `1.0.4`.** The 6-arg `VcatDecoder.createVideoRenderer` overload
+  is gone, and since that overload plus the version bump were the *entirety* of 1.1.0, the version
+  reverts rather than advancing. Safe because 1.1.0 never left Maven Local — every build here logs
+  `GitHubPackages repo skipped (missing creds)` — and VCAT is the only consumer of this API.
+- The dav2d plugin drops its implementation of the overload and its four error-resilient branches,
+  which revert to failing the run; it moves back to api `1.0.4`, matching dav1d.
+
+**Side effect worth noting:** this closes the plugin inconsistency recorded in the previous entry —
+`errorResilient` being inert for AV1 — by deleting the feature rather than porting it to dav1d. The
+remaining dav1d/dav2d asymmetry is the segment-splice flush, which is still open (and is a dav2d
+0.0.x workaround whose relevance to mature dav1d is unproven).
+
+Verified: host compiles, unit tests pass, dav2d plugin builds and its 8 tests pass against api
+1.0.4. Not installed on-device — no device was connected at the time.
+
+---
+
 ## 2026-08-30 — Test Duration shows hours; AV2 freeze root-caused to dav2d (host exonerated)
 
 **Theme:** A small results-UI change, plus the host-side conclusion of an AV2 playback
