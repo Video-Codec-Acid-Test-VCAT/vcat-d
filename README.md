@@ -70,6 +70,7 @@ Decoders are delivered as external `.aar` plugins dropped into `decoder-plugins/
 
 ## Building the Plugin API
 This API is used by all decoder plugins.
+
 ./gradlew :decoder-plugin-api:publishLocal
 
 ## Building vcat-d with decoder plugins
