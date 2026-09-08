@@ -68,7 +68,7 @@ The short version:
 
 Decoders are delivered as external `.aar` plugins dropped into `decoder-plugins/`. This keeps the app lightweight and lets each decoder evolve independently from the UI and workflow code.
 
-## Building the Plugin API
+## Building the vcat-d plugin api
 This API is used by all decoder plugins.
 
 ./gradlew :decoder-plugin-api:publishLocal
