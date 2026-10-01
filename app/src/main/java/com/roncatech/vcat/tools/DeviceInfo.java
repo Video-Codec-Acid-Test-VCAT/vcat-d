@@ -73,6 +73,8 @@ public class DeviceInfo {
         if(!this.androidVersion.equals(that.androidVersion)){return false;}
         if(!this.socManufacturer.equals(that.socManufacturer)){return false;}
         if(!this.cpu.equals(that.cpu)){return false;}
+        if(this.displayRefresh != that.displayRefresh){return false;}
+
         if(!this.displayResolution.equals(that.displayResolution))
             if(!this.memoryInfo.equals(that.memoryInfo)){return false;}
 
@@ -89,6 +91,7 @@ public class DeviceInfo {
                 soc,
                 cpu,
                 displayResolution,
+                displayRefresh,
                 memoryInfo,
                 storageInfo);
     }
@@ -98,6 +101,7 @@ public class DeviceInfo {
 
         this.manufacturer = Build.MANUFACTURER;
         this.displayResolution = new DisplayResolution(context);
+        this.displayRefresh = DisplayInfo.currentRefreshRate(context);
         this.model = Build.MODEL;
         this.socManufacturer = getSocManufacturerSafe();
         this.soc = getSocModelSafe();
@@ -117,7 +121,8 @@ public class DeviceInfo {
                       MemoryInfo memoryInfo,
                       MemoryInfo storageInfo,
                       CpuInfo cpu,
-                      DisplayResolution displayResolution){
+                      DisplayResolution displayResolution,
+                      float displayRefresh){
         this.manufacturer = manufacturer;
         this.model = model;
         this.socManufacturer = socManufacturer;
@@ -126,6 +131,7 @@ public class DeviceInfo {
         this.memoryInfo = memoryInfo;
         this.storageInfo = storageInfo;
         this.displayResolution = displayResolution;
+        this.displayRefresh = displayRefresh;
         this.cpu = cpu;
     }
 
@@ -137,6 +143,15 @@ public class DeviceInfo {
     public final CpuInfo cpu;
 
     public final DisplayResolution displayResolution;
+    /**
+     * Refresh rate the panel is actually running at, in Hz.
+     *
+     * <p>Recorded separately from the requested rate in {@code test_conditions.displayRefreshHz}
+     * because {@code preferredRefreshRate} is advisory — the system may refuse it and LTPO panels
+     * change rate on their own. Panel rate is a large standing power cost, so a battery result is
+     * not interpretable without it.
+     */
+    public final float displayRefresh;
 
     public final MemoryInfo memoryInfo;
 
@@ -255,6 +270,7 @@ public class DeviceInfo {
 
             // display_resolution
             root.add("display_resolution", ctx.serialize(src.displayResolution));
+            root.addProperty("display_refresh", src.displayRefresh);
 
             // memory
             JsonObject memJ = new JsonObject();
@@ -283,6 +299,10 @@ public class DeviceInfo {
 
             CpuInfo cpu = ctx.deserialize(o.get("cpu"), CpuInfo.class);
             DisplayResolution disp = ctx.deserialize(o.get("display_resolution"), DisplayResolution.class);
+            // Absent in logs written before the field existed; 0 reads as "not recorded".
+            JsonElement refreshEl = o.get("display_refresh");
+            float displayRefresh = (refreshEl != null && !refreshEl.isJsonNull())
+                    ? refreshEl.getAsFloat() : 0f;
 
             JsonObject memJ = o.getAsJsonObject("memory");
             long total = parseBytes(memJ.get("total").getAsString());
@@ -296,7 +316,7 @@ public class DeviceInfo {
 
             return new DeviceInfo(
                     manufacturer, model, socMan, soc,
-                    androidVersion, mem, storage, cpu, disp
+                    androidVersion, mem, storage, cpu, disp, displayRefresh
             );
         }
 

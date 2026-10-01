@@ -70,6 +70,7 @@ public final class VcatIvfExtractor implements Extractor {
 
     private final byte[] scratch = new byte[FRAME_HEADER_SIZE];
 
+
     private ExtractorOutput extractorOutput;
     private TrackOutput trackOutput;
     private IvfFileHeader fileHeader;
@@ -81,6 +82,10 @@ public final class VcatIvfExtractor implements Extractor {
     private int sampleBytesRemaining;
     private boolean firstSample = true;
     private boolean formatEmitted = false;
+
+    public VcatIvfExtractor() {
+    }
+
 
     @Override
     public boolean sniff(ExtractorInput input) throws IOException {
@@ -172,6 +177,7 @@ public final class VcatIvfExtractor implements Extractor {
         }
         int flags = firstSample ? C.BUFFER_FLAG_KEY_FRAME : 0;
         trackOutput.sampleMetadata(currentPtsUs, flags, currentFrameSize, /* offset= */ 0, /* cryptoData= */ null);
+        // Emit in lockstep with video so neither sample queue starves the player.
         firstSample = false;
         state = STATE_FRAME_HEADER;
         return RESULT_CONTINUE;

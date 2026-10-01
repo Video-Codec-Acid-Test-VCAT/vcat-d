@@ -538,6 +538,14 @@ public final class VcatMp4Extractor implements Extractor, SeekMap {
         continue;
       }
       Track track = trackSampleTable.track;
+      if (track.type == C.TRACK_TYPE_AUDIO) {
+        // Audio is never published. VCAT measures video decode, and an audio renderer costs real
+        // power: an AudioTrack streaming for the length of a run measured at 38% of battery life
+        // on the CPH2625. Omitting the track here is safe because getTrackIndexOfNextReadSample()
+        // picks among `tracks` by offset and skipFully() skips the bytes in between, so these
+        // samples simply become gaps.
+        continue;
+      }
       long trackDurationUs =
           track.durationUs != C.TIME_UNSET ? track.durationUs : trackSampleTable.durationUs;
       durationUs = max(durationUs, trackDurationUs);

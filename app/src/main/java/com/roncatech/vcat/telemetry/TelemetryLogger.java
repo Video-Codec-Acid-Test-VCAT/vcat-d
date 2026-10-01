@@ -83,7 +83,9 @@ public class TelemetryLogger {
      */
     public enum Column {
         TEST_TIMESTAMP        ("test.timestamp"),
-        TEST_DURATION         ("test.duration"),
+        TEST_DURATION_MS      ("test.duration_ms"),
+        TEST_FILE_DURATION_MS ("test.file_duration_ms"),
+        TEST_TOTAL_ITERATIONS ("test.total_iterations"),
         TEST_FILENAME         ("test.filename"),
         BATTERY_CHARGE_COUNTER("battery.charge_counter"),
         BATTERY_MILLIAMPS     ("battery.milliamps"),
@@ -91,6 +93,7 @@ public class TelemetryLogger {
         SYSTEM_THERMAL_STATUS ("system.thermal_status"),
         CPU_FREQ              ("cpu.freq"),           // a *list* of values
         VIDEO_FRAMES_DROPPED  ("video.frames_dropped"),
+        VIDEO_DROPPED_TO_KEYFRAME("video.dropped_to_keyframe"),
         VIDEO_RESOLUTION      ("video.resolution"),
         VIDEO_BITRATE         ("video.bitrate"),
         VIDEO_CODEC_NAME      ("video.codec_name"),
@@ -247,12 +250,28 @@ public class TelemetryLogger {
     /**
      * Log one Row, all cells will be populated even if only with ""
      * @param ct the Context to be used when collecting data
-     * @param startTimeMS the time the test started.  Used to calculate current duration
+     * @param iterationStartMs when the current playlist iteration began. {@code test.duration_ms}
+     *     is measured from here, so it restarts on every loop rather than growing for the length
+     *     of the run; with a single-file playlist every file end is also a loop.
+     * @param fileStartMs when the current file began. {@code test.file_duration_ms} is measured
+     *     from here, giving the position within the clip.
+     * @param totalIterations how many times the playlist has completed. Together with the two
+     *     durations this makes a looping run readable: without it, rows from the tenth pass are
+     *     indistinguishable from the first.
      * @param vi the video information for the video columns
      * @param frameDrops number of frame drops
+     * @param droppedToKeyframe frames discarded from the source to reach a keyframe since the
+     *     previous row, matching the per-interval convention of {@code frameDrops}. A count of
+     *     frames rather than of events, so a stall shows the size of the block that was thrown
+     *     away. These frames are never decoded at all, so unlike an ordinary late frame they
+     *     shrink the decode workload: any row above zero marks an interval where the run did
+     *     less work than the clip demanded, and its throughput is not comparable with a clean
+     *     one. They are also counted inside {@code frameDrops}, which totals both kinds.
      * @param isResume true if the test was resumed
      */
-    public void logTelemetryRow(Context ct, long startTimeMS, VideoInfo vi, Integer frameDrops, boolean isResume, boolean isEndOfCurFile){
+    public void logTelemetryRow(Context ct, long iterationStartMs, long fileStartMs,
+                                int totalIterations, VideoInfo vi, Integer frameDrops,
+                                Integer droppedToKeyframe, boolean isResume, boolean isEndOfCurFile){
         Map<Column, Object> row = initRow(this.numCpus);
 
         // Two clocks, deliberately: the logged timestamp is shifted back by the resume gap so the
@@ -262,7 +281,9 @@ public class TelemetryLogger {
         long rawNow = System.currentTimeMillis();
         Long curTime = rawNow - this.timestampOffsetMs;
         row.put(Column.TEST_TIMESTAMP, curTime.toString());
-        row.put(Column.TEST_DURATION, Long.toString(rawNow - startTimeMS));
+        row.put(Column.TEST_DURATION_MS, Long.toString(rawNow - iterationStartMs));
+        row.put(Column.TEST_FILE_DURATION_MS, Long.toString(rawNow - fileStartMs));
+        row.put(Column.TEST_TOTAL_ITERATIONS, Integer.toString(totalIterations));
         row.put(Column.TEST_RESTART, Boolean.toString(isResume));
         row.put(Column.TEST_FILENAME, vi.fileName);
         row.put(Column.TEST_END_OF_CUR_FILE, Boolean.toString(isEndOfCurFile));
@@ -297,6 +318,7 @@ public class TelemetryLogger {
 
         row.put(Column.CPU_FREQ, strCpuFreqs);
         row.put(Column.VIDEO_FRAMES_DROPPED, frameDrops.toString());
+        row.put(Column.VIDEO_DROPPED_TO_KEYFRAME, droppedToKeyframe.toString());
         row.put(Column.VIDEO_DECODER_NAME, vi.decoderName);
         row.put(Column.VIDEO_RESOLUTION, vi.width + "x" + vi.height);
         row.put(Column.VIDEO_BITRATE, vi.bitrate);

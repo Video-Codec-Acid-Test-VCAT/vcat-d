@@ -55,6 +55,7 @@ public class VideoDecoderEnumerator {
         H265("video/hevc"),
         VP9("video/x-vnd.on2.vp9"),
         AV1("video/av01"),
+        AV2("video/av02"),
         VVC("video/vvc");
 
         private final String mimeString;

@@ -35,13 +35,12 @@ package com.roncatech.vcat.models;
 import android.net.Uri;
 
 import java.io.File;
-import java.text.SimpleDateFormat;
-import java.util.Date;
 import java.util.Locale;
 
 public class TestResultsItem {
     private final long timestampMillis;
     private final String filePath;
+    private final long sizeBytes;
 
     /**
      * Extracts the Unix timestamp from the file path or content:// URI string.
@@ -59,7 +58,8 @@ public class TestResultsItem {
         }
     }
 
-    private static String getFileName(String filePath) {
+    /** Decodes the bare file name out of a path or a SAF content:// document URI. */
+    public static String getFileName(String filePath) {
         if (filePath != null && filePath.startsWith("content://")) {
             Uri uri = Uri.parse(filePath);
             String lastSegment = uri.getLastPathSegment();
@@ -75,9 +75,29 @@ public class TestResultsItem {
         return new File(filePath).getName();
     }
 
-    public TestResultsItem(String filePath, long timestampMillis) {
+    public TestResultsItem(String filePath, long timestampMillis, long sizeBytes) {
         this.filePath = filePath;
         this.timestampMillis = timestampMillis;
+        this.sizeBytes = sizeBytes;
+    }
+
+    public long getSizeBytes() {
+        return sizeBytes;
+    }
+
+    /** File name of this log, e.g. "vcatd_log_1757345025.csv". */
+    public String getFileName() {
+        return getFileName(this.filePath);
+    }
+
+    /**
+     * Formats {@link #getSizeBytes()} as megabytes with a single decimal digit, rounded up
+     * (e.g. "0.1 MB", "12.3 MB"). Rounding up so a non-empty log never reads "0.0 MB".
+     */
+    public String getDisplaySize() {
+        double mb = sizeBytes / (1024.0 * 1024.0);
+        double rounded = Math.ceil(mb * 10.0) / 10.0;
+        return String.format(Locale.US, "%.1f MB", rounded);
     }
 
     public long getTimestampMillis() {
@@ -88,11 +108,15 @@ public class TestResultsItem {
         return filePath;
     }
 
-    public String getDisplayTime() {
-        SimpleDateFormat sdf = new SimpleDateFormat(
-                "dd MMMM yyyy HH:mm:ss",
-                Locale.getDefault()
-        );
-        return sdf.format(new Date(timestampMillis)) + " (" + getFileName(this.filePath) + ")";
+    /**
+     * Row label for the logs list: the file name without its extension, e.g.
+     * "vcatd_log_1788415095639". Matches vcat-ai's Logs tab. The timestamp is still parsed from
+     * the name into {@link #getTimestampMillis()}, which is what the list sorts on.
+     */
+    public String getDisplayName() {
+        String name = getFileName(this.filePath);
+        return name.toLowerCase(Locale.US).endsWith(".csv")
+                ? name.substring(0, name.length() - 4)
+                : name;
     }
 }

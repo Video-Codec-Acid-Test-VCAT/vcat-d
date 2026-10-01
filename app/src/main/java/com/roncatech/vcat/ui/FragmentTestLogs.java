@@ -32,14 +32,21 @@
 
 package com.roncatech.vcat.ui;
 
+import android.net.Uri;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.Button;
+import android.widget.ImageButton;
+import android.widget.LinearLayout;
+import android.widget.PopupMenu;
+import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.appcompat.app.AlertDialog;
 import androidx.documentfile.provider.DocumentFile;
 import androidx.fragment.app.Fragment;
 import androidx.recyclerview.widget.LinearLayoutManager;
@@ -57,10 +64,12 @@ public class FragmentTestLogs extends Fragment {
 
     private static final String TAG = "TestResultsFragment";
 
-    public boolean isEmpty(){
-        return this.adapter.getItemCount() > 0;
-    }
     private TestResultsAdapter adapter;
+
+    private ImageButton btnEditLogs;
+    private LinearLayout selectAllRow;
+    private Button btnSelectAll;
+    private Button btnCancelEdit;
 
     @Nullable @Override
     public View onCreateView(@NonNull LayoutInflater inflater,
@@ -69,21 +78,164 @@ public class FragmentTestLogs extends Fragment {
         View view = inflater.inflate(
                 R.layout.fragment_test_results, container, false);
 
+        btnEditLogs   = view.findViewById(R.id.btnEditLogs);
+        selectAllRow  = view.findViewById(R.id.selectAllRow);
+        btnSelectAll  = view.findViewById(R.id.btnSelectAll);
+        btnCancelEdit = view.findViewById(R.id.btnCancelEdit);
+
         RecyclerView rv = view.findViewById(R.id.rvTestResults);
         rv.setLayoutManager(new LinearLayoutManager(getContext()));
 
         adapter = new TestResultsAdapter();
+        adapter.setOnResultClickListener(this::onLogFileClick);
+        adapter.setOnSelectionChangedListener(this::onSelectionChanged);
         rv.setAdapter(adapter);
 
-        adapter.setOnResultClickListener(filePath -> {
-            // show your dialog
-            TestResultsDetailDialog
-                    .newInstance(filePath)
-                    .show(getParentFragmentManager(), "test_result_detail");
+        btnEditLogs.setOnClickListener(v -> {
+            if (adapter.isEditMode()) {
+                // Already selecting: the button is the trashcan, so this commits the delete.
+                deleteSelectedFiles();
+            } else {
+                enterEditMode();
+            }
         });
+
+        btnSelectAll.setOnClickListener(v -> {
+            if (adapter.areAllSelected()) {
+                adapter.unselectAll();
+            } else {
+                adapter.selectAll();
+            }
+        });
+
+        btnCancelEdit.setOnClickListener(v -> exitEditMode());
 
         loadTestResults();
         return view;
+    }
+
+    @Override
+    public void onResume() {
+        super.onResume();
+        // A run started from another tab writes a new log, so re-read on every return to this tab.
+        loadTestResults();
+    }
+
+    private void enterEditMode() {
+        adapter.setEditMode(true);
+        selectAllRow.setVisibility(View.VISIBLE);
+        btnSelectAll.setText(R.string.select_all);
+        btnEditLogs.setImageResource(R.drawable.ic_trashcan);
+        setTrashEnabled(false);
+    }
+
+    /** Leave select mode and restore the normal edit-button state. */
+    private void exitEditMode() {
+        adapter.setEditMode(false);
+        selectAllRow.setVisibility(View.GONE);
+        btnSelectAll.setText(R.string.select_all);
+        btnEditLogs.setImageResource(R.drawable.ic_edit_playlist);
+        setTrashEnabled(true);
+    }
+
+    /** Dim as well as disable: an undimmed trashcan that ignores taps looks broken. */
+    private void setTrashEnabled(boolean enabled) {
+        btnEditLogs.setEnabled(enabled);
+        btnEditLogs.setAlpha(enabled ? 1.0f : 0.4f);
+    }
+
+    private void onSelectionChanged(int selectedCount) {
+        if (adapter.isEditMode()) {
+            setTrashEnabled(selectedCount > 0);
+            btnSelectAll.setText(adapter.areAllSelected()
+                    ? R.string.unselect_all : R.string.select_all);
+        }
+    }
+
+    private void onLogFileClick(View view, String filePath) {
+        PopupMenu popup = new PopupMenu(requireContext(), view);
+        popup.getMenuInflater().inflate(R.menu.log_file_context_menu, popup.getMenu());
+
+        popup.setOnMenuItemClickListener(item -> {
+            int id = item.getItemId();
+            if (id == R.id.action_details) {
+                TestResultsDetailDialog
+                        .newInstance(filePath)
+                        .show(getParentFragmentManager(), "test_result_detail");
+                return true;
+            } else if (id == R.id.action_delete) {
+                confirmDeleteLogFile(filePath);
+                return true;
+            }
+            return false;
+        });
+
+        popup.show();
+    }
+
+    private void confirmDeleteLogFile(String filePath) {
+        String name = TestResultsItem.getFileName(filePath);
+        new AlertDialog.Builder(requireContext())
+                .setTitle(R.string.delete_log_confirm_title)
+                .setMessage(getString(R.string.delete_log_confirm_message, name))
+                .setPositiveButton(R.string.delete_confirm_yes, (dialog, which) -> {
+                    boolean ok = deleteLog(filePath);
+                    Toast.makeText(requireContext(),
+                            ok ? R.string.delete_log_ok : R.string.delete_log_failed,
+                            Toast.LENGTH_SHORT).show();
+                    loadTestResults();
+                })
+                .setNegativeButton(R.string.delete_confirm_no, null)
+                .show();
+    }
+
+    private void deleteSelectedFiles() {
+        List<String> toDelete = adapter.getSelectedFiles();
+        if (toDelete.isEmpty()) return;
+
+        int count = toDelete.size();
+        int msgRes = count == 1
+                ? R.string.delete_logs_confirm_message_one
+                : R.string.delete_logs_confirm_message_many;
+        new AlertDialog.Builder(requireContext())
+                .setTitle(R.string.delete_logs_confirm_title)
+                .setMessage(getString(msgRes, count))
+                .setPositiveButton(R.string.delete_confirm_yes,
+                        (dialog, which) -> performBatchDelete(toDelete))
+                .setNegativeButton(R.string.delete_confirm_no, null)
+                .show();
+    }
+
+    private void performBatchDelete(List<String> toDelete) {
+        int deleted = 0;
+        for (String filePath : toDelete) {
+            if (deleteLog(filePath)) deleted++;
+        }
+
+        // Report the partial count rather than a bare success: a SAF delete can fail per-file,
+        // and silently dropping that would leave logs the user believes are gone.
+        String msg = deleted == toDelete.size()
+                ? getResources().getQuantityString(R.plurals.logs_deleted, deleted, deleted)
+                : getString(R.string.logs_deleted_partial, deleted, toDelete.size());
+        Toast.makeText(requireContext(), msg, Toast.LENGTH_SHORT).show();
+
+        exitEditMode();
+        loadTestResults();
+    }
+
+    /** Deletes one log by document URI. Returns whether the file is gone afterwards. */
+    private boolean deleteLog(String filePath) {
+        DocumentFile logFile = DocumentFile.fromSingleUri(requireContext(), Uri.parse(filePath));
+        if (logFile == null || !logFile.exists()) {
+            Log.w(TAG, "Log already gone: " + filePath);
+            return true;
+        }
+        if (logFile.delete()) {
+            Log.i(TAG, "Deleted log: " + filePath);
+            return true;
+        }
+        Log.e(TAG, "Failed to delete log: " + filePath);
+        return false;
     }
 
     private void loadTestResults() {
@@ -106,7 +258,7 @@ public class FragmentTestLogs extends Fragment {
                 long timeStampMS = TestResultsItem.getTimeStamp(uriString);
 
                 if (timeStampMS > 0) {
-                    results.add(new TestResultsItem(uriString, timeStampMS));
+                    results.add(new TestResultsItem(uriString, timeStampMS, f.length()));
                 } else {
                     Log.e(TAG, "Invalid log file: " + name);
                 }

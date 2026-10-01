@@ -85,6 +85,7 @@ import com.roncatech.vcat.models.SharedViewModel;
 import com.roncatech.vcat.service.PlayerCommandBus;
 import com.roncatech.vcat.telemetry.TelemetryLogger;
 import com.roncatech.vcat.tools.BatteryInfo;
+import com.roncatech.vcat.tools.DisplayInfo;
 import com.roncatech.vcat.tools.PlaylistIdentity;
 import com.roncatech.vcat.tools.UriUtils;
 import com.roncatech.vcat.tools.VideoDecoderEnumerator;
@@ -109,6 +110,75 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
 
     private List<Uri> testClips;
     private int curFileIndex;
+    /** Playlist passes completed. With a single-file playlist, every file end is a pass. */
+    private int totalIterations = 0;
+    /** Start of the current playlist pass; {@code test.duration_ms} is measured from here. */
+    private long iterationStartMs = System.currentTimeMillis();
+    /** Start of the current file; {@code test.file_duration_ms} is measured from here. */
+    private long fileStartMs = System.currentTimeMillis();
+    /** Frame-number overlay, and the state needed to turn a presentation time into an index. */
+    private TextView frameNumberOverlay;
+    private long frameOverlayFirstPtsUs = Long.MIN_VALUE;
+    private long frameOverlayStepUs = 0;
+    private long frameOverlayLastPtsUs = Long.MIN_VALUE;
+
+    /** When the last telemetry row was written, so teardown can tell if one is still owed. */
+    private long lastTelemetryRowMs = 0;
+
+    /**
+     * Drop counters are sampled on their own short timer and accumulated here, rather than being
+     * read from the player when a telemetry row is written.
+     *
+     * <p>The two cadences have to differ. Telemetry rows ramp from 30 s to 5 min, because polling
+     * battery, thermal, eight CPU frequencies and memory every couple of seconds for a 17 h run
+     * would make the log unusable. But the player's drop counters do not survive that long: a new
+     * ExoPlayer and a fresh {@code DecoderCounters} are created for every clip, so anything not
+     * read before the next clip starts is gone. With 13 s clips and minutes between rows, most of
+     * it was.
+     *
+     * <p>Sampling at {@link #DROP_SAMPLE_INTERVAL_MS} captures the counters while they still
+     * exist; the telemetry row then reports the accumulated total and clears it, so a row covers
+     * its whole interval however long that interval is.
+     */
+    private static final long DROP_SAMPLE_INTERVAL_MS = 2000;
+    private final Handler dropSamplerHandler = new Handler(Looper.getMainLooper());
+    private int pendingFrameDrops = 0;
+    private int pendingDroppedToKeyframe = 0;
+
+    /** Folds everything the player has recorded since the last call into the pending totals. */
+    private void sampleDrops() {
+        this.pendingFrameDrops += this.fd.frameDrops;
+        this.fd.reset();
+        if (this.videoCounters != null) {
+            this.videoCounters.ensureUpdated();
+            // Frames, not events. droppedInputBufferCount counts buffers discarded from the
+            // source to reach a keyframe, and ExoPlayer only ever increments it there: an
+            // ordinary late frame is reported as droppedInputBufferCount=0. So this is the size
+            // of the block that was thrown away, which is what a stall should look like --
+            // droppedToKeyframeCount would just read 1 however many frames went with it.
+            int total = this.videoCounters.droppedInputBufferCount;
+            // A fresh counter for a new clip restarts at zero.
+            if (total < this.lastDroppedToKeyframe) {
+                this.lastDroppedToKeyframe = 0;
+            }
+            int delta = total - this.lastDroppedToKeyframe;
+            if (delta > 0) {
+                Log.d(TAG, "SKIP-TO-KEYFRAME dropped " + delta + " source frames at file_ms="
+                        + (System.currentTimeMillis() - this.fileStartMs)
+                        + " (counter total=" + total + ")");
+            }
+            this.pendingDroppedToKeyframe += delta;
+            this.lastDroppedToKeyframe = total;
+        }
+    }
+
+    private final Runnable dropSamplerRunnable = new Runnable() {
+        @Override
+        public void run() {
+            sampleDrops();
+            dropSamplerHandler.postDelayed(this, DROP_SAMPLE_INTERVAL_MS);
+        }
+    };
 
     // Session cur/max for the status overlay. Battery temp in °C; system value is the
     // PowerManager thermal status (0–6) — the only system-thermal metric available to an app.
@@ -118,6 +188,8 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
     private TelemetryLogger tl;
 
     @Nullable private DecoderCounters videoCounters = null;
+    /** Last sampled value of {@code droppedToKeyframeCount}, so rows can carry the delta. */
+    private int lastDroppedToKeyframe = 0;
     private AnalyticsListener analyticsListener;
 
     private Player.Listener playbackStateListener;
@@ -138,6 +210,9 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
     FrameDrops fd = new FrameDrops();
 
     private float originalWindowBrightness = -1;
+    /** Refresh rate asked for this run; the achieved rate is checked once playback is up. */
+    private int requestedRefreshHz = RunConfig.DEFAULT_REFRESH_HZ;
+    private boolean refreshRateLogged = false;
 
     private boolean orientationCommittedForClip = false;
 
@@ -211,7 +286,11 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
 
     private void advanceToNextClip(){
         if (++this.curFileIndex >= this.testClips.size()) {
+            // Wrapped: the playlist has completed a pass. A single-file playlist wraps on every
+            // file, which is what makes "iteration" and "file" coincide there.
             this.curFileIndex = 0;
+            this.totalIterations++;
+            this.iterationStartMs = System.currentTimeMillis();
         }
     }
 
@@ -249,6 +328,20 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
     }
 
     private void stopTestAndCleanup() {
+        // 0) flush whatever has accrued since the last row.
+        //
+        // Only the STATE_ENDED path logs before stopping; the stop button, the ADB stop command
+        // and both error dialogs come straight here, so their final interval used to be thrown
+        // away. That matters most on short clips: the sampling timer ramps from 30 s to 5 min, so
+        // with a 13 s file a whole playthrough can fall between periodic rows and exist only in
+        // the row written at its end.
+        //
+        // Skipped when a row was just written, so the STATE_ENDED path does not emit a duplicate.
+        if (this.tl != null && this.testClips != null && !this.testClips.isEmpty()
+                && System.currentTimeMillis() - this.lastTelemetryRowMs > 500) {
+            logTelemetry(true);
+        }
+
         // 1) stop your periodic telemetry
         stopTelemetryTimer();
         // 2) reset the test details
@@ -279,6 +372,23 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
 
         float override = Math.max(0.01f, Math.min(testScreenBrightness / 100f, 1f));
         lp.screenBrightness = override;
+
+        // Pin the panel refresh rate for the run. Left alone this is an uncontrolled variable in a
+        // battery comparison: a 120 Hz-default device pays a large standing display cost for 30 fps
+        // content and scores worse for reasons unrelated to the decoder. Use preferredRefreshRate
+        // rather than preferredDisplayModeId so only the rate is pinned — a mode id would pin
+        // resolution too and could silently change it.
+        int requestedHz = viewModel.getRunConfig().displayRefreshHz;
+        if (requestedHz <= 0) {
+            requestedHz = RunConfig.DEFAULT_REFRESH_HZ;
+        }
+        if (!DisplayInfo.supports(this, requestedHz)) {
+            Log.w(TAG, "Display does not report " + requestedHz + " Hz; falling back to "
+                    + RunConfig.DEFAULT_REFRESH_HZ + " Hz");
+            requestedHz = RunConfig.DEFAULT_REFRESH_HZ;
+        }
+        lp.preferredRefreshRate = requestedHz;
+        this.requestedRefreshHz = requestedHz;
 
         this.renderersFactory = getRendersFactory();
 
@@ -390,6 +500,8 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
             @Override
             public void onVideoEnabled(EventTime et, DecoderCounters counters) {
                 videoCounters = counters;                    // keep reference to poll later
+                // A fresh DecoderCounters starts at zero, so the delta baseline has to follow it.
+                lastDroppedToKeyframe = 0;
                 Log.d(TAG, "videoEnabled: counters attached");
             }
 
@@ -429,6 +541,7 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_fullscreen_player);
+        frameNumberOverlay = findViewById(R.id.frameNumberOverlay);
         initialize();
 
         playerView = findViewById(R.id.playerView);
@@ -504,6 +617,8 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
             testClips.set(i, UriUtils.resolveMediaUri(this, testClips.get(i)));
         }
         curFileIndex = 0;
+        totalIterations = 0;
+        iterationStartMs = System.currentTimeMillis();
         if (testClips.isEmpty()) {
             finish();  // nothing to play
             return;
@@ -534,11 +649,23 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
     // Put this near your other private helpers
     private void startClipWithFreshPlayer() {
 
+        // New file: restart its clock, and clear the drop counters so nothing from the previous
+        // clip leaks into this one's first row. Both counters are reported per interval; this is
+        // a boundary guard, not accumulation. It also re-bases dropped_to_keyframe, whose source
+        // counter restarts at zero when the renderer is re-enabled and would otherwise go
+        // negative on the first row of the new file.
+        this.fileStartMs = System.currentTimeMillis();
+        this.fd.reset();
+        this.pendingFrameDrops = 0;
+        this.pendingDroppedToKeyframe = 0;
+        this.lastDroppedToKeyframe = 0;
+
         orientationCommittedForClip = false;
         final RunConfig.VideoOrientation mode = viewModel.getRunConfig().videoOrientation;
 
         // Keep a handle to the old player so we can release it after swap
         ExoPlayer old = exoPlayer;
+
 
         // Build a new player using your existing RenderersFactory (dav1d, etc.)
         ExoPlayer newPlayer =
@@ -546,11 +673,48 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
                         .setMediaSourceFactory(
                                 new DefaultMediaSourceFactory(
                                         this,
-                                        () -> new Extractor[] { new VcatIvfExtractor(), new VcatMp4Extractor(/* flags if any */) } // IVF (DKIF) first, then MP4
+                                        () -> new Extractor[] { new VcatIvfExtractor(), new VcatMp4Extractor(/* flags= */ 0) } // IVF (DKIF) first, then MP4
                                 )
                         )
                         .setVideoChangeFrameRateStrategy(C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_OFF)
                         .build();        newPlayer.setRepeatMode(Player.REPEAT_MODE_OFF);
+
+        // Frame-number overlay. Driven from the renderer rather than a timer: this fires on the
+        // playback thread immediately before each frame is released to the surface, so the number
+        // names the frame being presented. Works for every decoder, hardware included, which an
+        // overlay drawn inside a decoder plugin could not.
+        if (viewModel.getRunConfig().showFrameNumber && frameNumberOverlay != null) {
+            frameOverlayFirstPtsUs = Long.MIN_VALUE;
+            frameOverlayStepUs = 0;
+            frameOverlayLastPtsUs = Long.MIN_VALUE;
+            frameNumberOverlay.setVisibility(View.VISIBLE);
+            newPlayer.setVideoFrameMetadataListener(
+                    (presentationTimeUs, releaseTimeNs, fmt, mediaFormat) -> {
+                        // Index from the presentation time, not a render count: a render count
+                        // stays contiguous across dropped frames and so misnames every frame
+                        // after the first drop. Cadence is the first forward gap observed.
+                        if (frameOverlayFirstPtsUs == Long.MIN_VALUE) {
+                            frameOverlayFirstPtsUs = presentationTimeUs;
+                        } else if (frameOverlayStepUs == 0
+                                && presentationTimeUs > frameOverlayLastPtsUs) {
+                            frameOverlayStepUs = presentationTimeUs - frameOverlayLastPtsUs;
+                        }
+                        frameOverlayLastPtsUs = presentationTimeUs;
+                        final long idx = frameOverlayStepUs > 0
+                                ? Math.round((presentationTimeUs - frameOverlayFirstPtsUs)
+                                        / (double) frameOverlayStepUs)
+                                : 0L;
+                        frameNumberOverlay.post(
+                                () -> frameNumberOverlay.setText(Long.toString(idx)));
+                    });
+        } else if (frameNumberOverlay != null) {
+            frameNumberOverlay.setVisibility(View.GONE);
+        }
+
+        // Always silent. The injected track is zeros anyway, so this is belt-and-braces: it keeps
+        // playback inaudible if a container's own audio track is ever selected. Muting does not
+        // stop the AudioTrack, so the media clock is unaffected.
+        newPlayer.setVolume(0f);
 
         // Wire listeners you already use
         newPlayer.addListener(this.playbackStateListener);
@@ -573,6 +737,18 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
         newPlayer.setMediaItem(MediaItem.fromUri(clip));
         newPlayer.prepare();
         newPlayer.play();
+
+        // preferredRefreshRate is advisory — the system can refuse it, and LTPO panels move on
+        // their own — so record what was actually achieved rather than what was asked for. Delayed
+        // because the mode switch does not take effect synchronously with the request.
+        if (!refreshRateLogged) {
+            refreshRateLogged = true;
+            playerView.postDelayed(() -> {
+                float achieved = DisplayInfo.currentRefreshRate(this);
+                Log.i(TAG, "Display refresh: requested " + requestedRefreshHz
+                        + " Hz, achieved " + achieved + " Hz");
+            }, 3000);
+        }
 
         // Make the new player current
         exoPlayer = newPlayer;
@@ -671,12 +847,20 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
     };
 
     private void startTelemetryTimer() {
+        // Drop any previous scheduling first. onPlaybackStarted() calls this at every clip start,
+        // so without this each clip left another self-rescheduling runnable behind: rows got more
+        // frequent the longer a run went on, and a looping playlist accumulated one timer per
+        // playthrough.
+        telemetryHandler.removeCallbacks(telemetryRunnable);
         // kick off immediately
         telemetryHandler.post(telemetryRunnable);
+        dropSamplerHandler.removeCallbacks(dropSamplerRunnable);
+        dropSamplerHandler.postDelayed(dropSamplerRunnable, DROP_SAMPLE_INTERVAL_MS);
     }
 
     private void stopTelemetryTimer() {
         telemetryHandler.removeCallbacks(telemetryRunnable);
+        dropSamplerHandler.removeCallbacks(dropSamplerRunnable);
     }
 
     // call this after exoPlayer.play()
@@ -719,10 +903,19 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
 
         TelemetryLogger.VideoInfo vi = getTlVideoInfo(this.testClips.get(this.curFileIndex), this.viewModel.curTestDetails);
 
-        int frameDrops = this.fd.frameDrops;
-        this.fd.reset();
+        // Both counts come from the 2 s sampler's store, not from the player: by now the clips
+        // they were recorded on may have been torn down. One last sample folds in anything since
+        // the previous tick, then the totals are taken and cleared, so each row reports its own
+        // interval and a stall reads as a spike rather than raising every row after it.
+        sampleDrops();
+        int frameDrops = this.pendingFrameDrops;
+        int droppedToKeyframe = this.pendingDroppedToKeyframe;
+        this.pendingFrameDrops = 0;
+        this.pendingDroppedToKeyframe = 0;
 
-        this.tl.logTelemetryRow(this, this.viewModel.curTestDetails.getStartTimeAsEpoch(), vi, frameDrops, false, endOfFile);
+        this.tl.logTelemetryRow(this, this.iterationStartMs, this.fileStartMs,
+                this.totalIterations, vi, frameDrops, droppedToKeyframe, false, endOfFile);
+        this.lastTelemetryRowMs = System.currentTimeMillis();
 
         if(!this.viewModel.curTestDetails.getCurrentTestVideo().getFileName().equals(vi.fileName)){
             // update test details
@@ -754,7 +947,7 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
                             "Decoder: %s\n" +
                             "Plugin API: %s\n" +
                             "Framerate: %.2f fps\n"+
-                            "Display: %d%%\n" +
+                            "Display: %d%% %dHz (%.1fHz)\n" +
                             "Run Mode: %s\n" +
                             "Battery: %d%% %.1f:%.1f\n"+
                             "System Thermal Status: %d:%d\n"+
@@ -769,6 +962,12 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
                     pluginApiForMime(vi.mimeType),
                     vi.fps,
                     this.viewModel.getRunConfig().screenBrightness,
+                    // Configured first, for consistency with the other overlay lines, which all
+                    // report run conditions. Achieved rate in parentheses because
+                    // preferredRefreshRate is advisory and LTPO panels move on their own — when
+                    // the two disagree, the run is not the run that was asked for.
+                    this.viewModel.getRunConfig().displayRefreshHz,
+                    DisplayInfo.currentRefreshRate(this),
                     this.viewModel.getRunConfig().runModeStr(),
                     (int) BatteryInfo.getBatteryLevel(this),
                     curBatteryTempC, maxBatteryTempC,

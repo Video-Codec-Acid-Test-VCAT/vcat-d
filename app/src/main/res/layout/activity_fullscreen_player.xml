@@ -54,6 +54,24 @@ All vcat-d artwork is owned exclusively by RoncaTech LLC. Use of vcat-d logos an
         app:surface_type="surface_view" />
 
     <!-- FULLSCREEN OVERLAY SIBLING (always above video) -->
+    <!-- Frame number, drawn over the video. Fed from VideoFrameMetadataListener, which fires
+         immediately before each frame is released to the surface, so the value names the frame
+         being presented rather than a periodic sample. Diagnostic; hidden unless enabled. -->
+    <TextView
+        android:id="@+id/frameNumberOverlay"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|end"
+        android:layout_margin="12dp"
+        android:padding="6dp"
+        android:background="#A0000000"
+        android:textColor="#FFFF00"
+        android:textSize="22sp"
+        android:textStyle="bold"
+        android:fontFamily="monospace"
+        android:visibility="gone"
+        android:elevation="2000dp" />
+
     <TextView
         android:id="@+id/videoOverlay"
         android:layout_width="wrap_content"

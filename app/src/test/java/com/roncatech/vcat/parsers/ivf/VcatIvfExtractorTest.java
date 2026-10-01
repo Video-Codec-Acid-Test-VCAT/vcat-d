@@ -44,6 +44,7 @@ import com.google.android.exoplayer2.extractor.PositionHolder;
 import com.google.android.exoplayer2.extractor.SeekMap;
 import com.google.android.exoplayer2.extractor.TrackOutput;
 import com.google.android.exoplayer2.upstream.DataReader;
+import com.google.android.exoplayer2.util.MimeTypes;
 import com.google.android.exoplayer2.util.ParsableByteArray;
 import com.google.android.exoplayer2.util.Util;
 import com.google.android.exoplayer2.video.VideoRendererEventListener;
@@ -284,13 +285,47 @@ public class VcatIvfExtractorTest {
         }
     }
 
-    /** Capturing ExtractorOutput with a single track. */
+    // ---- audio is never published ----
+
+    /**
+     * VCAT measures video decode, so no audio track reaches the player.
+     *
+     * <p>An audio path is not free: two matched CPH2625 battery runs differing only in whether a
+     * silent clock track was injected discharged 100%-14% in 17.72 h without it against 11.02 h
+     * with it. The clock now comes from ExoPlayer's standalone (system) clock instead, which
+     * advances at wall-clock rate so a decoder below realtime drops frames rather than stretching
+     * the timeline.
+     */
+    @Test public void noAudioTrackIsRegistered() throws IOException {
+        CapturingOutput out = new CapturingOutput();
+        extract(new VcatIvfExtractor(),
+                input(ivf("AV01", 30, 1, 3, new long[]{0, 1, 2},
+                        new byte[][]{payload(10), payload(10), payload(10)})),
+                out);
+
+        assertFalse("no audio track may be registered", out.audioRegistered);
+        assertEquals(0, out.audioTrack.samples.size());
+        assertEquals("video samples must still be produced", 3, out.track.samples.size());
+    }
+
     private static final class CapturingOutput implements ExtractorOutput {
+        /** The video track. Named {@code track} because most assertions are about video. */
         final CapturingTrackOutput track = new CapturingTrackOutput();
+        /** Audio track, if one were ever registered. Nothing should register one. */
+        final CapturingTrackOutput audioTrack = new CapturingTrackOutput();
+        boolean audioRegistered;
         SeekMap seekMap;
         boolean tracksEnded;
 
-        @Override public TrackOutput track(int id, int type) { return track; }
+        // Per-type outputs: returning one shared instance would interleave injected audio samples
+        // into the video track's capture lists and invalidate index-based assertions.
+        @Override public TrackOutput track(int id, int type) {
+            if (type == C.TRACK_TYPE_AUDIO) {
+                audioRegistered = true;
+                return audioTrack;
+            }
+            return track;
+        }
         @Override public void endTracks() { tracksEnded = true; }
         @Override public void seekMap(SeekMap seekMap) { this.seekMap = seekMap; }
     }

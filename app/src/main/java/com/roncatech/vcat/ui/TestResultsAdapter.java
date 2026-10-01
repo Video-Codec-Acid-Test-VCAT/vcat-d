@@ -35,6 +35,7 @@ package com.roncatech.vcat.ui;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.CheckBox;
 import android.widget.TextView;
 
 import androidx.annotation.NonNull;
@@ -43,7 +44,9 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.roncatech.vcat.models.TestResultsItem;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import com.roncatech.vcat.R;
 
 
@@ -51,20 +54,82 @@ public class TestResultsAdapter
         extends RecyclerView.Adapter<TestResultsAdapter.ViewHolder> {
 
     public interface OnResultClickListener {
-        void onResultClick(String filePath);
+        void onResultClick(View view, String filePath);
+    }
+
+    public interface OnSelectionChangedListener {
+        void onSelectionChanged(int selectedCount);
     }
 
     private final List<TestResultsItem> items = new ArrayList<>();
+
+    /**
+     * Selection is keyed by the log's document URI rather than its display name: two logs can
+     * render the same timestamp string, and the URI is also what a delete needs.
+     */
+    private final Set<String> selected = new HashSet<>();
+    private boolean editMode = false;
+
     private OnResultClickListener listener;
+    private OnSelectionChangedListener selectionChangedListener;
 
     public void setOnResultClickListener(OnResultClickListener listener) {
         this.listener = listener;
     }
 
+    public void setOnSelectionChangedListener(OnSelectionChangedListener listener) {
+        this.selectionChangedListener = listener;
+    }
+
     public void setResults(List<TestResultsItem> results) {
         items.clear();
         items.addAll(results);
+        // Drop selections whose log no longer exists, so a refresh after an external delete
+        // cannot leave the trashcan enabled for a file that is already gone.
+        Set<String> present = new HashSet<>();
+        for (TestResultsItem item : results) present.add(item.getFilePath());
+        selected.retainAll(present);
+        notifySelectionChanged();
         notifyDataSetChanged();
+    }
+
+    public void setEditMode(boolean editMode) {
+        this.editMode = editMode;
+        if (!editMode) selected.clear();
+        notifySelectionChanged();
+        notifyDataSetChanged();
+    }
+
+    public boolean isEditMode() {
+        return editMode;
+    }
+
+    public void selectAll() {
+        selected.clear();
+        for (TestResultsItem item : items) selected.add(item.getFilePath());
+        notifySelectionChanged();
+        notifyDataSetChanged();
+    }
+
+    public void unselectAll() {
+        selected.clear();
+        notifySelectionChanged();
+        notifyDataSetChanged();
+    }
+
+    public boolean areAllSelected() {
+        return !items.isEmpty() && selected.size() == items.size();
+    }
+
+    /** Document URIs of the currently selected logs. */
+    public List<String> getSelectedFiles() {
+        return new ArrayList<>(selected);
+    }
+
+    private void notifySelectionChanged() {
+        if (selectionChangedListener != null) {
+            selectionChangedListener.onSelectionChanged(selected.size());
+        }
     }
 
     @NonNull @Override
@@ -77,10 +142,25 @@ public class TestResultsAdapter
     @Override
     public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
         TestResultsItem tr = items.get(position);
-        holder.tvTimestamp.setText(tr.getDisplayTime());
-        holder.itemView.setOnClickListener(v -> {
-            if (listener != null) listener.onResultClick(tr.getFilePath());
-        });
+        String filePath = tr.getFilePath();
+
+        holder.tvTimestamp.setText(tr.getDisplayName());
+        holder.tvSize.setText(tr.getDisplaySize());
+
+        if (editMode) {
+            holder.cbSelected.setVisibility(View.VISIBLE);
+            holder.cbSelected.setChecked(selected.contains(filePath));
+            holder.itemView.setOnClickListener(v -> {
+                if (!selected.remove(filePath)) selected.add(filePath);
+                holder.cbSelected.setChecked(selected.contains(filePath));
+                notifySelectionChanged();
+            });
+        } else {
+            holder.cbSelected.setVisibility(View.GONE);
+            holder.itemView.setOnClickListener(v -> {
+                if (listener != null) listener.onResultClick(v, filePath);
+            });
+        }
     }
 
     @Override
@@ -89,10 +169,14 @@ public class TestResultsAdapter
     }
 
     static class ViewHolder extends RecyclerView.ViewHolder {
+        final CheckBox cbSelected;
         final TextView tvTimestamp;
+        final TextView tvSize;
         ViewHolder(@NonNull View itemView) {
             super(itemView);
+            cbSelected  = itemView.findViewById(R.id.cbSelected);
             tvTimestamp = itemView.findViewById(R.id.tvTimestamp);
+            tvSize      = itemView.findViewById(R.id.tvSize);
         }
     }
 }

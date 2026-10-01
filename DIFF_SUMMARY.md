@@ -5,6 +5,153 @@ description of what shipped so the history is not lost when the working tree mov
 
 ---
 
+## 2026-10-01 — Remove the silent audio clock; force frame drops; telemetry for looping runs (branch `initial_av2`)
+
+**Theme:** A benchmark has to measure the decoder, not its own scaffolding, and it has to fail
+visibly rather than quietly change what it is measuring. Three of the changes here came from
+discovering that VCAT was doing neither.
+
+### The silent audio clock cost 38% of battery life
+
+`SilentAudioTrack` existed so an audio renderer would supply the media clock, because
+`DefaultMediaClock` adopts the clock of an enabled renderer and a video-only input enables none.
+Two matched CPH2625 runs, identical but for `RunConfig.audioClock`, discharged 100%→14% in
+**17.72 h** without it and **11.02 h** with it.
+
+The cost is not decode work. With audio on the big cluster averaged *lower* (1605 vs 1784 MHz),
+spent less time at its 2500 MHz peak (11.7% vs 26.6%), and `cpu.usage.total` was lower (12.63% vs
+14.09%) — yet the battery ran 1.3 °C warmer. The visible fingerprint is the big cluster never
+dropping below 1200 MHz across 30,224 samples, against a 400 MHz floor without audio: a periodic
+callback holding cores out of deep idle. For a tool whose purpose is measuring decoder battery
+cost, scaffolding consuming 38% of the battery invalidates the measurement.
+
+Removed: `parsers/SilentAudioTrack.java`, the `injectSilentAudio` flag in both extractors,
+`RunConfig.audioClock` with its equals/hashCode/comparator/copy/default sites, the conditions-tab
+checkbox and its layout entry, and the flag plumbing in `FullScreenPlayerActivity`.
+`StrictRenderersFactoryV2.buildAudioRenderers` now builds **nothing** and deliberately does not
+call `super`, so no `AudioTrack` can be opened even by a stream carrying real audio. The MP4
+extractor still declines to publish the container's audio tracks, now unconditionally — audio is
+**suppressed**, never **generated**. Six silent-audio tests are replaced by one pinning the new
+invariant.
+
+With no audio renderer, `DefaultMediaClock` falls back to `StandaloneMediaClock`, which advances
+at wall-clock rate. Confirmed on device: the player reached `STATE_ENDED` at `pos=17026` ms on a
+13,000 ms clip.
+
+### Frames now actually drop
+
+The clock being right was not enough. Every software decoder plugin overrode
+`shouldForceRenderOutputBuffer` to `earlyUs <= 0`, and
+`DecoderVideoRenderer.processOutputBuffer` runs the force-render check *before* the drop checks —
+so every frame that was due or late was rendered and the `shouldDropOutputBuffer` override below
+it was unreachable. **No frame could ever be dropped.**
+
+Measured at 1080p AV2, threads=1: four loops each took **17.6 s** of wall time for **13.0 s** of
+media (0.74×) with `frames_dropped = 0`. After removing the override: **13.5–13.7 s** per loop
+with drops reported.
+
+So `video.frames_dropped` had been structurally zero for every software decoder, which is why max
+drops was 0 or 1 across all 20 historical logs. Every software-decoder run to date measured *time
+to decode N frames*, not realtime playback with drops; relative comparisons hold, the absolute
+framing does not. Fixed in the dav2d plugins; **the identical override is still present in the
+dav1d and vvdec plugins**, so AV1 and VVC results are not yet comparable with AV2 ones.
+
+### Telemetry: looping runs are now readable
+
+- `test.duration` → **`test.duration_ms`**, measured from the start of the current playlist pass
+  so it restarts each loop rather than growing for the length of the run
+- **`test.file_duration_ms`** — position within the current file
+- **`test.total_iterations`** — playlist passes completed
+
+With a single-file playlist `advanceToNextClip()` wraps on every file, so an iteration is a file
+and the two durations track each other. Nothing read the old column name —
+`TestResultsDetailDialog` derives duration from timestamps — so the rename breaks no reader.
+
+- **`video.dropped_to_keyframe`** — frames discarded from the source to reach a keyframe, from
+  `DecoderCounters.droppedInputBufferCount`, which ExoPlayer increments *only* there. Frames, not
+  events: `droppedToKeyframeCount` reads a flat 1 however large the block. Measured 70/64/63 on
+  successive playthroughs, matching one 65-frame GOP and `decoded ≈ 320` of 390. These frames are
+  never decoded, so a non-zero value marks an interval where the run did **less work** than the
+  clip demanded and its throughput is not comparable with a clean one.
+
+Both drop columns are per-interval, so a stall reads as a spike rather than a step.
+
+### Telemetry: three collection bugs
+
+- **Drop counters are sampled on their own 2 s timer** into local accumulators, which the
+  telemetry row reports and clears. The cadences must differ: rows ramp 30 s → 5 min because
+  polling battery, thermal, eight CPU frequencies and memory every 2 s for a 17 h run would make
+  the log unusable, but `startClipWithFreshPlayer()` builds a **new ExoPlayer** per clip, so a
+  fresh `DecoderCounters` starts at zero and anything not read before the next clip began was
+  lost. With 13 s clips and minutes between rows, most of it was.
+- **`stopTestAndCleanup()` wrote no row.** Of five paths into teardown only `STATE_ENDED` logged
+  first, so the stop button, the ADB stop command and both error dialogs discarded everything
+  since the last row — including, on an error, the state at failure. It now flushes first, guarded
+  against duplicating the row `STATE_ENDED` just wrote.
+- **The telemetry timer leaked.** `startTelemetryTimer()` posted without `removeCallbacks`, and
+  `onPlaybackStarted()` calls it at every clip start, so each clip left another self-rescheduling
+  timer behind: rows got denser as a run progressed and a looping playlist accumulated one timer
+  per playthrough. Row cadence in every previous log is therefore not what it appears.
+
+### Frame-number overlay, host-side
+
+New "Show frame number (diagnostic)" checkbox under Refresh Rate, backed by
+`RunConfig.showFrameNumber`. Driven by `VideoFrameMetadataListener`, which fires immediately
+before each frame is released to the surface, so the number names the frame being presented. The
+index comes from the presentation timestamp rather than a render count, which would stay
+contiguous across dropped frames and misname every frame after the first drop.
+
+This replaces an equivalent overlay burned into the luma plane inside the dav2d plugins: that
+needed a copy in each of four plugins plus a SharedPreferences contract duplicated as untyped
+strings, because an app cannot set a `debug.*` system property. The host version also covers
+hardware decoders, which an in-plugin overlay could not. What is lost is that the burned-in
+number was composited with the image and so could not disagree with a screen capture.
+
+### AV2 decoder selection
+
+- `VideoDecoderEnumerator` — `AV2("video/av02")` added to the `MimeType` enum. One line, and the
+  one that unblocks everything: `FragmentTestConditions` builds its spinners from
+  `MimeType.values()`, so AV2 gets a row listing every registered `video/av02` plugin and both
+  dav2d builds appear side by side, selectable without a rebuild.
+- `VcatDecoderManager.registerDecoder` uses `putIfAbsent` and logs at **error** level on a
+  duplicate id, naming both the kept and discarded build. With two builds of one decoder
+  installed, a silently dropped duplicate was the failure that produces a clean-looking wrong
+  number: the discarded plugin is unreachable but the run still reports the id that was asked for.
+- `FragmentTestConditions` — stale saved-id fallback. `getPosition()` returns −1 for an id no
+  longer registered and that went straight to `setSelection(-1, false)`; the config then kept a
+  dead id, `StrictRenderersFactoryV2` found nothing, added **no renderer**, and AV2 silently
+  stopped decoding.
+
+### Logs tab
+
+Rows show the file name with `.csv` stripped, matching vcat-ai, plus a right-aligned size column
+(`x.x MB`, rounded up so a non-empty log never reads `0.0`). Per-item `PopupMenu` with
+Details/Delete and confirmation; edit mode with checkboxes, Select All/Unselect All, Cancel, a
+trashcan dimmed until something is selected, and batch delete reporting partial success.
+Selection is keyed by document URI rather than display name: two logs can render the same
+timestamp string, and the URI is what a delete needs.
+
+### Also in this change set
+
+- **Display refresh control** — new `tools/DisplayInfo.java`, `RunConfig.displayRefreshHz`,
+  `DEFAULT_REFRESH_HZ`, `DeviceInfo.displayRefresh`, the conditions dropdown. Adds
+  `display_refresh` to the telemetry header.
+- **Run environment capture** — new `tools/RunEnvironment.java` and `SessionHeader.run_environment`
+  (airplane mode, charging, power save, brightness, wifi/cellular). This is what made it possible
+  to confirm which battery runs were actually on battery — two earlier runs were not.
+- Player Options spacing tightened to match Run Options, which carries no inter-control margins.
+
+**Telemetry schema:** `test_conditions` is serialised reflectively from `RunConfig`, so removing
+`audioClock` and adding `showFrameNumber` change the header with no version bump. Deliberate while
+on this branch; `headerVersion` is the app `versionCode`, not a schema version, so there is no
+independent number to bump.
+
+Verified: builds clean, 35 unit tests pass, installed and exercised on CPH2629 — forced frame
+dropping, the keyframe-frame counts, and the new duration/iteration columns all confirmed against
+live runs. The final-row flush and the timer-leak fix are not separately exercised.
+
+---
+
 ## 2026-08-30 — Remove error-resilient decode; decoder-plugin-api back to `1.0.4`
 
 **Theme:** Error resilience was scaffolding for an immature dav2d. dav2d now decodes AV2 cleanly on

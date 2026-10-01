@@ -64,6 +64,7 @@ public class DeviceInfoTest {
                     "    \"width\": 720,\n" +
                     "    \"height\": 1449\n" +
                     "  },\n" +
+                    "  \"display_refresh\": 60.0,\n" +
                     "  \"memory\": {\n" +
                     "    \"total\": \"1.78 GB\",\n" +
                     "    \"available\": \"0.59 GB\"\n" +
@@ -79,6 +80,16 @@ public class DeviceInfoTest {
             .registerTypeAdapter(DeviceInfo.class, new DeviceInfo.Adapter())
             .setPrettyPrinting()
             .create();
+
+    @Test
+    public void deserialize_logWithoutDisplayRefresh_readsAsNotRecorded() {
+        // Logs written before display_refresh existed must still parse; the field reads 0 rather
+        // than failing or inventing a rate.
+        String legacy = JSON.replace("  \"display_refresh\": 60.0,\n", "");
+        DeviceInfo result = gson.fromJson(legacy, DeviceInfo.class);
+        assertNotNull(result);
+        assertEquals(0f, result.displayRefresh, 0.0001f);
+    }
 
     @Test
     public void testSerialize() {
@@ -104,7 +115,7 @@ public class DeviceInfoTest {
                 "motorola", "moto e14",
                 "Spreadtrum", "T606",
                 "14 (32-bit)",
-                mem, stg, cpu, dis);
+                mem, stg, cpu, dis, 60f);
 
         return ret;
     }

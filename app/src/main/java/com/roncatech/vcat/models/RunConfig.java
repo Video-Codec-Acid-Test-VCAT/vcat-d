@@ -43,6 +43,32 @@ import java.util.Objects;
 public class RunConfig {
     public int screenBrightness;
     public int threads;
+    /**
+     * Display refresh rate to request for playback, in Hz.
+     *
+     * <p>Defaults to 60 on every device. Left to the device default, panel rate is an uncontrolled
+     * variable in a battery comparison: a 120 Hz-default phone pays a large standing display cost
+     * for 30 fps content and looks worse than a 60 Hz phone for reasons unrelated to the decoder.
+     * 60 is the lowest rate that is near-universally supported and still gives two vsyncs per
+     * 30 fps frame, so a marginally-late frame is not counted as a drop for presentation reasons.
+     *
+     * <p>Only rates the display actually reports are offered (see
+     * {@link com.roncatech.vcat.tools.DisplayInfo#supportedRefreshRates}); the request itself is
+     * advisory, so the achieved rate is logged at playback start.
+     */
+    /**
+     * Burn the frame number into each decoded frame, in the decoder rather than as a view on top,
+     * so the number names the frame actually on screen.
+     *
+     * <p>Diagnostic only, and recorded in {@code test_conditions} so a log states whether it was
+     * on: it costs a per-frame draw in the blit, so a run with it enabled is not a clean
+     * performance measurement.
+     */
+    public boolean showFrameNumber;
+    public int displayRefreshHz;
+
+    /** Requested refresh rate when nothing else is chosen. See {@link #displayRefreshHz}. */
+    public static final int DEFAULT_REFRESH_HZ = 60;
     public enum RunMode{ONCE, BATTERY, TIME};
 
     public enum VideoOrientation{
@@ -102,6 +128,8 @@ public class RunConfig {
         if(this.threads != that.threads){return false;}
         if(this.screenBrightness != that.screenBrightness){return false;}
         if(this.videoOrientation != that.videoOrientation){return false;}
+        if(this.showFrameNumber != that.showFrameNumber){return false;}
+        if(this.displayRefreshHz != that.displayRefreshHz){return false;}
 
         return Objects.equals(this.decoderCfg, that.decoderCfg);
     }
@@ -113,6 +141,8 @@ public class RunConfig {
                 threads,
                 runMode,
                 runLimit,
+                showFrameNumber,
+                displayRefreshHz,
                 decoderCfg
         );
     }
@@ -125,6 +155,8 @@ public class RunConfig {
         this.runLimit = 15;
         this.decoderCfg = new DecoderConfig();
         this.videoOrientation = VideoOrientation.MATCH_VIDEO;
+        this.showFrameNumber = false;
+        this.displayRefreshHz = DEFAULT_REFRESH_HZ;
     }
 
     public RunConfig(final RunConfig copyFrom){
@@ -135,6 +167,8 @@ public class RunConfig {
                 copyFrom.runLimit,
                 copyFrom.decoderCfg,
                 copyFrom.videoOrientation);
+        this.showFrameNumber = copyFrom.showFrameNumber;
+        this.displayRefreshHz = copyFrom.displayRefreshHz;
     }
 
     // Constructor with parameters
@@ -145,6 +179,8 @@ public class RunConfig {
         this.runLimit = runLimit;
         this.decoderCfg = new DecoderConfig(decoderCfg);
         this.videoOrientation = videoOrientation;
+        this.showFrameNumber = false;
+        this.displayRefreshHz = DEFAULT_REFRESH_HZ;
     }
 
     // Convert object to JSON string (for saving)
@@ -193,6 +229,10 @@ public class RunConfig {
 
             if(config1.videoOrientation != config2.videoOrientation){
                 return Integer.compare(config1.videoOrientation.ordinal(), config2.videoOrientation.ordinal());
+            }
+
+            if(config1.displayRefreshHz != config2.displayRefreshHz){
+                return Integer.compare(config1.displayRefreshHz, config2.displayRefreshHz);
             }
 
             // now compare the decoder cfg
