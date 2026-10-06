@@ -106,26 +106,41 @@ extrapolate from.
 **Nominal duration is not recorded.** The telemetry still does not state the clip's duration or
 frame rate, so the native-rate check has to be computed from external knowledge of the content.
 
-**`video.frames_dropped` under-reports.** Confirmed against a CPH2625 vvdec 3.2.0 run, where it
-summed to 22,577 while `video.dropped_to_keyframe` summed to 24,260 — impossible, since
-ExoPlayer folds the keyframe drops into the same counter (`DecoderVideoRenderer:538`), making the
-latter a strict subset of the former.
+**Drop accounting is inconsistent at file wraps.** On both vvdec runs, summed
+`video.dropped_to_keyframe` exceeds summed `video.frames_dropped` (24,260 vs 22,577 on
+3.2.0; 172,431 vs 158,588 on 3.0.0). That is impossible on its face: ExoPlayer folds the
+keyframe drops into the same counter (`DecoderVideoRenderer:535-538`), so the former is a
+strict subset of the latter.
 
-The cause is the source, not the sampling. `frames_dropped` comes from the `onDroppedVideoFrames`
-analytics callback, which ExoPlayer only dispatches once `droppedFrames` reaches
-`maxDroppedFramesToNotify` (50) — and `onStarted()` zeroes the counter without flushing it first,
-so any residue below the threshold is discarded at every renderer restart. A looping run restarts
-constantly, and the losses accumulate.
+The anomaly is **confined to the first telemetry row after a file wrap** — 2 rows of 177 on
+3.2.0, 5 of 94 on 3.0.0. Those rows read `frames_dropped = 0` alongside spikes of 6,047 and
+1,223 keyframe-dropped frames at `file_duration_ms` ≈ 1.6 s, which is not plausible as genuine
+in-file catch-up less than two seconds into a clip. Excluding wrap rows the invariant holds
+everywhere. The dav2d runs are unaffected entirely: they never drop to a keyframe at all
+(`dropped_to_keyframe = 0` on every row), so their `frames_dropped` figures stand as measured.
 
-The fix is to stop using the callback and read `decoderCounters.droppedBufferCount` directly in
-`sampleDrops()`, which is exactly how `dropped_to_keyframe` already reads
-`droppedInputBufferCount` and why that column is trustworthy. Deferred rather than folded in here
-because it changes a measured quantity and wants a device run to confirm; battery tests were
-occupying the devices.
+**The mechanism is not yet established**, and three plausible ones have been ruled out:
 
-Note this does not invalidate the native-rate conclusions above, which rest on
-`file_duration_ms` against the clip's nominal duration, not on the drop counts. It does mean
-reported drop percentages are a floor.
+- *`onStarted()` zeroing `droppedFrames` without flushing* — `onStopped()` calls
+  `maybeNotifyDroppedFrames()` first (`DecoderVideoRenderer:311`), so a stop/start cycle
+  loses nothing.
+- *`sampleDrops()` delta arithmetic* — correct; it accumulates `delta` and advances
+  `lastDroppedToKeyframe` to `total` on every tick.
+- *Counter replacement at re-enable* — handled; `onVideoEnabled` repoints `videoCounters` and
+  resets `lastDroppedToKeyframe` to 0, and the guard in `sampleDrops()` catches a counter that
+  restarts lower.
+
+One real defect was found while ruling those out, though it biases the other way:
+`onVideoDisabled` nulls `videoCounters` without taking a final sample, so whatever the old
+counter accrued between the last 2 s tick and teardown is never read. That *loses*
+keyframe drops, so it cannot explain a count that is too high.
+
+**Impact on results is bounded and changes no conclusion.** The wrap rows hold 7,270 of
+3.2.0's 24,260 keyframe drops and 39,766 of 3.0.0's 172,431. Taken as a worst case — assuming
+every wrap-row frame is real and absent from `frames_dropped` — 3.2.0's drop rate moves from
+3.3% to 4.3% and 3.0.0's from 48.6% to 54.6%. Neither disturbs the ranking, and the
+native-rate and battery findings do not rest on drop counts at all: they come from
+`file_duration_ms` against nominal clip duration, and from battery hours.
 
 ---
 
