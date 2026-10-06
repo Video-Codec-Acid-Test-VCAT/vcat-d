@@ -84,6 +84,7 @@ public class TelemetryLogger {
     public enum Column {
         TEST_TIMESTAMP        ("test.timestamp"),
         TEST_DURATION_MS      ("test.duration_ms"),
+        TEST_PLAYLIST_DURATION_MS("test.playlist.duration_ms"),
         TEST_FILE_DURATION_MS ("test.file_duration_ms"),
         TEST_TOTAL_ITERATIONS ("test.total_iterations"),
         TEST_FILENAME         ("test.filename"),
@@ -250,9 +251,12 @@ public class TelemetryLogger {
     /**
      * Log one Row, all cells will be populated even if only with ""
      * @param ct the Context to be used when collecting data
-     * @param iterationStartMs when the current playlist iteration began. {@code test.duration_ms}
-     *     is measured from here, so it restarts on every loop rather than growing for the length
-     *     of the run; with a single-file playlist every file end is also a loop.
+     * @param testStartMs when the test began. {@code test.duration_ms} is measured from here and
+     *     never resets, so it states how far into the run a row is.
+     * @param iterationStartMs when the current playlist iteration began.
+     *     {@code test.playlist.duration_ms} is measured from here, so it restarts on every loop;
+     *     with a single-file playlist every file end is also a loop, which makes it equal to
+     *     {@code test.file_duration_ms}.
      * @param fileStartMs when the current file began. {@code test.file_duration_ms} is measured
      *     from here, giving the position within the clip.
      * @param totalIterations how many times the playlist has completed. Together with the two
@@ -269,9 +273,10 @@ public class TelemetryLogger {
      *     one. They are also counted inside {@code frameDrops}, which totals both kinds.
      * @param isResume true if the test was resumed
      */
-    public void logTelemetryRow(Context ct, long iterationStartMs, long fileStartMs,
-                                int totalIterations, VideoInfo vi, Integer frameDrops,
-                                Integer droppedToKeyframe, boolean isResume, boolean isEndOfCurFile){
+    public void logTelemetryRow(Context ct, long testStartMs, long iterationStartMs,
+                                long fileStartMs, int totalIterations, VideoInfo vi,
+                                Integer frameDrops, Integer droppedToKeyframe, boolean isResume,
+                                boolean isEndOfCurFile){
         Map<Column, Object> row = initRow(this.numCpus);
 
         // Two clocks, deliberately: the logged timestamp is shifted back by the resume gap so the
@@ -281,7 +286,8 @@ public class TelemetryLogger {
         long rawNow = System.currentTimeMillis();
         Long curTime = rawNow - this.timestampOffsetMs;
         row.put(Column.TEST_TIMESTAMP, curTime.toString());
-        row.put(Column.TEST_DURATION_MS, Long.toString(rawNow - iterationStartMs));
+        row.put(Column.TEST_DURATION_MS, Long.toString(rawNow - testStartMs));
+        row.put(Column.TEST_PLAYLIST_DURATION_MS, Long.toString(rawNow - iterationStartMs));
         row.put(Column.TEST_FILE_DURATION_MS, Long.toString(rawNow - fileStartMs));
         row.put(Column.TEST_TOTAL_ITERATIONS, Integer.toString(totalIterations));
         row.put(Column.TEST_RESTART, Boolean.toString(isResume));

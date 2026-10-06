@@ -122,6 +122,17 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
     private long frameOverlayStepUs = 0;
     private long frameOverlayLastPtsUs = Long.MIN_VALUE;
 
+    /**
+     * First battery reading of the run, used to estimate time to completion.
+     *
+     * <p>The estimate is a whole-run average rather than a sliding window: battery level is only
+     * reported to the nearest percent, so over a nine-hour discharge a single percent lasts about
+     * six minutes and any short window is mostly quantisation noise. Discharge under a fixed
+     * playback workload is close to linear, which is what makes the average usable.
+     */
+    private int runStartBatteryPct = -1;
+    private long runStartBatteryMs = 0L;
+
     /** When the last telemetry row was written, so teardown can tell if one is still owed. */
     private long lastTelemetryRowMs = 0;
 
@@ -913,8 +924,9 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
         this.pendingFrameDrops = 0;
         this.pendingDroppedToKeyframe = 0;
 
-        this.tl.logTelemetryRow(this, this.iterationStartMs, this.fileStartMs,
-                this.totalIterations, vi, frameDrops, droppedToKeyframe, false, endOfFile);
+        this.tl.logTelemetryRow(this, this.viewModel.curTestDetails.getStartTimeAsEpoch(),
+                this.iterationStartMs, this.fileStartMs, this.totalIterations, vi,
+                frameDrops, droppedToKeyframe, false, endOfFile);
         this.lastTelemetryRowMs = System.currentTimeMillis();
 
         if(!this.viewModel.curTestDetails.getCurrentTestVideo().getFileName().equals(vi.fileName)){
@@ -930,6 +942,11 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
 
         // Track battery temp (°C) and system thermal status each tick, keeping the session max,
         // so the overlay's cur:max reflects the whole run regardless of when it's opened.
+        if (runStartBatteryPct < 0) {
+            runStartBatteryPct = (int) BatteryInfo.getBatteryLevel(this);
+            runStartBatteryMs = System.currentTimeMillis();
+        }
+
         curBatteryTempC = BatteryInfo.getBatteryTemperatureC(this);
         if (curBatteryTempC > maxBatteryTempC) maxBatteryTempC = curBatteryTempC;
         android.os.PowerManager pm = getSystemService(android.os.PowerManager.class);
@@ -951,7 +968,7 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
                             "Run Mode: %s\n" +
                             "Battery: %d%% %.1f:%.1f\n"+
                             "System Thermal Status: %d:%d\n"+
-                            "Run Duration: %s",
+                            "Run Dur: %s (est %s)",
                     UriUtils.fileNameFromURI(vi.fileName),
                     vi.width,
                     vi.height,
@@ -972,8 +989,52 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
                     (int) BatteryInfo.getBatteryLevel(this),
                     curBatteryTempC, maxBatteryTempC,
                     curSysThermal, maxSysThermal,
-                    this.viewModel.curTestDetails.getElapsedSinceStartHms()
+                    this.viewModel.curTestDetails.getElapsedSinceStartHms(),
+                    estimateTimeRemaining()
             ));
+        }
+    }
+
+    /** Formats a duration as hh:mm, clamped at zero. */
+    private static String asHhMm(long ms) {
+        if (ms < 0) ms = 0;
+        long totalMin = ms / 60_000L;
+        return String.format(Locale.US, "%02d:%02d", totalMin / 60L, totalMin % 60L);
+    }
+
+    /**
+     * Estimated time until the run's stop condition is met, for the overlay.
+     *
+     * <p>{@code N/A} for a single pass, where completion depends on playlist length rather than
+     * elapsed time. {@code --:--} while a battery estimate has no basis yet — the level has not
+     * moved a whole percent since the run began, so there is no rate to extrapolate.
+     */
+    private String estimateTimeRemaining() {
+        RunConfig rc = this.viewModel.getRunConfig();
+        long startEpoch = this.viewModel.curTestDetails.getStartTimeAsEpoch();
+        if (startEpoch < 1_000_000_000_000L) startEpoch *= 1000L;   // tolerate seconds
+        long nowMs = System.currentTimeMillis();
+
+        switch (rc.runMode) {
+            case ONCE:
+                return "N/A";
+            case TIME:
+                return asHhMm(rc.runLimit * 60_000L - (nowMs - startEpoch));
+            case BATTERY: {
+                int cur = (int) BatteryInfo.getBatteryLevel(this);
+                int drained = runStartBatteryPct - cur;
+                if (runStartBatteryPct < 0 || drained <= 0) {
+                    return "--:--";
+                }
+                int remainingPct = cur - rc.runLimit;
+                if (remainingPct <= 0) {
+                    return asHhMm(0);
+                }
+                long elapsedMs = nowMs - runStartBatteryMs;
+                return asHhMm((long) (remainingPct * (elapsedMs / (double) drained)));
+            }
+            default:
+                return "--:--";
         }
     }
 

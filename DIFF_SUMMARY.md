@@ -5,6 +5,130 @@ description of what shipped so the history is not lost when the working tree mov
 
 ---
 
+## 2026-10-05 — Three durations, build type in the header, a completion estimate, and native-rate playback everywhere
+
+**Theme:** Making a run self-describing. A telemetry file now states how far into the test a row
+is, how far into the current playlist pass and file, and which build produced it — all of which
+were needed to interpret a set of battery results that turned out not to be comparable.
+
+### Why: battery results that could not be compared
+
+Three CPH2625 battery runs looked like clear outcomes and were not:
+
+| decoder | battery | loops/hr | realtime | reading |
+|---|---|---|---|---|
+| vvdec 3.0.0 | 8.00 h | 3.8 | 5.95 | **0.64×** — slow motion |
+| vvdec 3.2.0 | 6.57 h | 5.8 | 5.95 | 0.97× — native rate |
+| dav2d `13d21d5` | 9.20 h | 266 | 277 | 0.96× |
+| dav2d `ee033a4` st-arm | 12.18 h | 268 | 277 | 0.97× |
+
+vvdec 3.0.0 appeared to beat 3.2.0 on battery life. It was playing the 604.8 s / 29.97 fps VVC
+stream at 64% of realtime and reporting `frames_dropped = 0`, so the older build was being
+rewarded for not doing the job. The dav2d pair, both at native rate, is the only directly
+comparable result in the set: **st-arm lasts 32% longer on identical content at identical
+throughput.**
+
+The lesson is that battery hours only means something when the workload is fixed, and the check
+for that is `loops/hour × clip_duration ÷ 3600`. Nothing in the telemetry stated the clip's
+nominal duration, so this had to be reconstructed after the fact — and getting it wrong once
+produced a confidently wrong conclusion.
+
+### Three durations
+
+`test.duration_ms` previously restarted on every playlist pass, which lost the only answer to
+"how far into the run is this row". Now:
+
+| column | resets |
+|---|---|
+| `test.duration_ms` | **never** — measured from test start |
+| `test.playlist.duration_ms` | every playlist pass |
+| `test.file_duration_ms` | every file |
+
+With a single-file playlist `advanceToNextClip()` wraps on every file, so an iteration is a file
+and the latter two are equal — expected, not a bug. The cumulative one is measured from
+`curTestDetails.getStartTimeAsEpoch()`, the same source the original `test.duration` used, so it
+keeps Resume's semantics of continuing a prior run's elapsed clock.
+
+### `vcat_build_type` in the session header
+
+Emitted immediately after `vcat_version`, from `BuildConfig.DEBUG`, so it reads `debug` or
+`release` with no manual bookkeeping.
+
+Needed because the two variants are not performance-equivalent and `vcat_version` is the same
+string in both. Release sets `minifyEnabled false`, so the bytecode is identical and the only
+difference is the debug variant's implicit `debuggable true` — which makes ART compile with
+`--debuggable` and restrict optimisations such as inlining. That slows host Java, and the whole
+ExoPlayer pipeline is host Java: the renderer's earliness check and drop decision, the sample
+queues, the extractors, the media clock, `doSomeWork` every 10 ms. Only decode is native and
+unaffected. The effect is probably small, but over 9–12 hours at 30 fps it is not obviously
+negligible, and until now a log could not say which variant produced it.
+
+`SessionInfo` has a hand-written `TYPE_ADAPTER`, so the field is emitted explicitly rather than
+reflectively; the read path tolerates its absence so older logs still parse, where `null` means
+"written before the field existed".
+
+### Native-rate playback across all decoders (plugin repos)
+
+Not a change in this repository, but it determines whether anything measured here is meaningful.
+`shouldForceRenderOutputBuffer` returning `earlyUs <= 0` made every late frame render and left
+the drop logic unreachable, so a decoder that could not keep up stretched the timeline instead of
+dropping frames. That was fixed in the dav2d plugins earlier and is now fixed in **dav1d and
+vvdec** as well, so all five decoders hold the content's frame rate and shed frames when they
+fall behind — what a player does, and what makes `frames_dropped` meaningful.
+
+`decoder-plugins/` now carries five AARs: dav1d, dav2d (`13d21d5`, unpatched upstream),
+dav2d-st-arm (`ee033a4` + 2 patches), vvdec 3.2.0, and a new **vvdec 3.0.0** plugin
+(`vcat.vvdec.30`, package `…libvcat.vvdec30`, soname `libvcat_vvdec30_jni.so`) forked so the two
+vvdec versions can be installed together and the frame-rate fix sanity-checked directly.
+
+Plugin AARs are always release-built. A debug variant would compile the native decoder at `-O0`
+via `buildCMakeDebug`, and `dist`'s `classes.dex` injection — which the host's `DexClassLoader`
+requires — only exists on the release path. The host's build type does not constrain the
+plugin's.
+
+### Completion estimate on the overlay
+
+The run-duration line now reads `Run Dur: hh:mm:ss (est hh:mm)` — `Duration` was trimmed to `Dur`
+to make room. A run can last twelve hours, and until now the overlay said how long it had been
+going but nothing about when it would end, so checking on a device meant doing the arithmetic.
+
+The estimate is per run mode: `N/A` for a single pass, where completion depends on playlist length
+rather than elapsed time; the remaining wall clock for a timed run; and for a battery run, the
+drain rate extrapolated to the configured stop level. The battery figure uses a whole-run average
+rather than a sliding window — level is only reported to the nearest percent, so over a nine-hour
+discharge one percent lasts about six minutes and any short window is mostly quantisation noise.
+Discharge under a fixed playback workload is close to linear, which is what makes the average
+usable. It reads `--:--` until the level has moved a whole percent and there is a rate to
+extrapolate from.
+
+### Known gaps
+
+**Nominal duration is not recorded.** The telemetry still does not state the clip's duration or
+frame rate, so the native-rate check has to be computed from external knowledge of the content.
+
+**`video.frames_dropped` under-reports.** Confirmed against a CPH2625 vvdec 3.2.0 run, where it
+summed to 22,577 while `video.dropped_to_keyframe` summed to 24,260 — impossible, since
+ExoPlayer folds the keyframe drops into the same counter (`DecoderVideoRenderer:538`), making the
+latter a strict subset of the former.
+
+The cause is the source, not the sampling. `frames_dropped` comes from the `onDroppedVideoFrames`
+analytics callback, which ExoPlayer only dispatches once `droppedFrames` reaches
+`maxDroppedFramesToNotify` (50) — and `onStarted()` zeroes the counter without flushing it first,
+so any residue below the threshold is discarded at every renderer restart. A looping run restarts
+constantly, and the losses accumulate.
+
+The fix is to stop using the callback and read `decoderCounters.droppedBufferCount` directly in
+`sampleDrops()`, which is exactly how `dropped_to_keyframe` already reads
+`droppedInputBufferCount` and why that column is trustworthy. Deferred rather than folded in here
+because it changes a measured quantity and wants a device run to confirm; battery tests were
+occupying the devices.
+
+Note this does not invalidate the native-rate conclusions above, which rest on
+`file_duration_ms` against the clip's nominal duration, not on the drop counts. It does mean
+reported drop percentages are a floor.
+
+---
+
 ## 2026-10-01 — Remove the silent audio clock; force frame drops; telemetry for looping runs (branch `initial_av2`)
 
 **Theme:** A benchmark has to measure the decoder, not its own scaffolding, and it has to fail

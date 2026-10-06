@@ -39,6 +39,7 @@ import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.os.BatteryManager;
 
+import com.roncatech.vcat.BuildConfig;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonElement;
@@ -70,6 +71,21 @@ public class SessionInfo {
     @SerializedName("vcat_version")
     public final String vcat_version;
 
+    /**
+     * Which variant of the host app produced the log: {@code "debug"} or {@code "release"}.
+     *
+     * <p>Worth recording because the two are not performance-equivalent. Release sets
+     * {@code minifyEnabled false}, so the bytecode is identical and the only difference is the
+     * debug variant's implicit {@code debuggable true} — which makes ART compile with
+     * {@code --debuggable} and restrict optimisations such as inlining. That slows host Java, and
+     * the whole ExoPlayer pipeline is host Java: the renderer's earliness check and drop
+     * decision, the sample queues, the extractors, the media clock, and doSomeWork every 10 ms.
+     * Only the decode itself is native and unaffected. {@code vcat_version} is the same string in
+     * both variants, so without this a log cannot say which one produced it.
+     */
+    @SerializedName("vcat_build_type")
+    public final String vcat_build_type;
+
 
     @Override
     public boolean equals(Object o) {
@@ -77,6 +93,7 @@ public class SessionInfo {
         if (!(o instanceof SessionInfo)) return false;
         SessionInfo that = (SessionInfo) o;
         if(!this.vcat_version.equals(that.vcat_version)){return false;}
+        if(!Objects.equals(this.vcat_build_type, that.vcat_build_type)){return false;}
         if(!this.playlist.equals(that.playlist)){return false;}
         if(!this.battery.equals(that.battery)){return false;}
 
@@ -85,7 +102,7 @@ public class SessionInfo {
 
     @Override
     public int hashCode() {
-        return Objects.hash(this.vcat_version, this.playlist, this.battery, this.start_time);
+        return Objects.hash(this.vcat_version, this.vcat_build_type, this.playlist, this.battery, this.start_time);
     }
 
     /**
@@ -200,13 +217,20 @@ public class SessionInfo {
 
         this.start_time = new StartTime(startTime);
         this.vcat_version = getAppVersion(context);
+        this.vcat_build_type = BuildConfig.DEBUG ? "debug" : "release";
         this.battery = new Battery(context, initial_level_pct, capacity_ma);  // defaults to zero
         this.playlist = playlist;
     }
 
     public SessionInfo(StartTime start_Time, String vcat_version, Battery battery, Playlist playlist){
+        this(start_Time, vcat_version, null, battery, playlist);
+    }
+
+    public SessionInfo(StartTime start_Time, String vcat_version, String vcat_build_type,
+                       Battery battery, Playlist playlist){
         this.start_time = start_Time;
         this.vcat_version = vcat_version;
+        this.vcat_build_type = vcat_build_type;
         this.battery = battery;
         this.playlist = playlist;
     }
@@ -283,6 +307,7 @@ public class SessionInfo {
 
                     // 4) vcat_version
                     out.name("vcat_version").value(src.vcat_version);
+                    out.name("vcat_build_type").value(src.vcat_build_type);
 
                     out.endObject();
                 }
@@ -308,8 +333,11 @@ public class SessionInfo {
                     );
 
                     String ver = o.get("vcat_version").getAsString();
+                    // Absent in logs written before the field existed.
+                    String build = o.has("vcat_build_type") && !o.get("vcat_build_type").isJsonNull()
+                            ? o.get("vcat_build_type").getAsString() : null;
 
-                    return new SessionInfo(st, ver, bat, play);
+                    return new SessionInfo(st, ver, build, bat, play);
                 }
             };
 
