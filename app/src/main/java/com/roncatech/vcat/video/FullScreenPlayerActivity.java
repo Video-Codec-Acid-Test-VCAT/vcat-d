@@ -522,7 +522,13 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
                 Log.i(TAG, "videoDisabled rendered=" + counters.renderedOutputBufferCount
                         + " dropped=" + counters.droppedBufferCount
                         + " skipped=" + counters.skippedOutputBufferCount);
-                videoCounters = null;
+                // Only detach the counter we are actually holding. During a clip swap the
+                // outgoing player's teardown can arrive after the incoming player's
+                // onVideoEnabled, and an unconditional null would drop the live reference and
+                // stop collecting dropped_to_keyframe for the rest of that clip.
+                if (videoCounters == counters) {
+                    videoCounters = null;
+                }
             }
 
             // ---- First frame / output target ----
@@ -665,11 +671,20 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
         // a boundary guard, not accumulation. It also re-bases dropped_to_keyframe, whose source
         // counter restarts at zero when the renderer is re-enabled and would otherwise go
         // negative on the first row of the new file.
+        //
+        // Detaching the counter is part of that re-basing, not a tidy-up. The outgoing player is
+        // released after the swap, so its DecoderCounters stays alive and keeps its cumulative
+        // droppedInputBufferCount for a while yet. Zeroing the baseline while still holding that
+        // reference let the 2 s sampler read the old total against a baseline of zero and book
+        // the whole previous file's drops a second time -- observed as spikes that matched the
+        // file's own reported total exactly (6047 = 4559 + 1488). Nulling it here makes the
+        // sampler skip until onVideoEnabled attaches the new player's counter.
         this.fileStartMs = System.currentTimeMillis();
         this.fd.reset();
         this.pendingFrameDrops = 0;
         this.pendingDroppedToKeyframe = 0;
         this.lastDroppedToKeyframe = 0;
+        this.videoCounters = null;
 
         orientationCommittedForClip = false;
         final RunConfig.VideoOrientation mode = viewModel.getRunConfig().videoOrientation;

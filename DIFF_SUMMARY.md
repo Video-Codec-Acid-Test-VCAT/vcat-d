@@ -106,41 +106,49 @@ extrapolate from.
 **Nominal duration is not recorded.** The telemetry still does not state the clip's duration or
 frame rate, so the native-rate check has to be computed from external knowledge of the content.
 
-**Drop accounting is inconsistent at file wraps.** On both vvdec runs, summed
-`video.dropped_to_keyframe` exceeds summed `video.frames_dropped` (24,260 vs 22,577 on
-3.2.0; 172,431 vs 158,588 on 3.0.0). That is impossible on its face: ExoPlayer folds the
-keyframe drops into the same counter (`DecoderVideoRenderer:535-538`), so the former is a
-strict subset of the latter.
+**Fixed: `dropped_to_keyframe` double-counted a file's drops at every wrap.** On both vvdec
+runs, summed `video.dropped_to_keyframe` exceeded summed `video.frames_dropped` (24,260 vs
+22,577 on 3.2.0; 172,431 vs 158,588 on 3.0.0) — impossible, since ExoPlayer folds the keyframe
+drops into the same counter (`DecoderVideoRenderer:535-538`), making the former a strict subset.
 
-The anomaly is **confined to the first telemetry row after a file wrap** — 2 rows of 177 on
-3.2.0, 5 of 94 on 3.0.0. Those rows read `frames_dropped = 0` alongside spikes of 6,047 and
-1,223 keyframe-dropped frames at `file_duration_ms` ≈ 1.6 s, which is not plausible as genuine
-in-file catch-up less than two seconds into a clip. Excluding wrap rows the invariant holds
-everywhere. The dav2d runs are unaffected entirely: they never drop to a keyframe at all
-(`dropped_to_keyframe = 0` on every row), so their `frames_dropped` figures stand as measured.
+The spikes were not drops at all. Each one is exactly the sum of what the preceding file had
+already reported — seven occurrences, seven exact matches:
 
-**The mechanism is not yet established**, and three plausible ones have been ruled out:
+| run | spike | the same file's prior rows |
+|---|---|---|
+| 3.2.0 | 6,047 | 4,559 + 1,488 |
+| 3.2.0 | 1,223 | 1,118 + 105 |
+| 3.0.0 | 4,740 | 696 + 1,455 + 1,487 + 1,102 |
+| 3.0.0 | 13,048 | 3,994 + 5,296 + 3,758 |
 
-- *`onStarted()` zeroing `droppedFrames` without flushing* — `onStopped()` calls
-  `maybeNotifyDroppedFrames()` first (`DecoderVideoRenderer:311`), so a stop/start cycle
-  loses nothing.
-- *`sampleDrops()` delta arithmetic* — correct; it accumulates `delta` and advances
-  `lastDroppedToKeyframe` to `total` on every tick.
-- *Counter replacement at re-enable* — handled; `onVideoEnabled` repoints `videoCounters` and
-  resets `lastDroppedToKeyframe` to 0, and the guard in `sampleDrops()` catches a counter that
-  restarts lower.
+That `skipSource()` is bounded by the SampleQueue was the first clue: with ExoPlayer's default
+50 s buffer, at most ~1,500 samples can be discarded at once, so 6,047 — 201 seconds of content
+inside a 1.6 s window — could not be a real skip.
 
-One real defect was found while ruling those out, though it biases the other way:
-`onVideoDisabled` nulls `videoCounters` without taking a final sample, so whatever the old
-counter accrued between the last 2 s tick and teardown is never read. That *loses*
-keyframe drops, so it cannot explain a count that is too high.
+**Cause.** `startClipWithFreshPlayer()` zeroed `lastDroppedToKeyframe` to re-base the delta for
+the new clip, but left `videoCounters` pointing at the *outgoing* player's `DecoderCounters`.
+That player is released after the swap, so its counter stays alive holding the previous file's
+cumulative `droppedInputBufferCount`. Any 2 s sampler tick landing in that window read the old
+total against a baseline of zero and booked the entire file's history as one delta.
 
-**Impact on results is bounded and changes no conclusion.** The wrap rows hold 7,270 of
-3.2.0's 24,260 keyframe drops and 39,766 of 3.0.0's 172,431. Taken as a worst case — assuming
-every wrap-row frame is real and absent from `frames_dropped` — 3.2.0's drop rate moves from
-3.3% to 4.3% and 3.0.0's from 48.6% to 54.6%. Neither disturbs the ranking, and the
-native-rate and battery findings do not rest on drop counts at all: they come from
-`file_duration_ms` against nominal clip duration, and from battery hours.
+The fix detaches the counter alongside the re-base; the sampler is already null-guarded, so it
+skips until `onVideoEnabled` attaches the new player's counter. A second ordering hazard was
+fixed with it: `onVideoDisabled` nulled `videoCounters` unconditionally, so a late teardown from
+the outgoing player could clear the incoming player's live reference and silently stop collecting
+for the rest of that clip. It now only detaches the counter it is actually holding.
+
+**Impact on results already gathered.** The dav2d runs are untouched — they never drop to a
+keyframe, so `dropped_to_keyframe` is 0 on every row and there was nothing to double-count.
+On the vvdec runs the corrected totals are 16,990 (3.2.0, was 24,260) and 132,665 (3.0.0, was
+172,431), which restores the subset invariant against `frames_dropped` — 22,577 and 158,588
+respectively — in every row. As a share of frames presented that is 2.5% dropped to keyframe for
+3.2.0 and 40.7% for 3.0.0, against overall drop rates of 3.3% and 48.6%. No conclusion moves: the native-rate check rests on
+`file_duration_ms` against nominal clip duration and the battery findings on hours and
+`total_iterations`, neither of which touches these counters.
+
+**Still to verify on device.** The fix is reasoned from the logs and compiles, but has not yet
+been confirmed by a run — the devices were occupied. The check is that no wrap row carries a
+`dropped_to_keyframe` value equal to the sum of its file's preceding rows.
 
 ---
 
