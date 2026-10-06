@@ -156,6 +156,7 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
     private int pendingFrameDrops = 0;
     private int pendingDroppedToKeyframe = 0;
     private int pendingFramesRendered = 0;
+    private int pendingDroppedToKeyframeEvents = 0;
 
     /** Folds everything the player has recorded since the last call into the pending totals. */
     private void sampleDrops() {
@@ -198,6 +199,15 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
             }
             this.pendingDroppedToKeyframe += delta;
             this.lastDroppedToKeyframe = total;
+
+            // The event count is what makes the frame count checkable. One skip can only
+            // discard what is sitting in the sample queue, and DefaultLoadControl caps that at
+            // 50 s, so a row claiming far more frames per event than 50 s of content is
+            // reporting a counting error, not a stall.
+            int events = this.videoCounters.droppedToKeyframeCount;
+            if (events < this.lastDroppedToKeyframeEvents) this.lastDroppedToKeyframeEvents = 0;
+            this.pendingDroppedToKeyframeEvents += events - this.lastDroppedToKeyframeEvents;
+            this.lastDroppedToKeyframeEvents = events;
         }
     }
 
@@ -222,6 +232,7 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
     /** Last sampled {@code droppedBufferCount} / {@code renderedOutputBufferCount} baselines. */
     private int lastDroppedBuffers = 0;
     private int lastRenderedFrames = 0;
+    private int lastDroppedToKeyframeEvents = 0;
     private AnalyticsListener analyticsListener;
 
     private Player.Listener playbackStateListener;
@@ -536,6 +547,7 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
                 lastDroppedToKeyframe = 0;
                 lastDroppedBuffers = 0;
                 lastRenderedFrames = 0;
+                lastDroppedToKeyframeEvents = 0;
                 Log.d(TAG, "videoEnabled: counters attached");
             }
 
@@ -707,9 +719,11 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
         this.pendingFrameDrops = 0;
         this.pendingDroppedToKeyframe = 0;
         this.pendingFramesRendered = 0;
+        this.pendingDroppedToKeyframeEvents = 0;
         this.lastDroppedToKeyframe = 0;
         this.lastDroppedBuffers = 0;
         this.lastRenderedFrames = 0;
+        this.lastDroppedToKeyframeEvents = 0;
         this.videoCounters = null;
 
         orientationCommittedForClip = false;
@@ -973,13 +987,15 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
         int frameDrops = this.pendingFrameDrops;
         int droppedToKeyframe = this.pendingDroppedToKeyframe;
         int framesRendered = this.pendingFramesRendered;
+        int d2kEvents = this.pendingDroppedToKeyframeEvents;
         this.pendingFrameDrops = 0;
         this.pendingDroppedToKeyframe = 0;
         this.pendingFramesRendered = 0;
+        this.pendingDroppedToKeyframeEvents = 0;
 
         this.tl.logTelemetryRow(this, this.viewModel.curTestDetails.getStartTimeAsEpoch(),
                 this.iterationStartMs, this.fileStartMs, this.totalIterations, vi,
-                frameDrops, droppedToKeyframe, framesRendered, false, endOfFile);
+                frameDrops, droppedToKeyframe, framesRendered, d2kEvents, false, endOfFile);
         this.lastTelemetryRowMs = System.currentTimeMillis();
 
         if(!this.viewModel.curTestDetails.getCurrentTestVideo().getFileName().equals(vi.fileName)){

@@ -124,6 +124,13 @@ do with when the frame was dropped. `frames_dropped` now reads `decoderCounters.
 directly, the same way `dropped_to_keyframe` already reads `droppedInputBufferCount` — one
 player's counter, sampled on the 2 s tick, with no possibility of cross-crediting.
 
+**New column `video.dropped_to_keyframe_events`**, from `droppedToKeyframeCount`. The frame
+count alone cannot be sanity-checked, which is how the absurd values survived. One skip discards
+only what is in the sample queue, and `DefaultLoadControl.DEFAULT_MAX_BUFFER_MS` caps that at
+50 s — about 1,499 samples at 29.97 fps. So a row reporting 5,979 frames must have come from at
+least four separate skips; if it reports one or two, the frame count is wrong by arithmetic
+rather than by judgement. The event count is free to read and settles it either way.
+
 **New column `video.frames_rendered`**, from `renderedOutputBufferCount`. This is the point of
 the change: until now a drop count could only be trusted, not checked. With rendered frames
 beside it, `frames_rendered + frames_dropped` should account for the interval's elapsed time at
