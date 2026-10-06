@@ -95,6 +95,7 @@ public class TelemetryLogger {
         CPU_FREQ              ("cpu.freq"),           // a *list* of values
         VIDEO_FRAMES_DROPPED  ("video.frames_dropped"),
         VIDEO_DROPPED_TO_KEYFRAME("video.dropped_to_keyframe"),
+        VIDEO_FRAMES_RENDERED ("video.frames_rendered"),
         VIDEO_RESOLUTION      ("video.resolution"),
         VIDEO_BITRATE         ("video.bitrate"),
         VIDEO_CODEC_NAME      ("video.codec_name"),
@@ -271,11 +272,18 @@ public class TelemetryLogger {
      *     shrink the decode workload: any row above zero marks an interval where the run did
      *     less work than the clip demanded, and its throughput is not comparable with a clean
      *     one. They are also counted inside {@code frameDrops}, which totals both kinds.
+     * @param framesRendered frames actually put on screen since the previous row. Recorded so a
+     *     row can be checked rather than trusted: {@code framesRendered + frameDrops} should
+     *     account for the interval's elapsed time at the clip's frame rate, and a row that
+     *     cannot be closed that way is reporting a counting error, not a decoder result. Both
+     *     come from the same {@code DecoderCounters} of the same player, so they are directly
+     *     comparable.
      * @param isResume true if the test was resumed
      */
     public void logTelemetryRow(Context ct, long testStartMs, long iterationStartMs,
                                 long fileStartMs, int totalIterations, VideoInfo vi,
-                                Integer frameDrops, Integer droppedToKeyframe, boolean isResume,
+                                Integer frameDrops, Integer droppedToKeyframe,
+                                Integer framesRendered, boolean isResume,
                                 boolean isEndOfCurFile){
         Map<Column, Object> row = initRow(this.numCpus);
 
@@ -325,6 +333,7 @@ public class TelemetryLogger {
         row.put(Column.CPU_FREQ, strCpuFreqs);
         row.put(Column.VIDEO_FRAMES_DROPPED, frameDrops.toString());
         row.put(Column.VIDEO_DROPPED_TO_KEYFRAME, droppedToKeyframe.toString());
+        row.put(Column.VIDEO_FRAMES_RENDERED, framesRendered.toString());
         row.put(Column.VIDEO_DECODER_NAME, vi.decoderName);
         row.put(Column.VIDEO_RESOLUTION, vi.width + "x" + vi.height);
         row.put(Column.VIDEO_BITRATE, vi.bitrate);

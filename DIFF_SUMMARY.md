@@ -101,6 +101,48 @@ Discharge under a fixed playback workload is close to linear, which is what make
 usable. It reads `--:--` until the level has moved a whole percent and there is a rate to
 extrapolate from.
 
+### Frame drops: read the counter, and make every row checkable
+
+`video.frames_dropped` came from the `onDroppedVideoFrames` analytics callback. Two defects
+followed from that, both fixed here.
+
+**The outgoing player was credited to the incoming clip.** `startClipWithFreshPlayer()` attached
+the analytics listener to the new player, moved the surface with `setPlayer()`, and only then —
+forty lines later — detached the old one. For that whole window the outgoing player was still
+playing, still reporting, and after the surface moved was decoding with no output while a second
+1080p decoder spun up on the same cores. Everything it dropped landed in the new clip's first
+row. This is the likely source of the ~28-frame drop recorded at the start of nearly every
+iteration in the vvdec runs: ExoPlayer flushes residue below its 50-frame notify threshold when
+the renderer stops, which is exactly a sub-50 figure arriving just after a swap.
+
+The outgoing player is now paused and detached *before* the new one is wired up, which also stops
+two decoders competing during the handover.
+
+**The callback is batched, so the count and its row were decoupled.** It only fires once drops
+reach `maxDroppedFramesToNotify` (50) and again on renderer stop, so arrival time has little to
+do with when the frame was dropped. `frames_dropped` now reads `decoderCounters.droppedBufferCount`
+directly, the same way `dropped_to_keyframe` already reads `droppedInputBufferCount` — one
+player's counter, sampled on the 2 s tick, with no possibility of cross-crediting.
+
+**New column `video.frames_rendered`**, from `renderedOutputBufferCount`. This is the point of
+the change: until now a drop count could only be trusted, not checked. With rendered frames
+beside it, `frames_rendered + frames_dropped` should account for the interval's elapsed time at
+the clip's frame rate, and a row that will not close that way is reporting a counting error
+rather than a decoder result.
+
+**Why this was needed.** Four rows in the CPH2625 vvdec 3.2.0 run report 1,554–7,495 frames
+dropped in a single interval — up to 83% of the frames the interval contains. Those numbers are
+not credible for a decoder that holds 98.4% of realtime overall and drops nothing in the body of
+any other iteration. Two checks against the existing data were inconclusive rather than
+exonerating: `cpu.usage.total` is identical on storm rows and clean rows (26.7% both), but a
+saturated thread reads the same whether or not it is keeping up, so utilisation cannot separate
+the cases; and all five storm rows sample the big cores at roughly half clock (1260 MHz against
+2424 MHz on clean rows), which would genuinely halve throughput and could produce real drops.
+
+The existing logs cannot settle it because they do not record what was rendered. New runs will.
+
+---
+
 ### Known gaps
 
 **Nominal duration is not recorded.** The telemetry still does not state the clip's duration or

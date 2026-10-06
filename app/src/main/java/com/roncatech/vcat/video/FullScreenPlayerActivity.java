@@ -155,13 +155,31 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
     private final Handler dropSamplerHandler = new Handler(Looper.getMainLooper());
     private int pendingFrameDrops = 0;
     private int pendingDroppedToKeyframe = 0;
+    private int pendingFramesRendered = 0;
 
     /** Folds everything the player has recorded since the last call into the pending totals. */
     private void sampleDrops() {
-        this.pendingFrameDrops += this.fd.frameDrops;
         this.fd.reset();
         if (this.videoCounters != null) {
             this.videoCounters.ensureUpdated();
+
+            // Drops are read from the counter, not from onDroppedVideoFrames. The callback is
+            // batched at a 50-frame threshold and flushed again on renderer stop, so its
+            // arrival time is decoupled from the drop; during a clip swap the outgoing player
+            // was still attached and its flush landed in the incoming clip's row. The counter
+            // belongs to one player and cannot be credited to another.
+            int dropped = this.videoCounters.droppedBufferCount;
+            if (dropped < this.lastDroppedBuffers) this.lastDroppedBuffers = 0;
+            this.pendingFrameDrops += dropped - this.lastDroppedBuffers;
+            this.lastDroppedBuffers = dropped;
+
+            // Rendered frames make a row checkable: rendered + dropped should account for the
+            // interval at the clip's frame rate, so a row that will not close is a counting
+            // error rather than a decoder result.
+            int rendered = this.videoCounters.renderedOutputBufferCount;
+            if (rendered < this.lastRenderedFrames) this.lastRenderedFrames = 0;
+            this.pendingFramesRendered += rendered - this.lastRenderedFrames;
+            this.lastRenderedFrames = rendered;
             // Frames, not events. droppedInputBufferCount counts buffers discarded from the
             // source to reach a keyframe, and ExoPlayer only ever increments it there: an
             // ordinary late frame is reported as droppedInputBufferCount=0. So this is the size
@@ -201,6 +219,9 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
     @Nullable private DecoderCounters videoCounters = null;
     /** Last sampled value of {@code droppedToKeyframeCount}, so rows can carry the delta. */
     private int lastDroppedToKeyframe = 0;
+    /** Last sampled {@code droppedBufferCount} / {@code renderedOutputBufferCount} baselines. */
+    private int lastDroppedBuffers = 0;
+    private int lastRenderedFrames = 0;
     private AnalyticsListener analyticsListener;
 
     private Player.Listener playbackStateListener;
@@ -511,8 +532,10 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
             @Override
             public void onVideoEnabled(EventTime et, DecoderCounters counters) {
                 videoCounters = counters;                    // keep reference to poll later
-                // A fresh DecoderCounters starts at zero, so the delta baseline has to follow it.
+                // A fresh DecoderCounters starts at zero, so the delta baselines follow it.
                 lastDroppedToKeyframe = 0;
+                lastDroppedBuffers = 0;
+                lastRenderedFrames = 0;
                 Log.d(TAG, "videoEnabled: counters attached");
             }
 
@@ -683,7 +706,10 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
         this.fd.reset();
         this.pendingFrameDrops = 0;
         this.pendingDroppedToKeyframe = 0;
+        this.pendingFramesRendered = 0;
         this.lastDroppedToKeyframe = 0;
+        this.lastDroppedBuffers = 0;
+        this.lastRenderedFrames = 0;
         this.videoCounters = null;
 
         orientationCommittedForClip = false;
@@ -691,6 +717,18 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
 
         // Keep a handle to the old player so we can release it after swap
         ExoPlayer old = exoPlayer;
+
+        // Detach and silence the outgoing player *before* the new one is wired up. It used to
+        // keep its analytics listener until after the swap, so for the rest of this method it
+        // was still playing, still reporting, and -- once setPlayer() moved the surface -- doing
+        // so with no output while a second decoder spun up on the same cores. Every drop it
+        // recorded in that window was credited to the incoming clip's first row. Pausing it
+        // first also stops two 1080p decoders competing during the handover.
+        if (old != null) {
+            old.setPlayWhenReady(false);
+            old.removeListener(this.playbackStateListener);
+            if (this.analyticsListener != null) old.removeAnalyticsListener(this.analyticsListener);
+        }
 
 
         // Build a new player using your existing RenderersFactory (dav1d, etc.)
@@ -787,12 +825,10 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
         }
         Log.d(TAG, "videoRendererCount=" + videoRenderers);
 
-        // Release the old one after we've fully switched the view
+        // Release the old one after we've fully switched the view. Its listeners were already
+        // detached above, so nothing it does on the way down reaches this clip's telemetry.
         if (old != null) {
-            // Defensive: clear media & listeners before release
             old.clearMediaItems();
-            old.removeListener(this.playbackStateListener);
-            if (this.analyticsListener != null) old.removeAnalyticsListener(this.analyticsListener);
             hb.removeCallbacks(heartbeat);
             old.release();
         }
@@ -936,12 +972,14 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
         sampleDrops();
         int frameDrops = this.pendingFrameDrops;
         int droppedToKeyframe = this.pendingDroppedToKeyframe;
+        int framesRendered = this.pendingFramesRendered;
         this.pendingFrameDrops = 0;
         this.pendingDroppedToKeyframe = 0;
+        this.pendingFramesRendered = 0;
 
         this.tl.logTelemetryRow(this, this.viewModel.curTestDetails.getStartTimeAsEpoch(),
                 this.iterationStartMs, this.fileStartMs, this.totalIterations, vi,
-                frameDrops, droppedToKeyframe, false, endOfFile);
+                frameDrops, droppedToKeyframe, framesRendered, false, endOfFile);
         this.lastTelemetryRowMs = System.currentTimeMillis();
 
         if(!this.viewModel.curTestDetails.getCurrentTestVideo().getFileName().equals(vi.fileName)){
