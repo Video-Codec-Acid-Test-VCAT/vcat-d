@@ -92,6 +92,8 @@ public class TelemetryLogger {
         BATTERY_MILLIAMPS     ("battery.milliamps"),
         BATTERY_TEMPERATURE   ("battery.temperature"),
         SYSTEM_THERMAL_STATUS ("system.thermal_status"),
+        SYSTEM_THERMAL_STATUS_MAX("system.thermal_status_max"),
+        SYSTEM_THERMAL_HEADROOM("system.thermal_headroom"),
         CPU_FREQ              ("cpu.freq"),           // a *list* of values
         VIDEO_FRAMES_DROPPED  ("video.frames_dropped"),
         VIDEO_DROPPED_TO_KEYFRAME("video.dropped_to_keyframe"),
@@ -286,12 +288,26 @@ public class TelemetryLogger {
      *     {@code DEFAULT_MAX_BUFFER_MS} (50 s), so frames-per-event above roughly
      *     50 s x frame rate is arithmetically impossible and marks a counting error rather than
      *     a stall.
+     * @param thermalStatusMax highest {@code PowerManager} thermal status observed since the
+     *     previous row, from a registered listener rather than a point sample. The plain
+     *     {@code system.thermal_status} column reads whatever happened to be true at the instant
+     *     the row was written, so a throttling episode shorter than the telemetry interval is
+     *     invisible -- which is how a 6.5 h run came back uniformly zero while stalling five
+     *     times.
+     * @param thermalHeadroom highest {@code getThermalHeadroom(0)} seen since the previous row,
+     *     where 1.0 means at the throttling threshold. This is the column to read: the status
+     *     code is quantised and, on the CPH2625, unusable. Its vendor HAL defines SKIN
+     *     thresholds as {@code [NaN, 43.0, 45.0, 41.0, ...]} -- SEVERE at 41 C, *below* LIGHT at
+     *     43 and MODERATE at 45 -- so the device jumps 0 to 3 and can never report the
+     *     intermediate states. Headroom is continuous and shows the approach to the trip.
+     *     {@code NaN} if the platform declines to answer (it rate-limits to roughly 1 Hz).
      * @param isResume true if the test was resumed
      */
     public void logTelemetryRow(Context ct, long testStartMs, long iterationStartMs,
                                 long fileStartMs, int totalIterations, VideoInfo vi,
                                 Integer frameDrops, Integer droppedToKeyframe,
                                 Integer framesRendered, Integer droppedToKeyframeEvents,
+                                Integer thermalStatusMax, Float thermalHeadroom,
                                 boolean isResume,
                                 boolean isEndOfCurFile){
         Map<Column, Object> row = initRow(this.numCpus);
@@ -334,6 +350,11 @@ public class TelemetryLogger {
         }
 
         row.put(Column.SYSTEM_THERMAL_STATUS, thermalCode.toString());
+        row.put(Column.SYSTEM_THERMAL_STATUS_MAX,
+                thermalStatusMax == null ? "" : thermalStatusMax.toString());
+        row.put(Column.SYSTEM_THERMAL_HEADROOM,
+                (thermalHeadroom == null || thermalHeadroom.isNaN())
+                        ? "" : String.format(Locale.US, "%.3f", thermalHeadroom));
 
         Double[] cpuFreqs = getCurrentCpuFreq(this.numCpus);
         String[] strCpuFreqs = new String[cpuFreqs.length];

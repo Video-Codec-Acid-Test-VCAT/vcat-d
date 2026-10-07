@@ -150,6 +150,43 @@ The existing logs cannot settle it because they do not record what was rendered.
 
 ---
 
+### Thermal telemetry: stop sampling, start listening — and record headroom
+
+`system.thermal_status` was read once per row with `getCurrentThermalStatus()`. Two things made
+it near-useless, and neither was a bug in the collection.
+
+**It was undersampled.** A point sample every ~300 s misses any episode shorter than the
+interval. The 10-05 vvdec run came back uniformly `0` across 177 rows while stalling five times.
+
+**The device cannot report the interesting states.** The CPH2625's vendor HAL defines SKIN
+thresholds as `[NaN, 43.0, 45.0, 41.0, 56.0, 58.0, 80.0]` — indexed by status, so LIGHT is 43 °C,
+MODERATE is 45 °C, and **SEVERE is 41 °C**. SEVERE trips *below* both, so skin crossing 41 °C
+jumps straight to 3 and the intermediate states can never be the reported value. Every other
+sensor has LIGHT and MODERATE as `NaN` outright. The column is structurally binary on this
+hardware and nothing app-side can change that.
+
+Three columns now:
+
+| column | source |
+|---|---|
+| `system.thermal_status` | unchanged point sample, kept so existing plots keep working |
+| `system.thermal_status_max` | highest status since the previous row, via `addThermalStatusListener` |
+| `system.thermal_headroom` | highest `getThermalHeadroom(0)` since the previous row |
+
+Headroom is the one to read. It is continuous, with `1.0` at the throttling threshold, so it
+shows the *approach* to a trip rather than the trip itself — which is the regime the 10-05 run
+spent six hours in. Sampled on the existing 2 s drop tick, comfortably clear of the platform's
+~1 Hz rate limit; blank if the platform returns `NaN`.
+
+The status max re-bases to the *current* status after each row rather than to zero, so a
+sustained throttle keeps showing on every row it spans instead of only the one where it began.
+
+**Not yet verified on device.** `installDebug` fails against the installed release build
+(`INSTALL_FAILED_UPDATE_INCOMPATIBLE`), and uninstalling would discard the run configuration. The
+check is simply that `system.thermal_headroom` is populated rather than blank.
+
+---
+
 ### Measured: skip-to-keyframe is the stall, not the cure
 
 A 6.8 h vvdec 3.2.0 run on CPH2625 with the new counters settles what the drop spikes were.

@@ -37,9 +37,11 @@ import static android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAP
 import static android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT;
 
 import android.app.AlertDialog;
+import android.content.Context;
 import android.content.pm.ActivityInfo;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.PowerManager;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
@@ -158,8 +160,62 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
     private int pendingFramesRendered = 0;
     private int pendingDroppedToKeyframeEvents = 0;
 
+    /**
+     * Thermal state accumulated between telemetry rows.
+     *
+     * <p>Both are maxima, not point samples. {@code getCurrentThermalStatus()} read once per row
+     * misses any episode shorter than the interval, which is how a 6.5 h run came back uniformly
+     * zero while stalling five times. The listener catches every transition instead.
+     *
+     * <p>Headroom is the column that actually carries information on this device. The CPH2625's
+     * vendor HAL defines SKIN thresholds as {@code [NaN, 43.0, 45.0, 41.0, ...]} — SEVERE at
+     * 41 °C, below LIGHT at 43 and MODERATE at 45 — so status can only ever read 0 or 3 and the
+     * approach to a trip is invisible. Headroom is continuous, with 1.0 at the threshold.
+     */
+    private int pendingThermalStatusMax = 0;
+    private float pendingThermalHeadroom = Float.NaN;
+    @Nullable private PowerManager.OnThermalStatusChangedListener thermalListener = null;
+
+    /** Registers the thermal listener; status changes are recorded as a max until the next row. */
+    private void startThermalMonitoring() {
+        PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
+        if (pm == null || this.thermalListener != null) return;
+        this.pendingThermalStatusMax = pm.getCurrentThermalStatus();
+        this.thermalListener = status -> {
+            if (status > this.pendingThermalStatusMax) this.pendingThermalStatusMax = status;
+            Log.i(TAG, "THERMAL status -> " + status);
+        };
+        pm.addThermalStatusListener(getMainExecutor(), this.thermalListener);
+    }
+
+    private void stopThermalMonitoring() {
+        PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
+        if (pm != null && this.thermalListener != null) {
+            pm.removeThermalStatusListener(this.thermalListener);
+        }
+        this.thermalListener = null;
+    }
+
+    /** Samples thermal headroom, keeping the worst value seen since the last row. */
+    private void sampleThermalHeadroom() {
+        PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
+        if (pm == null) return;
+        try {
+            // forecastSeconds = 0 asks for "now". The platform rate-limits this to roughly 1 Hz
+            // and returns NaN if asked more often, which the 2 s sampler stays clear of.
+            float h = pm.getThermalHeadroom(0);
+            if (!Float.isNaN(h)
+                    && (Float.isNaN(this.pendingThermalHeadroom) || h > this.pendingThermalHeadroom)) {
+                this.pendingThermalHeadroom = h;
+            }
+        } catch (Exception e) {
+            // Unsupported on some devices; leave the column blank rather than failing the row.
+        }
+    }
+
     /** Folds everything the player has recorded since the last call into the pending totals. */
     private void sampleDrops() {
+        sampleThermalHeadroom();
         this.fd.reset();
         if (this.videoCounters != null) {
             this.videoCounters.ensureUpdated();
@@ -596,6 +652,8 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
         frameNumberOverlay = findViewById(R.id.frameNumberOverlay);
         initialize();
 
+        startThermalMonitoring();
+
         playerView = findViewById(R.id.playerView);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 
@@ -695,6 +753,7 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
     @Override
     protected void onDestroy() {
         super.onDestroy();
+        stopThermalMonitoring();
         setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
     }
 
@@ -987,14 +1046,22 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
         int droppedToKeyframe = this.pendingDroppedToKeyframe;
         int framesRendered = this.pendingFramesRendered;
         int d2kEvents = this.pendingDroppedToKeyframeEvents;
+        int thermalMax = this.pendingThermalStatusMax;
+        float headroom = this.pendingThermalHeadroom;
         this.pendingFrameDrops = 0;
         this.pendingDroppedToKeyframe = 0;
         this.pendingFramesRendered = 0;
         this.pendingDroppedToKeyframeEvents = 0;
+        // Re-base to the current status rather than zero: a sustained throttle must keep showing
+        // on every row it spans, not just the one where it started.
+        PowerManager pmNow = (PowerManager) getSystemService(Context.POWER_SERVICE);
+        this.pendingThermalStatusMax = pmNow != null ? pmNow.getCurrentThermalStatus() : 0;
+        this.pendingThermalHeadroom = Float.NaN;
 
         this.tl.logTelemetryRow(this, this.viewModel.curTestDetails.getStartTimeAsEpoch(),
                 this.iterationStartMs, this.fileStartMs, this.totalIterations, vi,
-                frameDrops, droppedToKeyframe, framesRendered, d2kEvents, false, endOfFile);
+                frameDrops, droppedToKeyframe, framesRendered, d2kEvents,
+                thermalMax, headroom, false, endOfFile);
         this.lastTelemetryRowMs = System.currentTimeMillis();
 
         if(!this.viewModel.curTestDetails.getCurrentTestVideo().getFileName().equals(vi.fileName)){
