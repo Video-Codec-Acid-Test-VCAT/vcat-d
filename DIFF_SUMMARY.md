@@ -150,6 +150,51 @@ The existing logs cannot settle it because they do not record what was rendered.
 
 ---
 
+### Measured: skip-to-keyframe is the stall, not the cure
+
+A 6.8 h vvdec 3.2.0 run on CPH2625 with the new counters settles what the drop spikes were.
+They are real — every row closes, `rendered + dropped` accounting for its interval at the clip's
+frame rate to within 1–2% — but their cause is the recovery mechanism itself.
+
+`DecoderVideoRenderer.maybeDropBuffersToKeyframe()` calls `flushDecoder()` on **every** skip.
+Decode throughput tracks the flush count and nothing else:
+
+| flushes / 300 s | 0 | 6–7 | 25 | 42 | 76–79 | 138–139 |
+|---|---|---|---|---|---|---|
+| decoded fps | 30.0 | 28.6 | 26.0 | 22.9 | 17.7 | **8.5** |
+
+At 139 flushes vvdec decodes 2,562 frames against a 9,000 capacity, losing roughly 46 frames of
+throughput per flush — about 1.5 s of decode each. One skip costs far more than the ~47 frames it
+discards, so the renderer falls further behind and skips again. Logcat shows the spiral directly:
+lateness climbs monotonically through consecutive skips (−506 → −759 → −1005 → … → −5764 ms)
+while skipping the entire way.
+
+**CPU frequency is a symptom, not a cause.** An earlier reading of this data had it backwards.
+The same run decodes a clean 29.5–29.8 fps with big cores sampled at 575–1275 MHz and collapses
+to 8.5 fps at 1350–1400 MHz. A decoder that spends its time flushing leaves the cores idle, the
+governor drops the clock, and the instantaneous `cpu.freq` sample catches the idle.
+
+**Why dav2d never shows this.** `VcatIvfExtractor` flags only the first sample of the file as a
+keyframe, so `SampleQueue.getSkipCount()` never finds a sync point, `skipSource()` returns 0, and
+`maybeDropBuffersToKeyframe()` bails before flushing. dav2d cannot enter the spiral at all. The
+graceful-degradation-versus-cliff difference between the two decoders is therefore a container
+and extractor asymmetry, not a decoder property — which makes the two codecs' drop figures
+non-comparable as they stand.
+
+**Not yet fixed.** The obvious levers are rate-limiting skips, raising the −500 ms threshold, or
+disabling drop-to-keyframe where a flush is expensive. Which to pick needs a decision about what
+the benchmark should measure, since any of them changes it.
+
+### Fixed: the heartbeat died at the first clip swap
+
+`startClipWithFreshPlayer()` posted the 1 s heartbeat and then, forty lines later while releasing
+the outgoing player, called `hb.removeCallbacks(heartbeat)` — cancelling the one it had just
+started. Per-second `COUNTERS rendered/dropped/skipped` logging therefore stopped after the first
+clip and was missing from every stall in the run above. The stray cancel is removed; the handler
+is already cleared on teardown.
+
+---
+
 ### Known gaps
 
 **Nominal duration is not recorded.** The telemetry still does not state the clip's duration or

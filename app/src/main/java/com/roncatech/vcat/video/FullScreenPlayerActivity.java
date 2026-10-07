@@ -843,7 +843,6 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
         // detached above, so nothing it does on the way down reaches this clip's telemetry.
         if (old != null) {
             old.clearMediaItems();
-            hb.removeCallbacks(heartbeat);
             old.release();
         }
     }
