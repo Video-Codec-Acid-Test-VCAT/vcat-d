@@ -94,6 +94,8 @@ public class TelemetryLogger {
         SYSTEM_THERMAL_STATUS ("system.thermal_status"),
         SYSTEM_THERMAL_STATUS_MAX("system.thermal_status_max"),
         SYSTEM_THERMAL_HEADROOM("system.thermal_headroom"),
+        DISPLAY_REFRESH_HZ_MIN("display.refresh_hz_min"),
+        DISPLAY_REFRESH_HZ_MAX("display.refresh_hz_max"),
         CPU_FREQ              ("cpu.freq"),           // a *list* of values
         VIDEO_FRAMES_DROPPED  ("video.frames_dropped"),
         VIDEO_DROPPED_TO_KEYFRAME("video.dropped_to_keyframe"),
@@ -301,6 +303,14 @@ public class TelemetryLogger {
      *     43 and MODERATE at 45 -- so the device jumps 0 to 3 and can never report the
      *     intermediate states. Headroom is continuous and shows the approach to the trip.
      *     {@code NaN} if the platform declines to answer (it rate-limits to roughly 1 Hz).
+     * @param refreshHzMin lowest panel refresh rate observed since the previous row.
+     * @param refreshHzMax highest panel refresh rate observed since the previous row. Recorded
+     *     as a range because {@code preferredRefreshRate} is advisory — the system may refuse
+     *     it, and an LTPO panel changes rate on its own regardless. A configured condition that
+     *     is never measured is an assumption, and frame-drop figures cannot be read without
+     *     knowing what the display was actually doing. When both match
+     *     {@code runConfig.displayRefreshHz} the condition held for the whole interval; any
+     *     other combination says it did not.
      * @param isResume true if the test was resumed
      */
     public void logTelemetryRow(Context ct, long testStartMs, long iterationStartMs,
@@ -308,6 +318,7 @@ public class TelemetryLogger {
                                 Integer frameDrops, Integer droppedToKeyframe,
                                 Integer framesRendered, Integer droppedToKeyframeEvents,
                                 Integer thermalStatusMax, Float thermalHeadroom,
+                                Float refreshHzMin, Float refreshHzMax,
                                 boolean isResume,
                                 boolean isEndOfCurFile){
         Map<Column, Object> row = initRow(this.numCpus);
@@ -352,6 +363,12 @@ public class TelemetryLogger {
         row.put(Column.SYSTEM_THERMAL_STATUS, thermalCode.toString());
         row.put(Column.SYSTEM_THERMAL_STATUS_MAX,
                 thermalStatusMax == null ? "" : thermalStatusMax.toString());
+        row.put(Column.DISPLAY_REFRESH_HZ_MIN,
+                (refreshHzMin == null || refreshHzMin <= 0f)
+                        ? "" : String.format(Locale.US, "%.2f", refreshHzMin));
+        row.put(Column.DISPLAY_REFRESH_HZ_MAX,
+                (refreshHzMax == null || refreshHzMax <= 0f)
+                        ? "" : String.format(Locale.US, "%.2f", refreshHzMax));
         row.put(Column.SYSTEM_THERMAL_HEADROOM,
                 (thermalHeadroom == null || thermalHeadroom.isNaN())
                         ? "" : String.format(Locale.US, "%.3f", thermalHeadroom));

@@ -150,6 +150,39 @@ The existing logs cannot settle it because they do not record what was rendered.
 
 ---
 
+### Record the panel's actual refresh rate, not just the configured one
+
+`runConfig.displayRefreshHz` went into the session header; the rate the panel actually ran at
+went to logcat once at startup and nowhere else. logcat rotates, so a finished run could not
+answer whether the configured condition held — and frame-drop figures cannot be read without
+knowing what the display was doing.
+
+`lp.preferredRefreshRate` is **advisory**. The system may refuse it, and an LTPO panel changes
+rate on its own regardless of what was asked. So this is not a hypothetical gap: a 21 h dav1d run
+with `displayRefreshHz = 60` in its header finished with the panel reporting 120 Hz, and nothing
+in the log can say whether it was 120 Hz throughout, 60 Hz throughout, or moved between them.
+
+Two columns now, sampled on the existing 2 s tick and reported as a range per row:
+
+| column | meaning |
+|---|---|
+| `display.refresh_hz_min` | lowest rate seen since the previous row |
+| `display.refresh_hz_max` | highest rate seen since the previous row |
+
+A range rather than a point sample because the failure mode is a panel that *moves*. When both
+equal `displayRefreshHz` the condition held for the whole interval; anything else says it did
+not, and by how much. Configured value is in the header, actual is in every row, so a log is
+self-contained — no logcat, no external knowledge.
+
+A one-shot `REFRESH MISMATCH` warning also goes to logcat for live runs, but it is a
+convenience; the CSV is the record.
+
+**The general point:** a configured condition that is never measured is an assumption.
+`screenBrightness` has the same exposure — it is requested, and adaptive brightness or thermal
+dimming can override it — and is not yet verified.
+
+---
+
 ### Thermal telemetry: stop sampling, start listening — and record headroom
 
 `system.thermal_status` was read once per row with `getCurrentThermalStatus()`. Two things made

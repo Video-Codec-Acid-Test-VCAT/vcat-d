@@ -172,6 +172,33 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
      * 41 °C, below LIGHT at 43 and MODERATE at 45 — so status can only ever read 0 or 3 and the
      * approach to a trip is invisible. Headroom is continuous, with 1.0 at the threshold.
      */
+    /**
+     * Panel refresh rate observed between telemetry rows, as a range.
+     *
+     * <p>{@code preferredRefreshRate} is advisory: the system may refuse it, and an LTPO panel
+     * changes rate on its own regardless. Until now the achieved rate was written to logcat once
+     * at startup and never to telemetry, so a finished run could not answer whether the
+     * configured condition actually held — which makes its frame-drop figures unreadable.
+     */
+    private float pendingRefreshMin = 0f;
+    private float pendingRefreshMax = 0f;
+    private boolean refreshMismatchLogged = false;
+
+    /** Samples the panel's current refresh rate, keeping the range seen since the last row. */
+    private void sampleRefreshRate() {
+        float hz = DisplayInfo.currentRefreshRate(this);
+        if (hz <= 0f) return;
+        if (this.pendingRefreshMin <= 0f || hz < this.pendingRefreshMin) this.pendingRefreshMin = hz;
+        if (hz > this.pendingRefreshMax) this.pendingRefreshMax = hz;
+        // Warn once rather than every tick; a persistent mismatch would otherwise flood logcat.
+        if (!this.refreshMismatchLogged && this.requestedRefreshHz > 0
+                && Math.abs(hz - this.requestedRefreshHz) > 1.0f) {
+            this.refreshMismatchLogged = true;
+            Log.w(TAG, "REFRESH MISMATCH: configured " + this.requestedRefreshHz
+                    + " Hz, panel reports " + hz + " Hz");
+        }
+    }
+
     private int pendingThermalStatusMax = 0;
     private float pendingThermalHeadroom = Float.NaN;
     @Nullable private PowerManager.OnThermalStatusChangedListener thermalListener = null;
@@ -216,6 +243,7 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
     /** Folds everything the player has recorded since the last call into the pending totals. */
     private void sampleDrops() {
         sampleThermalHeadroom();
+        sampleRefreshRate();
         this.fd.reset();
         if (this.videoCounters != null) {
             this.videoCounters.ensureUpdated();
@@ -1048,6 +1076,8 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
         int d2kEvents = this.pendingDroppedToKeyframeEvents;
         int thermalMax = this.pendingThermalStatusMax;
         float headroom = this.pendingThermalHeadroom;
+        float refreshMin = this.pendingRefreshMin;
+        float refreshMax = this.pendingRefreshMax;
         this.pendingFrameDrops = 0;
         this.pendingDroppedToKeyframe = 0;
         this.pendingFramesRendered = 0;
@@ -1057,11 +1087,13 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
         PowerManager pmNow = (PowerManager) getSystemService(Context.POWER_SERVICE);
         this.pendingThermalStatusMax = pmNow != null ? pmNow.getCurrentThermalStatus() : 0;
         this.pendingThermalHeadroom = Float.NaN;
+        this.pendingRefreshMin = 0f;
+        this.pendingRefreshMax = 0f;
 
         this.tl.logTelemetryRow(this, this.viewModel.curTestDetails.getStartTimeAsEpoch(),
                 this.iterationStartMs, this.fileStartMs, this.totalIterations, vi,
                 frameDrops, droppedToKeyframe, framesRendered, d2kEvents,
-                thermalMax, headroom, false, endOfFile);
+                thermalMax, headroom, refreshMin, refreshMax, false, endOfFile);
         this.lastTelemetryRowMs = System.currentTimeMillis();
 
         if(!this.viewModel.curTestDetails.getCurrentTestVideo().getFileName().equals(vi.fileName)){
