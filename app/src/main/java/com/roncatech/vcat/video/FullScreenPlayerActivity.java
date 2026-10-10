@@ -183,6 +183,78 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
     private float pendingRefreshMin = 0f;
     private float pendingRefreshMax = 0f;
     private boolean refreshMismatchLogged = false;
+    /** Reported rates are floats (120.00001 Hz); allow a little slack before calling it a miss. */
+    private static final float REFRESH_TOLERANCE_HZ = 1.0f;
+    /** The window brightness override we asked for, as a 0..1 fraction. */
+    private float requestedBrightness = -1f;
+
+    /**
+     * Aborts the run if a configured test condition did not actually take effect.
+     *
+     * <p>A benchmark that silently runs under conditions other than the ones configured produces
+     * numbers that look valid and are not. {@code preferredRefreshRate} in particular is only
+     * advisory — the system may refuse it outright, and the panel may already be pinned to
+     * another rate by a system-level setting. Failing loudly at the start costs one run; failing
+     * silently costs every comparison the data is later used in.
+     *
+     * <p>Checked once, a few seconds into the first clip, because the mode switch is asynchronous.
+     */
+    private void verifyTestConditions() {
+        float achieved = DisplayInfo.currentRefreshRate(this);
+        Log.i(TAG, "Display refresh: requested " + this.requestedRefreshHz
+                + " Hz, achieved " + achieved + " Hz");
+
+        if (this.requestedRefreshHz > 0 && achieved > 0
+                && Math.abs(achieved - this.requestedRefreshHz) > REFRESH_TOLERANCE_HZ) {
+            abortOnCondition("Display refresh rate",
+                    String.format(Locale.US,
+                            "Configured %d Hz, but the panel is running at %.2f Hz.\n\n"
+                            + "preferredRefreshRate is advisory and the system declined it. "
+                            + "Frame-drop and battery figures are not comparable across "
+                            + "different refresh rates, so the run has been stopped.\n\n"
+                            + "Check that %d Hz is not overridden by a system display setting "
+                            + "(for example a forced high refresh rate mode).",
+                            this.requestedRefreshHz, achieved, this.requestedRefreshHz));
+            return;
+        }
+
+        // Brightness can only be checked at the window layer. There is no public API for the
+        // achieved panel backlight: getAttributes() returns what we set, and
+        // Settings.System.SCREEN_BRIGHTNESS is the system slider, which a window override
+        // deliberately bypasses. So this catches the override failing to stick -- being reset to
+        // BRIGHTNESS_OVERRIDE_NONE by a lifecycle event, say -- but cannot see thermal dimming
+        // applied below the framework. Worth having because it is the failure that would
+        // otherwise be silent; the rest still needs an eyeball.
+        float appliedBrightness = getWindow().getAttributes().screenBrightness;
+        if (this.requestedBrightness >= 0f
+                && Math.abs(appliedBrightness - this.requestedBrightness) > 0.01f) {
+            abortOnCondition("Screen brightness",
+                    String.format(Locale.US,
+                            "Configured %.0f%%, but the window override reads %s.\n\n"
+                            + "Display power is a large part of total draw, so battery figures "
+                            + "taken at a different brightness are not comparable.",
+                            this.requestedBrightness * 100f,
+                            appliedBrightness < 0f
+                                    ? "no override (system default)"
+                                    : String.format(Locale.US, "%.0f%%", appliedBrightness * 100f)));
+            return;
+        }
+
+        Log.i(TAG, "Test conditions verified: " + this.requestedRefreshHz + " Hz, brightness "
+                + Math.round(this.requestedBrightness * 100f) + "%");
+    }
+
+    /** Shows a blocking error and ends the run; the data collected so far is still flushed. */
+    private void abortOnCondition(String what, String detail) {
+        Log.e(TAG, "ABORT - test condition not applied: " + what + " - " + detail);
+        AlertDialog dlg = new AlertDialog.Builder(this)
+                .setTitle("Test Condition Not Applied")
+                .setMessage(what + "\n\n" + detail)
+                .setPositiveButton(android.R.string.ok, null)
+                .setCancelable(false)
+                .show();
+        dlg.setOnDismissListener(d -> stopTestAndCleanup());
+    }
 
     /** Samples the panel's current refresh rate, keeping the range seen since the last row. */
     private void sampleRefreshRate() {
@@ -499,6 +571,7 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
 
         float override = Math.max(0.01f, Math.min(testScreenBrightness / 100f, 1f));
         lp.screenBrightness = override;
+        this.requestedBrightness = override;
 
         // Pin the panel refresh rate for the run. Left alone this is an uncontrolled variable in a
         // battery comparison: a 120 Hz-default device pays a large standing display cost for 30 fps
@@ -908,11 +981,9 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
         // because the mode switch does not take effect synchronously with the request.
         if (!refreshRateLogged) {
             refreshRateLogged = true;
-            playerView.postDelayed(() -> {
-                float achieved = DisplayInfo.currentRefreshRate(this);
-                Log.i(TAG, "Display refresh: requested " + requestedRefreshHz
-                        + " Hz, achieved " + achieved + " Hz");
-            }, 3000);
+            // Delayed because preferredRefreshRate does not take effect synchronously with the
+            // request; the panel needs a few frames to switch mode.
+            playerView.postDelayed(this::verifyTestConditions, 3000);
         }
 
         // Make the new player current

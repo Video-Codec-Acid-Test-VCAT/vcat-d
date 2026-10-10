@@ -150,6 +150,43 @@ The existing logs cannot settle it because they do not record what was rendered.
 
 ---
 
+### Abort the run when a configured test condition did not take effect
+
+Recording the actual refresh rate tells you afterwards that a run was invalid. That is better
+than wondering, but it still spends the run. A benchmark that silently executes under conditions
+other than the ones configured produces numbers that look valid and are not, and those numbers
+then propagate into every comparison they are used in. Failing loudly costs one run; failing
+silently costs all of them.
+
+`verifyTestConditions()` runs once, three seconds into the first clip — delayed because the
+panel mode switch is asynchronous. On a mismatch it shows a non-cancellable **Test Condition Not
+Applied** dialog naming the condition, the configured value, the actual value, and why it
+invalidates the run, then calls `stopTestAndCleanup()` so telemetry already collected is still
+flushed.
+
+| condition | checked against | catches |
+|---|---|---|
+| refresh rate | `Display.getRefreshRate()`, ±1 Hz | the system declining `preferredRefreshRate`, or the panel pinned elsewhere by a system setting |
+| brightness | `getWindow().getAttributes().screenBrightness`, ±1% | the window override failing to stick or being reset to `BRIGHTNESS_OVERRIDE_NONE` |
+
+**The brightness check is weaker than the refresh one, and deliberately so.** There is no public
+API for the achieved panel backlight: `getAttributes()` returns what we set, and
+`Settings.System.SCREEN_BRIGHTNESS` is the system slider, which a window-level override bypasses
+by design — comparing against it would produce false failures. So this verifies the override is
+in place, not that the panel obeyed it, and thermal dimming applied below the framework stays
+invisible. It is worth having because a lost override is the failure that would otherwise be
+silent; the rest still needs an eyeball.
+
+The ±1 Hz tolerance exists because reported rates are floats — this panel reports its 120 Hz
+mode as `120.00001`.
+
+**Open question:** this aborts only on conditions that fail at startup. A panel that holds
+60 Hz for eleven hours and then drifts is equally invalidating, but aborting hour eleven of a
+twelve-hour battery run is its own kind of damage. For now mid-run drift is recorded via
+`display.refresh_hz_min` / `_max` and left visible rather than fatal.
+
+---
+
 ### Record the panel's actual refresh rate, not just the configured one
 
 `runConfig.displayRefreshHz` went into the session header; the rate the panel actually ran at
