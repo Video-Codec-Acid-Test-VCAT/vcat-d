@@ -183,6 +183,8 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
     private float pendingRefreshMin = 0f;
     private float pendingRefreshMax = 0f;
     private boolean refreshMismatchLogged = false;
+    /** Set once verifyTestConditions() has run, so the sampler does not warn mid mode-switch. */
+    private boolean conditionsVerified = false;
     /** Reported rates are floats (120.00001 Hz); allow a little slack before calling it a miss. */
     private static final float REFRESH_TOLERANCE_HZ = 1.0f;
     /** The window brightness override we asked for, as a 0..1 fraction. */
@@ -240,6 +242,7 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
             return;
         }
 
+        this.conditionsVerified = true;
         Log.i(TAG, "Test conditions verified: " + this.requestedRefreshHz + " Hz, brightness "
                 + Math.round(this.requestedBrightness * 100f) + "%");
     }
@@ -262,8 +265,9 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
         if (hz <= 0f) return;
         if (this.pendingRefreshMin <= 0f || hz < this.pendingRefreshMin) this.pendingRefreshMin = hz;
         if (hz > this.pendingRefreshMax) this.pendingRefreshMax = hz;
-        // Warn once rather than every tick; a persistent mismatch would otherwise flood logcat.
-        if (!this.refreshMismatchLogged && this.requestedRefreshHz > 0
+        // Warn once, and only after verifyTestConditions() has run. The panel takes a couple of
+        // seconds to switch mode, so sampling before that reports the old rate and cries wolf.
+        if (this.conditionsVerified && !this.refreshMismatchLogged && this.requestedRefreshHz > 0
                 && Math.abs(hz - this.requestedRefreshHz) > 1.0f) {
             this.refreshMismatchLogged = true;
             Log.w(TAG, "REFRESH MISMATCH: configured " + this.requestedRefreshHz
@@ -1372,6 +1376,15 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
         }
     }
 
+    /**
+     * Friendly name for a video MIME type, falling back to the raw type.
+     *
+     * <p>{@code video/av01} deliberately has no entry. It used to map to "AV1", which made dav1d
+     * the odd one out in telemetry: every other software decoder reports its raw MIME type
+     * ({@code video/av02}, {@code video/vvc}) because no mapping exists for it, so
+     * {@code video.codec_name} read "AV1" for one decoder and a MIME type for the rest. Letting
+     * AV1 fall through makes the column uniform across the plugins and keeps it machine-readable.
+     */
     public static String mimeTypeToCodecName(String mimeType) {
         if (mimeType == null) return "Unknown";
         switch (mimeType) {
@@ -1379,8 +1392,6 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
                 return "H.264";
             case "video/hevc":
                 return "H.265";
-            case "video/av01":
-                return "AV1";
             case "video/x-vnd.on2.vp8":
                 return "VP8";
             case "video/x-vnd.on2.vp9":

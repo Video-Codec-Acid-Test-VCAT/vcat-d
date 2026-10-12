@@ -150,6 +150,28 @@ The existing logs cannot settle it because they do not record what was rendered.
 
 ---
 
+### `video.codec_name` now reports the MIME type for AV1 like every other software decoder
+
+`mimeTypeToCodecName()` mapped `video/av01` to the friendly string `"AV1"`. Nothing maps
+`video/av02` or `video/vvc`, so those fall through to the raw MIME type — leaving
+`video.codec_name` reading `AV1` for one plugin and `video/av02` / `video/vvc` for the rest.
+
+The `video/av01` case is removed so AV1 falls through too. The column is now uniform across the
+software decoders and stays machine-readable, which matters for grouping runs by codec without
+special-casing one value.
+
+The fix is host-side. The dav1d plugin was already correct — it declares `video/av01`, parallel
+to dav2d's `video/av02` — so nothing in the plugin changed.
+
+Note this reports `video/av01`, the actual MIME type and the form that parallels `video/av02`,
+rather than `video/av1`.
+
+The hardware codecs keep their friendly names (`H.264`, `H.265`, `VP8`, `VP9`), so the same
+inconsistency still exists between the hardware and software paths. Left alone because the
+report was about the software decoders and those names are the useful ones in the UI.
+
+---
+
 ### Abort the run when a configured test condition did not take effect
 
 Recording the actual refresh rate tells you afterwards that a run was invalid. That is better
