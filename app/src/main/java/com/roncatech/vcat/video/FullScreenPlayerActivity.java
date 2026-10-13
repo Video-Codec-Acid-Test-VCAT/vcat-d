@@ -233,6 +233,17 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
      * <p>Checked once, a few seconds into the first clip, because the mode switch is asynchronous.
      */
     private void verifyTestConditions() {
+        // The check is posted three seconds out, which is long enough for the run to have ended
+        // first -- a clip that fails to load tears the activity down well inside that window.
+        // Showing a dialog then throws BadTokenException and takes the process with it, turning
+        // a recoverable playback error into a crash. Worse, stopTestAndCleanup() restores the
+        // original screen brightness, so a check running after it would compare against the
+        // restored value and "fail" a condition that was in fact applied correctly.
+        if (isFinishing() || isDestroyed() || this.exoPlayer == null) {
+            Log.i(TAG, "Skipping condition check; the run already ended");
+            return;
+        }
+
         float achieved = DisplayInfo.currentRefreshRate(this);
         Log.i(TAG, "Display refresh: requested " + this.requestedRefreshHz
                 + " Hz, achieved " + achieved + " Hz");
@@ -281,6 +292,12 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
     /** Shows a blocking error and ends the run; the data collected so far is still flushed. */
     private void abortOnCondition(String what, String detail) {
         Log.e(TAG, "ABORT - test condition not applied: " + what + " - " + detail);
+        // Second guard, independent of the caller's: a dialog on a window that is going away is
+        // a BadTokenException, and this path exists to stop a run cleanly rather than crash it.
+        if (isFinishing() || isDestroyed()) {
+            stopTestAndCleanup();
+            return;
+        }
         AlertDialog dlg = new AlertDialog.Builder(this)
                 .setTitle("Test Condition Not Applied")
                 .setMessage(what + "\n\n" + detail)

@@ -212,6 +212,35 @@ report was about the software decoders and those names are the useful ones in th
 
 ---
 
+### Fixed: the condition check crashed the app instead of reporting a playback failure
+
+`verifyTestConditions()` is posted three seconds out, because the panel mode switch is
+asynchronous. That window is long enough for the run to have ended first — a clip that fails to
+load tears the activity down well inside it. The check then called `AlertDialog.show()` on a dead
+window:
+
+```
+BadTokenException: Unable to add window -- token ... is not valid; is your activity running?
+    at FullScreenPlayerActivity.abortOnCondition(FullScreenPlayerActivity.java:289)
+    at FullScreenPlayerActivity.verifyTestConditions(FullScreenPlayerActivity.java:242)
+```
+
+Two faults, one visible and one not. The visible one: **any clip failing to load within three
+seconds crashed the process**, which is worse than the failure it was reporting, and destroyed
+the error that would have explained it. The hidden one: `stopTestAndCleanup()` restores the
+original screen brightness, so a check running after teardown compares the restored value against
+the configured one and "fails" a condition that had in fact applied correctly — the dialog would
+have named the wrong cause even had it shown.
+
+Both paths now bail if `isFinishing()`, `isDestroyed()`, or the player is already gone.
+`abortOnCondition()` carries its own guard rather than trusting the caller, since its whole
+purpose is to end a run cleanly.
+
+This was introduced with the condition check itself and masked unrelated playback failures as
+crashes for as long as it was in.
+
+---
+
 ### Abort the run when a configured test condition did not take effect
 
 Recording the actual refresh rate tells you afterwards that a run was invalid. That is better
