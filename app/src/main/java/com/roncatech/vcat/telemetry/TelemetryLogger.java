@@ -60,7 +60,6 @@ import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;
 import java.io.IOException;
-import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -96,7 +95,8 @@ public class TelemetryLogger {
         SYSTEM_THERMAL_HEADROOM("system.thermal_headroom"),
         DISPLAY_REFRESH_HZ_MIN("display.refresh_hz_min"),
         DISPLAY_REFRESH_HZ_MAX("display.refresh_hz_max"),
-        CPU_FREQ              ("cpu.freq"),           // a *list* of values
+        CPU_FREQ              ("cpu.freq"),           // a *list* of values (mean over the row)
+        CPU_FREQ_RMS          ("cpu.freq_rms"),       // a *list* of values (RMS over the row)
         VIDEO_FRAMES_DROPPED  ("video.frames_dropped"),
         VIDEO_DROPPED_TO_KEYFRAME("video.dropped_to_keyframe"),
         VIDEO_FRAMES_RENDERED ("video.frames_rendered"),
@@ -219,7 +219,7 @@ public class TelemetryLogger {
         List<String> hdr = new ArrayList<>();
 
         for (Column col : Column.values()) {
-            if(col == Column.CPU_FREQ){
+            if (isPerCpuColumn(col)) {
                 for(int i = 0; i < this.numCpus; ++i){
                     hdr.add(col.getName()+i);
                 }
@@ -243,7 +243,7 @@ public class TelemetryLogger {
         Map<Column,Object> row = new EnumMap<>(Column.class);
 
         for (Column col : Column.values()) {
-            if (col == Column.CPU_FREQ) {
+            if (isPerCpuColumn(col)) {
                 row.put(col, emptyFreqs(cpuCount));
             } else {
                 // default empty string for all other columns
@@ -311,6 +311,13 @@ public class TelemetryLogger {
      *     knowing what the display was actually doing. When both match
      *     {@code runConfig.displayRefreshHz} the condition held for the whole interval; any
      *     other combination says it did not.
+     * @param freqMean per-core mean frequency over the interval, or {@code null} to fall back to
+     *     a single instantaneous read. Previously every row carried one point sample per core,
+     *     which could not distinguish a core held at 1800 MHz from one alternating 600/2500.
+     * @param freqRms per-core RMS frequency over the same samples. Recorded alongside the mean
+     *     rather than instead of it: RMS alone is ambiguous — steady 1800 MHz and alternating
+     *     600/2500 MHz give 1800 and 1818 — but together they yield the spread for free, since
+     *     {@code sigma = sqrt(rms^2 - mean^2)} (0 and 950 MHz for those two cases).
      * @param isResume true if the test was resumed
      */
     public void logTelemetryRow(Context ct, long testStartMs, long iterationStartMs,
@@ -319,6 +326,7 @@ public class TelemetryLogger {
                                 Integer framesRendered, Integer droppedToKeyframeEvents,
                                 Integer thermalStatusMax, Float thermalHeadroom,
                                 Float refreshHzMin, Float refreshHzMax,
+                                Double[] freqMean, Double[] freqRms,
                                 boolean isResume,
                                 boolean isEndOfCurFile){
         Map<Column, Object> row = initRow(this.numCpus);
@@ -373,11 +381,23 @@ public class TelemetryLogger {
                 (thermalHeadroom == null || thermalHeadroom.isNaN())
                         ? "" : String.format(Locale.US, "%.3f", thermalHeadroom));
 
-        Double[] cpuFreqs = getCurrentCpuFreq(this.numCpus);
+        // Fall back to an instantaneous read only when the sampler has nothing yet -- the very
+        // first row, before the 2 s tick has fired.
+        Double[] cpuFreqs = (freqMean != null && freqMean.length == this.numCpus)
+                ? freqMean : getCurrentCpuFreq(this.numCpus);
         String[] strCpuFreqs = new String[cpuFreqs.length];
-        for(int i = 0; i < cpuFreqs.length; ++i){strCpuFreqs[i] = cpuFreqs[i].toString();}
-
+        for (int i = 0; i < cpuFreqs.length; ++i) {
+            strCpuFreqs[i] = String.format(Locale.US, "%.1f", cpuFreqs[i] == null ? 0.0 : cpuFreqs[i]);
+        }
         row.put(Column.CPU_FREQ, strCpuFreqs);
+
+        if (freqRms != null && freqRms.length == this.numCpus) {
+            String[] strRms = new String[freqRms.length];
+            for (int i = 0; i < freqRms.length; ++i) {
+                strRms[i] = String.format(Locale.US, "%.1f", freqRms[i] == null ? 0.0 : freqRms[i]);
+            }
+            row.put(Column.CPU_FREQ_RMS, strRms);
+        }
         row.put(Column.VIDEO_FRAMES_DROPPED, frameDrops.toString());
         row.put(Column.VIDEO_DROPPED_TO_KEYFRAME, droppedToKeyframe.toString());
         row.put(Column.VIDEO_FRAMES_RENDERED, framesRendered.toString());
@@ -404,7 +424,7 @@ public class TelemetryLogger {
         // build row string in same order as column defiinitions
         List<String> values = new ArrayList<>();
         for (Column col : Column.values()) {
-            if (col == Column.CPU_FREQ) {
+            if (isPerCpuColumn(col)) {
                 String[] freqs = emptyFreqs(this.numCpus);
                 Object o = row.getOrDefault(col, freqs);
 
@@ -427,6 +447,11 @@ public class TelemetryLogger {
 
         String rowStr = String.join(",", values);
         writeRow(rowStr);
+    }
+
+    /** Columns that expand to one field per CPU (cpu.freq0..N). */
+    private static boolean isPerCpuColumn(Column col) {
+        return col == Column.CPU_FREQ || col == Column.CPU_FREQ_RMS;
     }
 
     private static String[] emptyFreqs(int totalCpus){
@@ -462,21 +487,19 @@ public class TelemetryLogger {
                 cpuFrequencies[i] = -1.0; // Indicate no valid path
                 continue;
             }
-            // Read the CPU frequency from the valid path
-            try {
-                Process process = Runtime.getRuntime().exec("cat " + validPath);
-                process.waitFor();
-                BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+            // Read the sysfs file directly. This used to shell out via
+            // Runtime.exec("cat " + path), which forks a process per core per call -- tolerable
+            // once every five minutes, but this is now sampled every 2 s, where it would be
+            // ~173,000 forks over a twelve-hour run and would perturb the measurement itself.
+            try (BufferedReader reader = new BufferedReader(new FileReader(validPath), 32)) {
                 String line = reader.readLine();
                 if (line != null) {
-                    float freq = Float.parseFloat(line);
-                    cpuFrequencies[i] = freq / 1000.0; // Convert to MHz
+                    cpuFrequencies[i] = Float.parseFloat(line.trim()) / 1000.0; // kHz -> MHz
                 } else {
-                    cpuFrequencies[i] = 0.0; // Default value if no data
+                    cpuFrequencies[i] = 0.0;
                 }
             } catch (Exception e) {
-                Log.e(TAG, e.getLocalizedMessage());
-                cpuFrequencies[i] = 0.0; // Default value on error
+                cpuFrequencies[i] = 0.0;
             }
         }
         return cpuFrequencies;

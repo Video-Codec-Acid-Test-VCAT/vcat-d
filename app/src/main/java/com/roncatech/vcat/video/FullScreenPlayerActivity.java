@@ -180,6 +180,37 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
      * at startup and never to telemetry, so a finished run could not answer whether the
      * configured condition actually held — which makes its frame-drop figures unreadable.
      */
+    /**
+     * Per-core frequency accumulated between telemetry rows: running sum and sum of squares.
+     *
+     * <p>One instantaneous reading per row could not tell a core held at 1800 MHz from one
+     * alternating 600/2500 — and that distinction is the whole difference between a decoder that
+     * sits at the top OPP and one that spreads across the DVFS range. Sampling on the 2 s tick
+     * gives ~30 readings per core per row; mean and RMS are emitted, and their difference gives
+     * the spread via sigma = sqrt(rms^2 - mean^2).
+     */
+    private double[] freqSum = null;
+    private double[] freqSumSq = null;
+    private int freqSamples = 0;
+
+    /** Accumulates one frequency reading per core; called from the 2 s sampler. */
+    private void sampleCpuFreq() {
+        Double[] f = TelemetryLogger.getCurrentCpuFreq(this.numCpusForFreq);
+        if (this.freqSum == null || this.freqSum.length != f.length) {
+            this.freqSum = new double[f.length];
+            this.freqSumSq = new double[f.length];
+            this.freqSamples = 0;
+        }
+        for (int i = 0; i < f.length; i++) {
+            double v = (f[i] == null || f[i] < 0) ? 0.0 : f[i];
+            this.freqSum[i] += v;
+            this.freqSumSq[i] += v * v;
+        }
+        this.freqSamples++;
+    }
+
+    private int numCpusForFreq = TelemetryLogger.getTotalCpus();
+
     private float pendingRefreshMin = 0f;
     private float pendingRefreshMax = 0f;
     private boolean refreshMismatchLogged = false;
@@ -320,6 +351,7 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
     private void sampleDrops() {
         sampleThermalHeadroom();
         sampleRefreshRate();
+        sampleCpuFreq();
         this.fd.reset();
         if (this.videoCounters != null) {
             this.videoCounters.ensureUpdated();
@@ -1073,7 +1105,7 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
             // 2) compute next delay
             long rampDuration = 60 * 60 * 1000L;  // 1 hour
             long minDelay    = 30 * 1000L;         //  30 seconds
-            long maxDelay    = 5  * 60 * 1000L;    //  5 minutes
+            long maxDelay    = 1  * 60 * 1000L;    //  1 minute
 
             float ratio = Math.min(1f, (float) elapsed / rampDuration);
             long delay = minDelay + (long) ((maxDelay - minDelay) * ratio);
@@ -1153,6 +1185,16 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
         float headroom = this.pendingThermalHeadroom;
         float refreshMin = this.pendingRefreshMin;
         float refreshMax = this.pendingRefreshMax;
+
+        Double[] freqMean = null, freqRms = null;
+        if (this.freqSamples > 0 && this.freqSum != null) {
+            freqMean = new Double[this.freqSum.length];
+            freqRms  = new Double[this.freqSum.length];
+            for (int i = 0; i < this.freqSum.length; i++) {
+                freqMean[i] = this.freqSum[i] / this.freqSamples;
+                freqRms[i]  = Math.sqrt(this.freqSumSq[i] / this.freqSamples);
+            }
+        }
         this.pendingFrameDrops = 0;
         this.pendingDroppedToKeyframe = 0;
         this.pendingFramesRendered = 0;
@@ -1164,11 +1206,16 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
         this.pendingThermalHeadroom = Float.NaN;
         this.pendingRefreshMin = 0f;
         this.pendingRefreshMax = 0f;
+        if (this.freqSum != null) {
+            java.util.Arrays.fill(this.freqSum, 0.0);
+            java.util.Arrays.fill(this.freqSumSq, 0.0);
+        }
+        this.freqSamples = 0;
 
         this.tl.logTelemetryRow(this, this.viewModel.curTestDetails.getStartTimeAsEpoch(),
                 this.iterationStartMs, this.fileStartMs, this.totalIterations, vi,
                 frameDrops, droppedToKeyframe, framesRendered, d2kEvents,
-                thermalMax, headroom, refreshMin, refreshMax, false, endOfFile);
+                thermalMax, headroom, refreshMin, refreshMax, freqMean, freqRms, false, endOfFile);
         this.lastTelemetryRowMs = System.currentTimeMillis();
 
         if(!this.viewModel.curTestDetails.getCurrentTestVideo().getFileName().equals(vi.fileName)){

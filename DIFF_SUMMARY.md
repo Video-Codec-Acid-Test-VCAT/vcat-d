@@ -150,6 +150,46 @@ The existing logs cannot settle it because they do not record what was rendered.
 
 ---
 
+### CPU frequency: oversample it, report mean and RMS, and cap the row interval at 1 minute
+
+Frequency was one instantaneous `scaling_cur_freq` read per core per row, and rows ramped to
+**five minutes** apart. So a twelve-hour run produced about 150 readings per core, each a
+snapshot. That cannot distinguish a core held at 1800 MHz from one alternating 600/2500 — which
+is exactly the difference between a decoder sitting at the top OPP and one spread across the
+DVFS range, the distinction the whole efficiency argument rests on.
+
+Three changes.
+
+**Sampled on the existing 2 s tick** instead of once per row, giving ~30 readings per core per
+row rather than 1.
+
+**Mean and RMS both emitted.** `cpu.freq0..N` now carries the interval *mean* (it was a point
+sample), and `cpu.freq_rms0..N` is new. RMS alone would not have been enough:
+
+| | mean | RMS |
+|---|---|---|
+| steady 1800 MHz | 1800.0 | 1800.0 |
+| alternating 600 / 2500 MHz | 1550.0 | 1818.0 |
+
+Nearly identical RMS, completely different behaviour. Together they give the spread for free —
+`sigma = sqrt(rms^2 - mean^2)` is 0 and 950 MHz for those two cases.
+
+**Row interval capped at 1 minute** (was 5). A twelve-hour run goes from ~154 rows to ~740,
+about 258 KB with the new columns — nowhere near the size that ruled out 2 s *rows*.
+
+`getCurrentCpuFreq()` also stopped shelling out. It read each core via
+`Runtime.exec("cat " + path)`, forking a process per core per call. Acceptable once every five
+minutes; at 2 s intervals that is roughly 173,000 forks over a twelve-hour run, which would
+perturb the measurement it is taking. It now reads the sysfs file directly.
+
+**Known limitation, unchanged by any of this:** `scaling_cur_freq` reports the OPP a core is
+*set to*, not whether it is executing. An idle core parked at 450 MHz contributes 450 MHz to
+every statistic, so "the little cores sit at 625 MHz" still conflates *running slowly* with
+*mostly idle* — and for the question of whether work reaches the A55s those are opposite claims.
+Separating them needs per-core utilization from `/proc/stat` alongside the frequency.
+
+---
+
 ### `video.codec_name` now reports the MIME type for AV1 like every other software decoder
 
 `mimeTypeToCodecName()` mapped `video/av01` to the friendly string `"AV1"`. Nothing maps
