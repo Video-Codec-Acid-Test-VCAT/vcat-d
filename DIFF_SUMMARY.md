@@ -150,6 +150,43 @@ The existing logs cannot settle it because they do not record what was rendered.
 
 ---
 
+### `test_summary.json`: browse logs by date, duration and codec
+
+The logs list showed file names, and a file name carries only an epoch timestamp. Finding "the
+12-hour vvdec run" among a folder of mostly-short throwaway runs meant opening files one at a
+time.
+
+`test_results/test_summary.json` is now an index of completed runs, maintained beside the logs.
+Each entry holds what the list needs to be browsable — start time, duration, codec, decoder,
+resolution — plus the same three indicators the detail dialog colours: `max_thermal_status`,
+`max_battery_temp_c`, and `drops_per_sec`. That means the list can show status without parsing a
+log.
+
+Rows now read `Oct 14, 13:51  -  6h 12m  -  video/vvc` over
+`vcat-vvdec-3.2.0  -  248 KB  -  0.03 drops/s`, falling back to the file name for any log not yet
+indexed.
+
+**Written at completion.** `stopTestAndCleanup()` appends an entry after the final telemetry
+flush, on a background thread — it re-reads the log it just wrote, which is a few hundred KB
+after a long run, and teardown is on the main thread. Failures are logged and swallowed: the
+index is a convenience, and nothing about a finished run should be put at risk to maintain it.
+
+**Reconciled on opening the results panel.** Entries whose log has been deleted are dropped —
+the common case, since deleting logs is how the folder is managed — and any log without an entry
+is summarised and appended. That covers logs copied in from another device, runs that predate
+this file, and a summary that was deleted or corrupted, which rebuilds itself rather than
+needing regeneration. Existing entries keep their position, so the file stays in completion
+order and only ever grows at the bottom.
+
+Reconciliation runs off the main thread, since backfilling parses each unindexed log; the list is
+already on screen showing file names and the labels improve when it returns.
+
+**One deliberate choice:** entries are derived from the written log, not from counters held
+during the run. The same code therefore produces an entry whether it is appended at completion or
+backfilled later, so the two can never disagree — at the cost of re-reading the file once.
+
+---
+
 ### Throttle-aware CPU metrics: clusters from cpufreq, and a per-interval throttled flag
 
 Implements most of `analysis/vcat-d-telemetry-spec-thermal_events.md`. The motivating anomaly:

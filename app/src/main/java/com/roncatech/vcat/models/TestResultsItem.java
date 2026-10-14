@@ -35,12 +35,17 @@ package com.roncatech.vcat.models;
 import android.net.Uri;
 
 import java.io.File;
+import androidx.annotation.Nullable;
+import java.text.SimpleDateFormat;
+import java.util.Date;
 import java.util.Locale;
 
 public class TestResultsItem {
     private final long timestampMillis;
     private final String filePath;
     private final long sizeBytes;
+    /** Index entry for this log, when test_summary.json has one. Null for an unsummarised log. */
+    @Nullable private TestSummary.Entry summary;
 
     /**
      * Extracts the Unix timestamp from the file path or content:// URI string.
@@ -79,6 +84,42 @@ public class TestResultsItem {
         this.filePath = filePath;
         this.timestampMillis = timestampMillis;
         this.sizeBytes = sizeBytes;
+    }
+
+    public void setSummary(@Nullable TestSummary.Entry s) { this.summary = s; }
+
+    @Nullable public TestSummary.Entry getSummary() { return this.summary; }
+
+    /**
+     * Primary row label: date, run length and codec, e.g.
+     * {@code "Oct 14, 13:51  -  6h 12m  -  video/vvc"}.
+     *
+     * <p>Falls back to the file name when the log has no summary entry, which happens only until
+     * the next reconciliation backfills it. The file name carries nothing but an epoch
+     * timestamp, so finding a particular run meant opening files one at a time.
+     */
+    public String getDisplayLabel() {
+        if (this.summary == null) return getDisplayName();
+        String when = new SimpleDateFormat("MMM d, HH:mm", Locale.US)
+                .format(new Date(this.summary.startTimeMs > 0
+                        ? this.summary.startTimeMs : this.timestampMillis));
+        String codec = (this.summary.codec == null || this.summary.codec.isEmpty())
+                ? "unknown" : this.summary.codec;
+        return when + "  -  " + TestSummary.formatDuration(this.summary.durationSec) + "  -  " + codec;
+    }
+
+    /** Secondary row label: decoder and size, with drop rate when the run dropped anything. */
+    public String getDisplaySubtitle() {
+        if (this.summary == null) return getDisplaySize();
+        StringBuilder sb = new StringBuilder();
+        if (this.summary.decoder != null && !this.summary.decoder.isEmpty()) {
+            sb.append(this.summary.decoder).append("  -  ");
+        }
+        sb.append(getDisplaySize());
+        if (this.summary.dropsPerSec > 0.005) {
+            sb.append(String.format(Locale.US, "  -  %.2f drops/s", this.summary.dropsPerSec));
+        }
+        return sb.toString();
     }
 
     public long getSizeBytes() {

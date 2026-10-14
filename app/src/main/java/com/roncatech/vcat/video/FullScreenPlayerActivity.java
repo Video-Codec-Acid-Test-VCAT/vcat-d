@@ -87,6 +87,9 @@ import com.roncatech.vcat.models.SharedViewModel;
 import com.roncatech.vcat.service.PlayerCommandBus;
 import com.roncatech.vcat.telemetry.TelemetryLogger;
 import com.roncatech.vcat.tools.BatteryInfo;
+import androidx.documentfile.provider.DocumentFile;
+import com.roncatech.vcat.models.TestSummary;
+import com.roncatech.vcat.tools.StorageManager;
 import com.roncatech.vcat.tools.CpuTopology;
 import com.roncatech.vcat.tools.DisplayInfo;
 import com.roncatech.vcat.tools.PlaylistIdentity;
@@ -770,6 +773,43 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
         exoPlayer.setPlayWhenReady(!exoPlayer.getPlayWhenReady());
     }
 
+    /**
+     * Appends this run to {@code test_results/test_summary.json}.
+     *
+     * <p>Runs on a background thread: it re-reads the log it has just written, which is up to a
+     * few hundred KB after a twelve-hour run, and the teardown path is on the main thread.
+     * Summarising from the file rather than from counters held during the run means an entry
+     * written here and one backfilled later by reconciliation are produced by the same code and
+     * cannot disagree.
+     *
+     * <p>Failures are logged and swallowed. The index is a convenience; reconciliation will
+     * backfill a missing entry next time the results panel is opened, and nothing about a
+     * completed run should be put at risk to maintain it.
+     */
+    private void appendRunToSummary() {
+        final DocumentFile log = (this.tl == null) ? null : this.tl.getCsvDocFile();
+        if (log == null || !log.exists()) return;
+        final String name = log.getName();
+        if (name == null) return;
+        final Uri uri = log.getUri();
+        final Context appCtx = getApplicationContext();
+
+        new Thread(() -> {
+            try {
+                DocumentFile dir = StorageManager.getFolder(appCtx, StorageManager.VCATFolder.TEST_RESULTS);
+                if (dir == null) return;
+                TestSummary.Entry e = TestSummary.fromLog(appCtx, uri, name);
+                if (e != null) {
+                    TestSummary.append(appCtx, dir, e);
+                    Log.i(TAG, "summary: indexed " + name + " (" + e.codec + ", "
+                            + TestSummary.formatDuration(e.durationSec) + ")");
+                }
+            } catch (Throwable t) {
+                Log.w(TAG, "could not index run in test_summary.json", t);
+            }
+        }, "vcat-summary").start();
+    }
+
     private void stopTestAndCleanup() {
         // 0) flush whatever has accrued since the last row.
         //
@@ -784,6 +824,10 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
                 && System.currentTimeMillis() - this.lastTelemetryRowMs > 500) {
             logTelemetry(true);
         }
+
+        // 0b) index the finished run in test_summary.json, so the logs list can show date,
+        // duration and codec without opening each file.
+        appendRunToSummary();
 
         // 1) stop your periodic telemetry
         stopTelemetryTimer();

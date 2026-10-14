@@ -144,8 +144,9 @@ public class TestResultsAdapter
         TestResultsItem tr = items.get(position);
         String filePath = tr.getFilePath();
 
-        holder.tvTimestamp.setText(tr.getDisplayName());
-        holder.tvSize.setText(tr.getDisplaySize());
+        // Date / duration / codec, falling back to the file name until the summary backfills.
+        holder.tvTimestamp.setText(tr.getDisplayLabel());
+        holder.tvSize.setText(tr.getDisplaySubtitle());
 
         if (editMode) {
             holder.cbSelected.setVisibility(View.VISIBLE);

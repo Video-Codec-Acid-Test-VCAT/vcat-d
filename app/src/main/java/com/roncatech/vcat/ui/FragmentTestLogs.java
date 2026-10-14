@@ -53,10 +53,13 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.roncatech.vcat.models.TestResultsItem;
+import com.roncatech.vcat.models.TestSummary;
 import com.roncatech.vcat.tools.StorageManager;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.List;
 import com.roncatech.vcat.R;
 
@@ -248,6 +251,7 @@ public class FragmentTestLogs extends Fragment {
 
         DocumentFile[] files = logsDir.listFiles();
         List<TestResultsItem> results = new ArrayList<>();
+        Map<String, Uri> logsByName = new LinkedHashMap<>();
 
         if (files != null) {
             for (DocumentFile f : files) {
@@ -259,6 +263,7 @@ public class FragmentTestLogs extends Fragment {
 
                 if (timeStampMS > 0) {
                     results.add(new TestResultsItem(uriString, timeStampMS, f.length()));
+                    logsByName.put(name, f.getUri());
                 } else {
                     Log.e(TAG, "Invalid log file: " + name);
                 }
@@ -268,5 +273,25 @@ public class FragmentTestLogs extends Fragment {
             );
         }
         adapter.setResults(results);
+
+        // Reconcile the index against what is actually in the folder, then attach entries to the
+        // rows. Off the main thread: backfilling an unsummarised log parses it, and a folder of
+        // long runs would otherwise stall the UI on first open. The list is already showing file
+        // names by then, so the labels simply improve when this returns.
+        final DocumentFile dir = logsDir;
+        new Thread(() -> {
+            Map<String, TestSummary.Entry> byName = new LinkedHashMap<>();
+            for (TestSummary.Entry e : TestSummary.reconcile(requireContext().getApplicationContext(),
+                                                             dir, logsByName)) {
+                if (e != null && e.file != null) byName.put(e.file, e);
+            }
+            if (!isAdded()) return;
+            requireActivity().runOnUiThread(() -> {
+                for (TestResultsItem item : results) {
+                    item.setSummary(byName.get(item.getFileName()));
+                }
+                adapter.notifyDataSetChanged();
+            });
+        }, "vcat-summary-reconcile").start();
     }
 }

@@ -46,6 +46,7 @@ import android.system.Os;
 import android.system.OsConstants;
 import android.util.Log;
 
+import androidx.annotation.Nullable;
 import androidx.documentfile.provider.DocumentFile;
 
 import com.roncatech.vcat.models.SessionHeader;
@@ -187,6 +188,12 @@ public class TelemetryLogger {
         this.timestampOffsetMs = timestampOffsetMs;
         this.numCpus = getTotalCpus();
         this.cpuSampler = new CpuUsageSampler(this.numCpus);
+    }
+
+    /** The log this run is writing to, or null before the first row. */
+    @Nullable
+    public DocumentFile getCsvDocFile() {
+        return this.csvDocFile;
     }
 
     private DocumentFile getOrCreateCsvDocFile() {
