@@ -246,6 +246,19 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
     /** A cluster is busy enough for its ceiling to mean something above this. */
     private static final double THROTTLE_BUSY_FLOOR_PCT = 5.0;
 
+    /**
+     * Drop rate above which a low ceiling means the decoder wanted more clock and could not get
+     * it, rather than simply not needing it.
+     *
+     * <p>Residency shows the ceiling that was in force but cannot by itself separate "capped at
+     * 1400" from "never needed more than 1400". Frame drops separate them, because a decoder
+     * missing its deadline is by definition asking for more than it is getting. Measured across
+     * two runs: dav1d spent 48 of 49 intervals below ~1950 MHz with <b>0.0%</b> dropped — healthy
+     * and demand-limited — while vvdec's 19 sub-1950 intervals averaged <b>34.8%</b> dropped.
+     * Ceiling alone would have called dav1d permanently throttled.
+     */
+    private static final double THROTTLE_DROP_FLOOR_PCT = 1.0;
+
     /** Per-interval residency metrics for one cluster. */
     private static final class ClusterResidency {
         double fRms = -1;        // time-weighted RMS, MHz
@@ -334,7 +347,7 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
     }
 
     /** 1 throttled, 0 not, -1 undetermined. */
-    private int[] clusterThrottled(int[] scalingMax, ClusterResidency[] res) {
+    private int[] clusterThrottled(int[] scalingMax, ClusterResidency[] res, double dropPct) {
         ensureClusterArrays();
         java.util.List<CpuTopology.Cluster> cl = CpuTopology.clusters();
         int[] out = new int[cl.size()];
@@ -353,7 +366,10 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
             // -- which also never reaches its top bin -- from reading as throttled.
             if (res != null && k < res.length && res[k].fMaxUsed > 0 && hwMax > 0
                     && res[k].busyPct >= THROTTLE_BUSY_FLOOR_PCT) {
-                out[k] = res[k].fMaxUsed < hwMax ? 1 : 0;
+                boolean belowCeiling = res[k].fMaxUsed < hwMax;
+                // A low ceiling on its own is not throttling -- the decoder may simply not need
+                // the top bin. It is throttling when the decoder is also missing its deadline.
+                out[k] = (belowCeiling && dropPct >= THROTTLE_DROP_FLOOR_PCT) ? 1 : 0;
                 continue;
             }
             // Last resort, from the sampled series: compare against the peak this cluster has
@@ -1380,7 +1396,10 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
         int[] clFreqMax   = this.clusterMaxThisRow.clone();
         int[] clScalingMax = clusterScalingMax();
         ClusterResidency[] res = sampleResidency();
-        int[] clThrottled  = clusterThrottled(clScalingMax, res);
+        // Drop rate for this interval, used to qualify a low ceiling.
+        double dropPct = (framesRendered + frameDrops) > 0
+                ? 100.0 * frameDrops / (framesRendered + frameDrops) : 0.0;
+        int[] clThrottled  = clusterThrottled(clScalingMax, res, dropPct);
         double[] clFRms    = new double[res.length];
         int[]    clFMaxUsed = new int[res.length];
         double[] clBusyPct = new double[res.length];
