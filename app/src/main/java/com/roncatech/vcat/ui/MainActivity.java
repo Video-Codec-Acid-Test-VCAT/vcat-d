@@ -89,8 +89,43 @@ public class MainActivity extends AppCompatActivity {
     HttpRequestHandler http_handler;
     private CommandReceiver receiver;
 
+    /**
+     * Recovers the root folder from Android's own grant list when the app has forgotten it.
+     *
+     * <p>The persisted URI permission outlives the app's stored copy: uninstalling clears
+     * SharedPreferences while the grant is re-established on the next grant, and the two can
+     * drift apart. When they do, the app used to prompt — and the prompt is a dead end on
+     * Android 11+, because the picker cannot grant the root of internal storage (it shows it
+     * empty, offering only "create folder") and declines to re-grant a tree the app already
+     * holds with "Can't use this folder". The user is then stuck with working storage the app
+     * refuses to use.
+     *
+     * <p>Only a single held tree is adopted. With more than one there is no way to tell which
+     * was meant, so prompting is correct.
+     */
+    @Nullable
+    private Uri recoverPersistedRoot() {
+        Uri found = null;
+        for (UriPermission p : getContentResolver().getPersistedUriPermissions()) {
+            if (!p.isReadPermission() || !p.isWritePermission()) continue;
+            if (!DocumentsContract.isTreeUri(p.getUri())) continue;
+            if (found != null) return null;      // ambiguous
+            found = p.getUri();
+        }
+        return found;
+    }
+
     private boolean hasAllPermissions() {
         Uri rootUri = viewModel.getRootUri();
+        if (rootUri == null) {
+            Uri recovered = recoverPersistedRoot();
+            if (recovered != null) {
+                Log.i(TAG, "recovered root folder from persisted grant: " + recovered);
+                viewModel.setRootUri(recovered);
+                StorageManager.init(this, recovered);
+                rootUri = recovered;
+            }
+        }
         if (rootUri == null) return false;
         List<UriPermission> perms = getContentResolver().getPersistedUriPermissions();
         for (UriPermission p : perms) {

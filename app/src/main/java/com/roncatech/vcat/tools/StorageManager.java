@@ -186,12 +186,29 @@ public class StorageManager {
         DocumentFile[] kids = root.listFiles();
         if (kids != null) {
             for (DocumentFile f : kids) {
-                if (f.isDirectory() && wanted.equals(f.getName())) {
+                // Match on name alone. isDirectory() was in this test and cost us: it issues a
+                // second provider query per child, and when that answers wrongly the folder
+                // looks absent and a duplicate gets created. An exact name collision with a
+                // plain file is far less likely than that, and far less damaging.
+                if (wanted.equals(f.getName())) {
                     FOLDER_CACHE.put(key, f);
                     return f;
                 }
             }
         }
+        // Nothing matched. Record what the listing actually returned before creating anything --
+        // an empty listing on a folder known to have children is the signature of a provider
+        // answering from a stale tree, and that is worth seeing in a bug report.
+        StringBuilder seen = new StringBuilder();
+        if (kids == null) {
+            seen.append("<listFiles() returned null>");
+        } else if (kids.length == 0) {
+            seen.append("<empty>");
+        } else {
+            for (DocumentFile f : kids) seen.append('[').append(f.getName()).append(']');
+        }
+        Log.w(TAG, "folder '" + wanted + "' not found under " + root.getUri()
+                + "; listing returned " + seen);
 
         DocumentFile made = root.createDirectory(wanted);
         if (made == null) {
@@ -200,9 +217,14 @@ public class StorageManager {
         }
         if (!wanted.equals(made.getName())) {
             // SAF renamed it, so something with that name already existed and the listing missed
-            // it. Returning this would strand data in a duplicate; refuse instead.
-            Log.e(TAG, "createDirectory(" + wanted + ") was renamed to " + made.getName()
-                    + "; refusing to use a duplicate folder");
+            // it. Refusing to return it is not enough: createDirectory has already created the
+            // directory on disk, so merely declining leaves litter behind and the next call
+            // makes another. Delete what we just made, then report failure.
+            String renamed = made.getName();
+            boolean removed = made.delete();
+            Log.e(TAG, "createDirectory(" + wanted + ") was renamed to " + renamed
+                    + " -- the listing is not reporting existing children. Created directory "
+                    + (removed ? "removed." : "could NOT be removed; delete it by hand."));
             return null;
         }
         FOLDER_CACHE.put(key, made);
