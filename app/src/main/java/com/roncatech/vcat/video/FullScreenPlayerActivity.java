@@ -201,7 +201,6 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
             this.freqSum = new double[f.length];
             this.freqSumSq = new double[f.length];
             this.freqSamples = 0;
-        java.util.Arrays.fill(this.clusterMaxThisRow, 0);   // per-interval, like the drop counters
         }
         for (int i = 0; i < f.length; i++) {
             double v = (f[i] == null || f[i] < 0) ? 0.0 : f[i];
@@ -510,8 +509,20 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
             // Write a row on the transition as well as on the timer. A throttling episode
             // shorter than the row interval would otherwise fall between samples, and those
             // episodes are exactly what the throttle analysis is looking for.
-            if (this.tl != null && this.exoPlayer != null && !isFinishing() && !isDestroyed()) {
-                logTelemetry(false);
+            //
+            // Only once the timer has written a row, though. This callback can arrive at any
+            // point after registration -- including before playback has set up the state
+            // logTelemetry() reads -- and a thermal transition must never be able to take the
+            // run down with it. lastTelemetryRowMs is the cheapest proof that the normal path
+            // has already run successfully at least once.
+            if (this.lastTelemetryRowMs > 0 && this.tl != null && this.exoPlayer != null
+                    && !isFinishing() && !isDestroyed()) {
+                try {
+                    logTelemetry(false);
+                } catch (Throwable t) {
+                    // A diagnostic row is never worth crashing a multi-hour run for.
+                    Log.e(TAG, "thermal-triggered telemetry row failed", t);
+                }
             }
         };
         pm.addThermalStatusListener(getMainExecutor(), this.thermalListener);
@@ -1422,6 +1433,10 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
             java.util.Arrays.fill(this.freqSumSq, 0.0);
         }
         this.freqSamples = 0;
+        // Per-interval, like the drop counters: the cluster peak describes this row, not the run.
+        if (this.clusterMaxThisRow != null) {
+            java.util.Arrays.fill(this.clusterMaxThisRow, 0);
+        }
 
         this.tl.logTelemetryRow(this, this.viewModel.curTestDetails.getStartTimeAsEpoch(),
                 this.iterationStartMs, this.fileStartMs, this.totalIterations, vi,
