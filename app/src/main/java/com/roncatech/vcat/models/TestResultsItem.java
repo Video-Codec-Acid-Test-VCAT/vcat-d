@@ -103,8 +103,7 @@ public class TestResultsItem {
         String when = new SimpleDateFormat("MMM d, HH:mm", Locale.US)
                 .format(new Date(this.summary.startTimeMs > 0
                         ? this.summary.startTimeMs : this.timestampMillis));
-        String codec = (this.summary.codec == null || this.summary.codec.isEmpty())
-                ? "unknown" : this.summary.codec;
+        String codec = TestSummary.codecLabel(this.summary.codec);
         return when + "  -  " + TestSummary.formatDuration(this.summary.durationSec) + "  -  " + codec;
     }
 

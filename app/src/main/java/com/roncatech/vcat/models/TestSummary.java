@@ -269,6 +269,33 @@ public final class TestSummary {
         try { return Double.parseDouble(s.trim()); } catch (Exception e) { return 0; }
     }
 
+    /**
+     * Short codec label for a list row, e.g. {@code video/av01} to "AV1".
+     *
+     * <p>The logs keep the full MIME type: it is what the plugins report, it is uniform across
+     * them, and it stays machine-readable. It is only unwieldy to read in a list, and dropping
+     * the {@code video/} prefix alone is not enough -- that would leave "x-vnd.on2.vp9" and
+     * "av01", neither of which is what anyone calls the codec. Unmapped types fall back to the
+     * uppercased subtype, which also leaves the pre-mapping logs that stored a bare "AV1"
+     * unchanged.
+     */
+    public static String codecLabel(@Nullable String mimeType) {
+        if (mimeType == null || mimeType.isEmpty()) return "unknown";
+        switch (mimeType) {
+            case "video/av01": return "AV1";
+            case "video/av02": return "AV2";
+            case "video/vvc":  return "VVC";
+            case "video/hevc": return "H.265";
+            case "video/avc":  return "H.264";
+            case "video/x-vnd.on2.vp9": return "VP9";
+            case "video/x-vnd.on2.vp8": return "VP8";
+            default:
+                int slash = mimeType.indexOf('/');
+                String sub = slash >= 0 ? mimeType.substring(slash + 1) : mimeType;
+                return sub.toUpperCase(Locale.US);
+        }
+    }
+
     /** "3h 42m" / "12m 05s" — compact enough for a list row. */
     public static String formatDuration(long seconds) {
         if (seconds <= 0) return "--";
