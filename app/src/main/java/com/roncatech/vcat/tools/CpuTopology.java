@@ -121,7 +121,7 @@ public final class CpuTopology {
         }
 
         if (found.isEmpty()) {
-            Log.w(TAG, "cpufreq policies not readable; cluster-aware metrics unavailable");
+            logSafe(false, "cpufreq policies not readable; cluster-aware metrics unavailable");
             return Collections.emptyList();
         }
 
@@ -138,7 +138,7 @@ public final class CpuTopology {
             Cluster c = found.get(i);
             named.add(new Cluster(c.cpus, c.maxFreqMhz, c.capacity, nameFor(i, found.size()), c.policyPath));
         }
-        Log.i(TAG, "clusters: " + named + " scaling_max readable=" + isScalingMaxReadable());
+        logSafe(true, "clusters: " + named + " scaling_max readable=" + isScalingMaxReadable());
         return named;
     }
 
@@ -194,6 +194,22 @@ public final class CpuTopology {
             if (!readTimeInState(c).isEmpty()) return true;
         }
         return false;
+    }
+
+    /**
+     * Logs without requiring the Android framework.
+     *
+     * <p>This class is reached from DeviceInfo's serializer, which JVM unit tests exercise, and
+     * there {@code android.util.Log} throws "not mocked". Detection itself works fine off-device
+     * -- it just finds no cpufreq and returns an empty list -- so the logging should not be what
+     * breaks the test.
+     */
+    private static void logSafe(boolean info, String msg) {
+        try {
+            if (info) Log.i(TAG, msg); else Log.w(TAG, msg);
+        } catch (Throwable ignored) {
+            // Not on a device; the caller handles the empty result.
+        }
     }
 
     private static int[] readCpuList(File f) {

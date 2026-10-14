@@ -35,6 +35,7 @@ package com.roncatech.vcat.models;
 import static androidx.core.content.ContextCompat.getSystemService;
 
 import android.content.Context;
+import com.roncatech.vcat.tools.BatteryInfo;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.os.BatteryManager;
@@ -184,17 +185,30 @@ public class SessionInfo {
         @SerializedName("initial_level_pct")
         public final double initial_level_pct;
 
+        /**
+         * Battery temperature in C when the run began.
+         *
+         * <p>A phone just off the charger starts warm, and the first hour of a discharge test
+         * then measures charge heat rather than the decoder. Recording it lets a run that began
+         * hot be identified afterwards instead of silently skewing the comparison. {@code NaN}
+         * if unavailable.
+         */
+        @SerializedName("initial_temp_c")
+        public final double initial_temp_c;
+
         public Battery(Context context, double initial_level_pct, long capacity_ma) {
             BatteryManager batteryManager = (BatteryManager)getSystemService(context, BatteryManager.class);
             this.capacity_ma = capacity_ma;
             this.initial_level_ma  = batteryManager.getLongProperty(BatteryManager.BATTERY_PROPERTY_CHARGE_COUNTER)/1000;
             this.initial_level_pct = initial_level_pct;
+            this.initial_temp_c    = BatteryInfo.getBatteryTemperatureC(context);
         }
 
         public Battery(int capacity, int levelMa, double levelPct) {
             this.capacity_ma = capacity;
             this.initial_level_ma = levelMa;
             this.initial_level_pct = levelPct;
+            this.initial_temp_c = Double.NaN;
         }
 
         @Override
@@ -288,6 +302,9 @@ public class SessionInfo {
                     out.name("capacity_ma").value(src.battery.capacity_ma);
                     out.name("initial_level_ma").value(src.battery.initial_level_ma);
                     out.name("initial_level_pct").value(src.battery.initial_level_pct);
+                    if (!Double.isNaN(src.battery.initial_temp_c)) {
+                        out.name("initial_temp_c").value(src.battery.initial_temp_c);
+                    }
                     out.endObject();
 
                     // 2) playlist — object form: {"id", "name"}

@@ -93,11 +93,41 @@ public class DeviceInfoTest {
 
     @Test
     public void testSerialize() {
-        // Deserialize first to get a populated DeviceInfo
+        // Round-trips every field the deserializer reads, and tolerates output-only ones.
+        //
+        // The serializer also emits cpu_clusters and capabilities, which describe the machine
+        // rather than this object: they are read from cpufreq at serialize time and the
+        // deserializer ignores them. Asserting byte-equality against a fixed literal would make
+        // this test assert what hardware it is running on, which is why it is a subset check.
         DeviceInfo info = gson.fromJson(JSON, DeviceInfo.class);
-        // Serialize back
         String jsonOutput = gson.toJson(info, DeviceInfo.class);
-        assertEquals(JSON, jsonOutput);
+
+        com.google.gson.JsonObject expected =
+                com.google.gson.JsonParser.parseString(JSON).getAsJsonObject();
+        com.google.gson.JsonObject actual =
+                com.google.gson.JsonParser.parseString(jsonOutput).getAsJsonObject();
+
+        for (String key : expected.keySet()) {
+            assertTrue("serialized output is missing " + key, actual.has(key));
+            assertEquals("mismatch on " + key, expected.get(key), actual.get(key));
+        }
+    }
+
+    @Test
+    public void serialize_recordsCpuTopologyAndCapabilities() {
+        // Present regardless of host: off-device cpufreq is absent, so the list is empty and
+        // throttle_detection degrades to "inferred" rather than the field being omitted.
+        DeviceInfo info = gson.fromJson(JSON, DeviceInfo.class);
+        com.google.gson.JsonObject out =
+                com.google.gson.JsonParser.parseString(gson.toJson(info, DeviceInfo.class))
+                        .getAsJsonObject();
+
+        assertTrue("cpu_clusters missing", out.has("cpu_clusters"));
+        assertTrue("capabilities missing", out.has("capabilities"));
+        com.google.gson.JsonObject caps = out.getAsJsonObject("capabilities");
+        assertTrue(caps.has("scaling_max_freq_readable"));
+        assertTrue(caps.has("time_in_state_readable"));
+        assertTrue(caps.has("throttle_detection"));
     }
 
     public static String long2GBStr(long longVal) {
