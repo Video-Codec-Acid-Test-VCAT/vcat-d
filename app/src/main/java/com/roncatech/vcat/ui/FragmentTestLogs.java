@@ -32,6 +32,7 @@
 
 package com.roncatech.vcat.ui;
 
+import android.content.Context;
 import android.net.Uri;
 import android.os.Bundle;
 import android.util.Log;
@@ -275,26 +276,45 @@ public class FragmentTestLogs extends Fragment {
         adapter.setResults(results);
 
         // Reconcile the index against what is actually in the folder, then attach entries to the
-        // rows. Off the main thread: backfilling an unsummarised log parses it, and a folder of
-        // long runs would otherwise stall the UI on first open. The list is already showing file
-        // names by then, so the labels simply improve when this returns.
+        // rows. Off the main thread: verifying and backfilling each log queries the provider and
+        // parses the file, and a folder of long runs would otherwise stall the UI on first open.
+        // The list is already showing file names by then, so the labels simply improve when this
+        // returns.
         final DocumentFile dir = logsDir;
+        final Context appCtx = requireContext().getApplicationContext();
         new Thread(() -> {
+            // Confirm each listed log is really there before it reaches the summary. A directory
+            // listing can name files that no longer exist -- we have seen this provider return
+            // seven deleted logs -- and taking the listing at face value puts rows on screen for
+            // files that cannot be opened and keeps their entries alive in the index, since
+            // reconcile() decides what to drop from exactly this map.
+            Map<String, Uri> present = new LinkedHashMap<>();
+            for (Map.Entry<String, Uri> log : logsByName.entrySet()) {
+                DocumentFile f = DocumentFile.fromSingleUri(appCtx, log.getValue());
+                if (f != null && f.exists()) {
+                    present.put(log.getKey(), log.getValue());
+                } else {
+                    Log.w(TAG, "listed but missing, dropping from summary: " + log.getKey());
+                }
+            }
+
             Map<String, TestSummary.Entry> byName = new LinkedHashMap<>();
-            for (TestSummary.Entry e : TestSummary.reconcile(requireContext().getApplicationContext(),
-                                                             dir, logsByName)) {
+            for (TestSummary.Entry e : TestSummary.reconcile(appCtx, dir, present)) {
                 if (e != null && e.file != null) byName.put(e.file, e);
             }
             if (!isAdded()) return;
             requireActivity().runOnUiThread(() -> {
+                List<TestResultsItem> live = new ArrayList<>();
                 for (TestResultsItem item : results) {
+                    if (!present.containsKey(item.getFileName())) continue;
                     item.setSummary(byName.get(item.getFileName()));
+                    live.add(item);
                 }
                 // Re-sort: the first pass could only order by the file-name epoch, and the
                 // summaries just supplied the start times the rows actually display.
-                Collections.sort(results, (a, b) ->
+                Collections.sort(live, (a, b) ->
                         Long.compare(b.getSortTimeMillis(), a.getSortTimeMillis()));
-                adapter.setResults(results);
+                adapter.setResults(live);
             });
         }, "vcat-summary-reconcile").start();
     }
