@@ -87,6 +87,7 @@ import com.roncatech.vcat.models.SharedViewModel;
 import com.roncatech.vcat.service.PlayerCommandBus;
 import com.roncatech.vcat.telemetry.TelemetryLogger;
 import com.roncatech.vcat.tools.BatteryInfo;
+import com.roncatech.vcat.tools.CpuTopology;
 import com.roncatech.vcat.tools.DisplayInfo;
 import com.roncatech.vcat.tools.PlaylistIdentity;
 import com.roncatech.vcat.tools.UriUtils;
@@ -200,6 +201,7 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
             this.freqSum = new double[f.length];
             this.freqSumSq = new double[f.length];
             this.freqSamples = 0;
+        java.util.Arrays.fill(this.clusterMaxThisRow, 0);   // per-interval, like the drop counters
         }
         for (int i = 0; i < f.length; i++) {
             double v = (f[i] == null || f[i] < 0) ? 0.0 : f[i];
@@ -207,9 +209,90 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
             this.freqSumSq[i] += v * v;
         }
         this.freqSamples++;
+        accumulateClusterMax(f);
     }
 
     private int numCpusForFreq = TelemetryLogger.getTotalCpus();
+
+    /**
+     * Per-cluster frequency extremes, for throttle detection.
+     *
+     * <p>{@code clusterMaxThisRow} is the highest any core in the cluster reached since the last
+     * telemetry row; {@code clusterMaxRun} is the highest it has reached at any point in the run.
+     *
+     * <p>Throttling is measured from {@code scaling_max_freq} where that is readable. It is not
+     * on the CPH2625 — SELinux denies it even to adb shell — so it is otherwise inferred by
+     * comparing the two: a cluster that has demonstrably reached F this run and now cannot get
+     * near F is capped. Calibrating against what the workload actually achieved, rather than
+     * against {@code cpuinfo_max_freq}, is what makes this usable: a decoder that never needs the
+     * top bin would look permanently throttled against the hardware ceiling.
+     */
+    private int[] clusterMaxThisRow = null;
+    private int[] clusterMaxRun = null;
+
+    /** Fraction of its established peak a cluster may fall to before the interval counts as throttled. */
+    private static final double THROTTLE_INFER_RATIO = 0.90;
+
+    private void ensureClusterArrays() {
+        int n = CpuTopology.clusters().size();
+        if (this.clusterMaxThisRow == null || this.clusterMaxThisRow.length != n) {
+            this.clusterMaxThisRow = new int[n];
+            this.clusterMaxRun = new int[n];
+        }
+    }
+
+    /** Folds one frequency reading per core into the per-cluster maxima. */
+    private void accumulateClusterMax(Double[] perCore) {
+        ensureClusterArrays();
+        java.util.List<CpuTopology.Cluster> cl = CpuTopology.clusters();
+        for (int k = 0; k < cl.size(); k++) {
+            for (int cpu : cl.get(k).cpus) {
+                if (cpu < 0 || cpu >= perCore.length || perCore[cpu] == null) continue;
+                int mhz = (int) Math.round(perCore[cpu]);
+                if (mhz > this.clusterMaxThisRow[k]) this.clusterMaxThisRow[k] = mhz;
+                if (mhz > this.clusterMaxRun[k]) this.clusterMaxRun[k] = mhz;
+            }
+        }
+    }
+
+    /** Current cap per cluster in MHz, or -1 where unreadable. */
+    private int[] clusterScalingMax() {
+        java.util.List<CpuTopology.Cluster> cl = CpuTopology.clusters();
+        int[] out = new int[cl.size()];
+        java.util.Arrays.fill(out, -1);
+        if (!CpuTopology.isScalingMaxReadable()) return out;
+        for (int k = 0; k < cl.size(); k++) {
+            int lowest = Integer.MAX_VALUE;
+            for (int cpu : cl.get(k).cpus) {
+                int m = CpuTopology.scalingMaxMhz(cpu);
+                if (m > 0) lowest = Math.min(lowest, m);
+            }
+            out[k] = (lowest == Integer.MAX_VALUE) ? -1 : lowest;
+        }
+        return out;
+    }
+
+    /** 1 throttled, 0 not, -1 undetermined. */
+    private int[] clusterThrottled(int[] scalingMax) {
+        ensureClusterArrays();
+        java.util.List<CpuTopology.Cluster> cl = CpuTopology.clusters();
+        int[] out = new int[cl.size()];
+        java.util.Arrays.fill(out, -1);
+        for (int k = 0; k < cl.size(); k++) {
+            int hwMax = cl.get(k).maxFreqMhz;
+            if (scalingMax[k] > 0 && hwMax > 0) {
+                out[k] = scalingMax[k] < hwMax ? 1 : 0;          // measured
+                continue;
+            }
+            // Inferred. Needs a baseline: until the cluster has shown what it can do, say nothing
+            // rather than report every opening interval as throttled.
+            int peak = this.clusterMaxRun[k];
+            int seen = this.clusterMaxThisRow[k];
+            if (peak <= 0 || seen <= 0) continue;
+            out[k] = (seen < peak * THROTTLE_INFER_RATIO) ? 1 : 0;
+        }
+        return out;
+    }
 
     private float pendingRefreshMin = 0f;
     private float pendingRefreshMax = 0f;
@@ -335,6 +418,12 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
         this.thermalListener = status -> {
             if (status > this.pendingThermalStatusMax) this.pendingThermalStatusMax = status;
             Log.i(TAG, "THERMAL status -> " + status);
+            // Write a row on the transition as well as on the timer. A throttling episode
+            // shorter than the row interval would otherwise fall between samples, and those
+            // episodes are exactly what the throttle analysis is looking for.
+            if (this.tl != null && this.exoPlayer != null && !isFinishing() && !isDestroyed()) {
+                logTelemetry(false);
+            }
         };
         pm.addThermalStatusListener(getMainExecutor(), this.thermalListener);
     }
@@ -354,7 +443,9 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
         try {
             // forecastSeconds = 0 asks for "now". The platform rate-limits this to roughly 1 Hz
             // and returns NaN if asked more often, which the 2 s sampler stays clear of.
-            float h = pm.getThermalHeadroom(0);
+            // 10 s forecast rather than 0: the spec wants early warning of a trip, and the
+            // platform's forecast is what gives the approach rather than the arrival.
+            float h = pm.getThermalHeadroom(10);
             if (!Float.isNaN(h)
                     && (Float.isNaN(this.pendingThermalHeadroom) || h > this.pendingThermalHeadroom)) {
                 this.pendingThermalHeadroom = h;
@@ -1212,6 +1303,10 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
                 freqRms[i]  = Math.sqrt(this.freqSumSq[i] / this.freqSamples);
             }
         }
+        ensureClusterArrays();
+        int[] clFreqMax   = this.clusterMaxThisRow.clone();
+        int[] clScalingMax = clusterScalingMax();
+        int[] clThrottled  = clusterThrottled(clScalingMax);
         this.pendingFrameDrops = 0;
         this.pendingDroppedToKeyframe = 0;
         this.pendingFramesRendered = 0;
@@ -1232,7 +1327,8 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
         this.tl.logTelemetryRow(this, this.viewModel.curTestDetails.getStartTimeAsEpoch(),
                 this.iterationStartMs, this.fileStartMs, this.totalIterations, vi,
                 frameDrops, droppedToKeyframe, framesRendered, d2kEvents,
-                thermalMax, headroom, refreshMin, refreshMax, freqMean, freqRms, false, endOfFile);
+                thermalMax, headroom, refreshMin, refreshMax, freqMean, freqRms,
+                clFreqMax, clScalingMax, clThrottled, false, endOfFile);
         this.lastTelemetryRowMs = System.currentTimeMillis();
 
         if(!this.viewModel.curTestDetails.getCurrentTestVideo().getFileName().equals(vi.fileName)){

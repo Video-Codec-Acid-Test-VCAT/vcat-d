@@ -150,6 +150,72 @@ The existing logs cannot settle it because they do not record what was rendered.
 
 ---
 
+### Throttle-aware CPU metrics: clusters from cpufreq, and a per-interval throttled flag
+
+Implements most of `analysis/vcat-d-telemetry-spec-thermal_events.md`. The motivating anomaly:
+a run using fewer bits showed a *higher* f_rms than a heavier one, because the heavier run spent
+14% of its time capped near 1,400 MHz and that dragged its whole-run RMS below a run that never
+throttled. f_rms is supposed to measure what the decoder demands, so throttled time has to be
+identifiable and excluded.
+
+**Series are now unambiguous (§1).** `cpu.freq0..N` is renamed `cpu.freq_mean0..N`, beside the
+existing `cpu.freq_rms0..N`. Two adjacent series called `cpu.freqN` and `cpu.freq_rmsN` read as
+unlabelled, and a report that averages all eight mixes mean with RMS. **This renames an existing
+column**; report tooling reading `cpu.freqN` must be updated.
+
+**Clusters are detected, not assumed (§2).** `CpuTopology` reads
+`cpufreq/policyN/related_cpus`, `cpuinfo_max_freq` and `cpu_capacity`, ranks clusters weakest to
+strongest and names them `sm`/`lg`, with `prime` for the top of three or more. The old
+cpu0-3 / cpu4-7 assumption holds on this CPH2625 and silently misgroups any 1+3+4 SoC, averaging
+a prime core in with the big ones to produce a frequency no core ever ran at.
+
+**`scaling_max_freq` is not readable on this device (§3).** Verified: SELinux denies it even to
+adb shell, at both the per-core and policy paths. `cpuinfo_max_freq`, `related_cpus`,
+`cpu_capacity` and `scaling_cur_freq` all read fine. Nothing is guessed — the cap column is left
+blank and the header records the fact.
+
+**Per-interval throttle classification (§5).** New per-cluster columns, one field per cluster:
+
+| column | meaning |
+|---|---|
+| `cpu.<cluster>.freq_max` | highest frequency any core in the cluster reached in the interval |
+| `cpu.<cluster>.scaling_max` | current cap, blank where unreadable |
+| `cpu.<cluster>.throttled` | 1 throttled, 0 not, blank undetermined |
+
+Where the cap is readable the flag is **measured** (`scaling_max < cpuinfo_max`). Where it is not,
+it is **inferred**, and the header's `capabilities.throttle_detection` says which — an inferred
+interval is a weaker claim and the report must be able to tell.
+
+The inference deviates from the spec deliberately. The spec suggests comparing against the
+cluster's usual peak; this compares against the peak *that cluster has actually reached during
+this run*, flagging an interval when it falls below 90% of it. Calibrating against
+`cpuinfo_max_freq` instead would mark a decoder that simply never needs the top bin as
+permanently throttled — dav1d sits around 1,460 MHz on a 2,500 MHz cluster by choice, not by cap.
+A baseline is required before any flag is emitted, so opening intervals report blank rather than
+throttled.
+
+**Thermal (§4).** `getThermalHeadroom()` now asks for a 10 s forecast rather than the instant
+value, and a telemetry row is written on every thermal-status transition as well as on the timer,
+so an episode shorter than the row interval cannot fall between samples.
+
+**Battery (§8).** Adds `battery.current_now` (µA) beside the existing `battery.charge_counter`.
+
+**Header metadata (§10).** `device.cpu_clusters[]` carries each cluster's name, core list,
+`cpuinfo_max_freq_mhz` and `cpu_capacity`; `device.capabilities` carries
+`scaling_max_freq_readable`, `throttle_detection`, `build_fingerprint` and `security_patch`.
+Firmware changes governors and scheduling, so a run is not comparable across fingerprints.
+
+**Not done, and why.** §6 (f_rms over unthrottled time) and §7 (drops split by throttle state)
+are report-side computations; the app now logs every input they need — per-core RMS, the
+per-cluster throttled flag, and interval durations. §9 (start-of-run thermal gate) needs a UI
+setting and is a separate change. §11 is the report, not this repository.
+
+**Not yet run on device.** It compiles and the sysfs readability was verified through adb, but
+`installDebug` is blocked by the release signature currently installed, so the cluster detection
+has not been exercised in the app's own SELinux context.
+
+---
+
 ### CPU frequency: oversample it, report mean and RMS, and cap the row interval at 1 minute
 
 Frequency was one instantaneous `scaling_cur_freq` read per core per row, and rows ramped to

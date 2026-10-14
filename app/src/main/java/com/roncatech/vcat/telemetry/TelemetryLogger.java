@@ -53,6 +53,7 @@ import com.roncatech.vcat.models.RunConfig;
 import com.roncatech.vcat.tools.AppMemoryInfo;
 import com.roncatech.vcat.tools.BatteryInfo;
 import com.roncatech.vcat.models.SessionInfo;
+import com.roncatech.vcat.tools.CpuTopology;
 import com.roncatech.vcat.tools.DeviceInfo;
 import com.roncatech.vcat.tools.StorageManager;
 
@@ -89,14 +90,22 @@ public class TelemetryLogger {
         TEST_FILENAME         ("test.filename"),
         BATTERY_CHARGE_COUNTER("battery.charge_counter"),
         BATTERY_MILLIAMPS     ("battery.milliamps"),
+        BATTERY_CURRENT_NOW   ("battery.current_now"),   // uA, instantaneous; sign is vendor-defined
         BATTERY_TEMPERATURE   ("battery.temperature"),
         SYSTEM_THERMAL_STATUS ("system.thermal_status"),
         SYSTEM_THERMAL_STATUS_MAX("system.thermal_status_max"),
         SYSTEM_THERMAL_HEADROOM("system.thermal_headroom"),
         DISPLAY_REFRESH_HZ_MIN("display.refresh_hz_min"),
         DISPLAY_REFRESH_HZ_MAX("display.refresh_hz_max"),
-        CPU_FREQ              ("cpu.freq"),           // a *list* of values (mean over the row)
-        CPU_FREQ_RMS          ("cpu.freq_rms"),       // a *list* of values (RMS over the row)
+        // Per-CPU lists: one field per core, suffixed with the core index.
+        // Named _mean / _rms because a bare "cpu.freqN" beside "cpu.freq_rmsN" read as two
+        // unlabelled series, and a report that averages all of them mixes the two statistics.
+        CPU_FREQ_MEAN         ("cpu.freq_mean"),      // per-interval mean, per core
+        CPU_FREQ_RMS          ("cpu.freq_rms"),       // per-interval RMS, per core
+        // Per-cluster lists: one field per cpufreq policy, named cpu.<cluster>.<suffix>.
+        CPU_CLUSTER_FREQ_MAX  ("freq_max"),           // highest freq any core in the cluster hit
+        CPU_CLUSTER_SCALING_MAX("scaling_max"),       // current cap, blank where unreadable
+        CPU_CLUSTER_THROTTLED ("throttled"),          // 1 throttled, 0 not
         VIDEO_FRAMES_DROPPED  ("video.frames_dropped"),
         VIDEO_DROPPED_TO_KEYFRAME("video.dropped_to_keyframe"),
         VIDEO_FRAMES_RENDERED ("video.frames_rendered"),
@@ -224,6 +233,11 @@ public class TelemetryLogger {
                     hdr.add(col.getName()+i);
                 }
             }
+            else if (isPerClusterColumn(col)) {
+                for (CpuTopology.Cluster c : CpuTopology.clusters()) {
+                    hdr.add("cpu." + c.name + "." + col.getName());
+                }
+            }
             else{
                 hdr.add(col.getName());
             }
@@ -243,7 +257,9 @@ public class TelemetryLogger {
         Map<Column,Object> row = new EnumMap<>(Column.class);
 
         for (Column col : Column.values()) {
-            if (isPerCpuColumn(col)) {
+            if (isPerClusterColumn(col)) {
+                row.put(col, emptyStrings(CpuTopology.clusters().size()));
+            } else if (isPerCpuColumn(col)) {
                 row.put(col, emptyFreqs(cpuCount));
             } else {
                 // default empty string for all other columns
@@ -318,6 +334,13 @@ public class TelemetryLogger {
      *     rather than instead of it: RMS alone is ambiguous — steady 1800 MHz and alternating
      *     600/2500 MHz give 1800 and 1818 — but together they yield the spread for free, since
      *     {@code sigma = sqrt(rms^2 - mean^2)} (0 and 950 MHz for those two cases).
+     * @param clusterFreqMax per-cluster highest frequency any core reached during the interval,
+     *     in MHz. This is the signal throttling is inferred from where the cap cannot be read.
+     * @param clusterScalingMax per-cluster current cap in MHz, or -1 where {@code scaling_max_freq}
+     *     is not readable. On the CPH2625 SELinux denies it even to adb shell.
+     * @param clusterThrottled 1 throttled, 0 not, -1 undetermined. Measured from the cap where
+     *     readable; otherwise inferred, and the header's {@code throttle_detection} field says
+     *     which, since an inferred interval is a weaker claim than a measured one.
      * @param isResume true if the test was resumed
      */
     public void logTelemetryRow(Context ct, long testStartMs, long iterationStartMs,
@@ -327,6 +350,7 @@ public class TelemetryLogger {
                                 Integer thermalStatusMax, Float thermalHeadroom,
                                 Float refreshHzMin, Float refreshHzMax,
                                 Double[] freqMean, Double[] freqRms,
+                                int[] clusterFreqMax, int[] clusterScalingMax, int[] clusterThrottled,
                                 boolean isResume,
                                 boolean isEndOfCurFile){
         Map<Column, Object> row = initRow(this.numCpus);
@@ -357,6 +381,13 @@ public class TelemetryLogger {
         Double batteryInMilliamps = (double) chargeCount / level * 100.0 / 1000.0;
         Double batteryTemperature = batteryStatus.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, -1) / 10.0;
         Double batLevelPcnt = BatteryInfo.getBatteryLevel(ct) / 100.0;
+
+        Long currentNow = null;
+        try {
+            currentNow = batteryManager.getLongProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_NOW);
+        } catch (Exception ignored) { }
+        row.put(Column.BATTERY_CURRENT_NOW,
+                currentNow == null || currentNow == Long.MIN_VALUE ? "" : currentNow.toString());
 
         row.put(Column.BATTERY_CHARGE_COUNTER, chargeCount.toString());
         row.put(Column.BATTERY_MILLIAMPS, batteryInMilliamps.toString());
@@ -389,7 +420,12 @@ public class TelemetryLogger {
         for (int i = 0; i < cpuFreqs.length; ++i) {
             strCpuFreqs[i] = String.format(Locale.US, "%.1f", cpuFreqs[i] == null ? 0.0 : cpuFreqs[i]);
         }
-        row.put(Column.CPU_FREQ, strCpuFreqs);
+        row.put(Column.CPU_FREQ_MEAN, strCpuFreqs);
+
+        int nClusters = CpuTopology.clusters().size();
+        row.put(Column.CPU_CLUSTER_FREQ_MAX, clusterInts(clusterFreqMax, nClusters));
+        row.put(Column.CPU_CLUSTER_SCALING_MAX, clusterInts(clusterScalingMax, nClusters));
+        row.put(Column.CPU_CLUSTER_THROTTLED, clusterInts(clusterThrottled, nClusters));
 
         if (freqRms != null && freqRms.length == this.numCpus) {
             String[] strRms = new String[freqRms.length];
@@ -424,8 +460,10 @@ public class TelemetryLogger {
         // build row string in same order as column defiinitions
         List<String> values = new ArrayList<>();
         for (Column col : Column.values()) {
-            if (isPerCpuColumn(col)) {
-                String[] freqs = emptyFreqs(this.numCpus);
+            if (isPerCpuColumn(col) || isPerClusterColumn(col)) {
+                String[] freqs = isPerClusterColumn(col)
+                        ? emptyStrings(CpuTopology.clusters().size())
+                        : emptyFreqs(this.numCpus);
                 Object o = row.getOrDefault(col, freqs);
 
                 if (o instanceof String[]) {
@@ -451,7 +489,30 @@ public class TelemetryLogger {
 
     /** Columns that expand to one field per CPU (cpu.freq0..N). */
     private static boolean isPerCpuColumn(Column col) {
-        return col == Column.CPU_FREQ || col == Column.CPU_FREQ_RMS;
+        return col == Column.CPU_FREQ_MEAN || col == Column.CPU_FREQ_RMS;
+    }
+
+    /** Columns that expand to one field per cpufreq cluster (cpu.sm.throttled, ...). */
+    private static boolean isPerClusterColumn(Column col) {
+        return col == Column.CPU_CLUSTER_FREQ_MAX
+                || col == Column.CPU_CLUSTER_SCALING_MAX
+                || col == Column.CPU_CLUSTER_THROTTLED;
+    }
+
+    /** Formats a per-cluster int array, leaving negatives blank rather than writing -1. */
+    private static String[] clusterInts(int[] v, int n) {
+        String[] out = emptyStrings(n);
+        if (v == null) return out;
+        for (int i = 0; i < n && i < v.length; i++) {
+            if (v[i] >= 0) out[i] = Integer.toString(v[i]);
+        }
+        return out;
+    }
+
+    private static String[] emptyStrings(int n) {
+        String[] a = new String[n];
+        java.util.Arrays.fill(a, "");
+        return a;
     }
 
     private static String[] emptyFreqs(int totalCpus){

@@ -42,6 +42,7 @@ import android.util.DisplayMetrics;
 import com.google.gson.JsonDeserializationContext;
 import com.google.gson.JsonDeserializer;
 import com.google.gson.JsonElement;
+import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
 import com.google.gson.JsonSerializationContext;
@@ -283,6 +284,34 @@ public class DeviceInfo {
             stgJ.addProperty("total", formatBytes(src.storageInfo.total));
             stgJ.addProperty("available", formatBytes(src.storageInfo.available));
             root.add("storage", stgJ);
+
+            // CPU clusters, read from cpufreq rather than assumed. A report cannot group
+            // per-core frequencies into clusters without this, and guessing cpu0-3/cpu4-7
+            // misgroups any three-cluster SoC.
+            JsonArray clustersJ = new JsonArray();
+            for (CpuTopology.Cluster c : CpuTopology.clusters()) {
+                JsonObject cj = new JsonObject();
+                cj.addProperty("name", c.name);
+                JsonArray cpusJ = new JsonArray();
+                for (int cpu : c.cpus) cpusJ.add(cpu);
+                cj.add("cpus", cpusJ);
+                cj.addProperty("cpuinfo_max_freq_mhz", c.maxFreqMhz);
+                cj.addProperty("cpu_capacity", c.capacity);
+                clustersJ.add(cj);
+            }
+            root.add("cpu_clusters", clustersJ);
+
+            // What this device actually permits, so the report can qualify its claims instead of
+            // assuming. throttle_detection is the important one: "measured" means the per-row
+            // throttled flag came from scaling_max_freq, "inferred" means it was derived from the
+            // frequencies the cluster reached, which is a weaker statement.
+            JsonObject capJ = new JsonObject();
+            boolean capReadable = CpuTopology.isScalingMaxReadable();
+            capJ.addProperty("scaling_max_freq_readable", capReadable);
+            capJ.addProperty("throttle_detection", capReadable ? "measured" : "inferred");
+            capJ.addProperty("build_fingerprint", Build.FINGERPRINT);
+            capJ.addProperty("security_patch", Build.VERSION.SECURITY_PATCH);
+            root.add("capabilities", capJ);
 
             return root;
         }
