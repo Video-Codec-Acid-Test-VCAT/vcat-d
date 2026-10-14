@@ -103,6 +103,9 @@ public class TelemetryLogger {
         CPU_FREQ_MEAN         ("cpu.freq_mean"),      // per-interval mean, per core
         CPU_FREQ_RMS          ("cpu.freq_rms"),       // per-interval RMS, per core
         // Per-cluster lists: one field per cpufreq policy, named cpu.<cluster>.<suffix>.
+        CPU_CLUSTER_F_RMS     ("f_rms"),              // exact time-weighted RMS over the interval
+        CPU_CLUSTER_F_MAX_USED("f_max_used"),         // highest frequency bin with non-zero time
+        CPU_CLUSTER_BUSY_PCT  ("busy_pct"),           // % of interval above the cluster's min bin
         CPU_CLUSTER_FREQ_MAX  ("freq_max"),           // highest freq any core in the cluster hit
         CPU_CLUSTER_SCALING_MAX("scaling_max"),       // current cap, blank where unreadable
         CPU_CLUSTER_THROTTLED ("throttled"),          // 1 throttled, 0 not
@@ -341,6 +344,16 @@ public class TelemetryLogger {
      * @param clusterThrottled 1 throttled, 0 not, -1 undetermined. Measured from the cap where
      *     readable; otherwise inferred, and the header's {@code throttle_detection} field says
      *     which, since an inferred interval is a weaker claim than a measured one.
+     * @param clusterFRms per-cluster time-weighted RMS frequency over the interval, computed
+     *     from {@code stats/time_in_state} deltas. This is kernel accounting rather than a
+     *     sample, so it carries no sampling error and counts excursions shorter than the poll
+     *     interval. Where available this is the series f_rms should be built from.
+     * @param clusterFMaxUsed per-cluster highest frequency bin with non-zero time in the
+     *     interval -- the ceiling actually in force, which is how throttling is detected without
+     *     {@code scaling_max_freq}.
+     * @param clusterBusyPct per-cluster percentage of the interval spent above the lowest bin.
+     *     Qualifies the ceiling: an idle cluster does not reach its top bin either, so a low
+     *     ceiling only means throttling when the cluster was doing something.
      * @param isResume true if the test was resumed
      */
     public void logTelemetryRow(Context ct, long testStartMs, long iterationStartMs,
@@ -351,6 +364,7 @@ public class TelemetryLogger {
                                 Float refreshHzMin, Float refreshHzMax,
                                 Double[] freqMean, Double[] freqRms,
                                 int[] clusterFreqMax, int[] clusterScalingMax, int[] clusterThrottled,
+                                double[] clusterFRms, int[] clusterFMaxUsed, double[] clusterBusyPct,
                                 boolean isResume,
                                 boolean isEndOfCurFile){
         Map<Column, Object> row = initRow(this.numCpus);
@@ -423,6 +437,9 @@ public class TelemetryLogger {
         row.put(Column.CPU_FREQ_MEAN, strCpuFreqs);
 
         int nClusters = CpuTopology.clusters().size();
+        row.put(Column.CPU_CLUSTER_F_RMS, clusterDoubles(clusterFRms, nClusters));
+        row.put(Column.CPU_CLUSTER_F_MAX_USED, clusterInts(clusterFMaxUsed, nClusters));
+        row.put(Column.CPU_CLUSTER_BUSY_PCT, clusterDoubles(clusterBusyPct, nClusters));
         row.put(Column.CPU_CLUSTER_FREQ_MAX, clusterInts(clusterFreqMax, nClusters));
         row.put(Column.CPU_CLUSTER_SCALING_MAX, clusterInts(clusterScalingMax, nClusters));
         row.put(Column.CPU_CLUSTER_THROTTLED, clusterInts(clusterThrottled, nClusters));
@@ -494,7 +511,10 @@ public class TelemetryLogger {
 
     /** Columns that expand to one field per cpufreq cluster (cpu.sm.throttled, ...). */
     private static boolean isPerClusterColumn(Column col) {
-        return col == Column.CPU_CLUSTER_FREQ_MAX
+        return col == Column.CPU_CLUSTER_F_RMS
+                || col == Column.CPU_CLUSTER_F_MAX_USED
+                || col == Column.CPU_CLUSTER_BUSY_PCT
+                || col == Column.CPU_CLUSTER_FREQ_MAX
                 || col == Column.CPU_CLUSTER_SCALING_MAX
                 || col == Column.CPU_CLUSTER_THROTTLED;
     }
@@ -505,6 +525,16 @@ public class TelemetryLogger {
         if (v == null) return out;
         for (int i = 0; i < n && i < v.length; i++) {
             if (v[i] >= 0) out[i] = Integer.toString(v[i]);
+        }
+        return out;
+    }
+
+    /** Formats per-cluster doubles to 1 dp, leaving negatives blank. */
+    private static String[] clusterDoubles(double[] v, int n) {
+        String[] out = emptyStrings(n);
+        if (v == null) return out;
+        for (int i = 0; i < n && i < v.length; i++) {
+            if (v[i] >= 0) out[i] = String.format(Locale.US, "%.1f", v[i]);
         }
         return out;
     }

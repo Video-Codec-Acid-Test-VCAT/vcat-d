@@ -233,6 +233,67 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
     /** Fraction of its established peak a cluster may fall to before the interval counts as throttled. */
     private static final double THROTTLE_INFER_RATIO = 0.90;
 
+    /**
+     * Previous {@code time_in_state} snapshot per cluster, for differencing at each row.
+     *
+     * <p>The kernel counts, in 10 ms jiffies, how long each cluster spent at every frequency bin.
+     * Differencing the counter between two rows gives the exact residency over that interval --
+     * no sampling error, and excursions shorter than the 2 s poll are counted rather than missed.
+     * Polling {@code scaling_cur_freq} can only ever approximate this.
+     */
+    private java.util.List<java.util.Map<Integer, Long>> prevTimeInState = null;
+
+    /** A cluster is busy enough for its ceiling to mean something above this. */
+    private static final double THROTTLE_BUSY_FLOOR_PCT = 5.0;
+
+    /** Per-interval residency metrics for one cluster. */
+    private static final class ClusterResidency {
+        double fRms = -1;        // time-weighted RMS, MHz
+        int fMaxUsed = -1;       // highest bin with non-zero time, MHz
+        double busyPct = -1;     // % of interval above the lowest bin
+    }
+
+    /**
+     * Differences {@code time_in_state} since the previous row.
+     *
+     * <p>Returns one entry per cluster; fields stay -1 where the counter is unreadable, which is
+     * what tells the report to fall back on the sampled series instead.
+     */
+    private ClusterResidency[] sampleResidency() {
+        java.util.List<CpuTopology.Cluster> cl = CpuTopology.clusters();
+        ClusterResidency[] out = new ClusterResidency[cl.size()];
+        java.util.List<java.util.Map<Integer, Long>> now = new java.util.ArrayList<>(cl.size());
+
+        for (int k = 0; k < cl.size(); k++) {
+            out[k] = new ClusterResidency();
+            java.util.Map<Integer, Long> cur = CpuTopology.readTimeInState(cl.get(k));
+            now.add(cur);
+            if (cur.isEmpty() || this.prevTimeInState == null || k >= this.prevTimeInState.size()) continue;
+
+            java.util.Map<Integer, Long> prev = this.prevTimeInState.get(k);
+            double sumSq = 0, total = 0, aboveMin = 0;
+            int maxUsed = -1, minBin = Integer.MAX_VALUE;
+            for (int bin : cur.keySet()) minBin = Math.min(minBin, bin);
+
+            for (java.util.Map.Entry<Integer, Long> e : cur.entrySet()) {
+                long d = e.getValue() - (prev.containsKey(e.getKey()) ? prev.get(e.getKey()) : 0L);
+                if (d <= 0) continue;
+                int mhz = e.getKey();
+                sumSq += (double) mhz * mhz * d;
+                total += d;
+                if (mhz > maxUsed) maxUsed = mhz;
+                if (mhz > minBin) aboveMin += d;
+            }
+            if (total > 0) {
+                out[k].fRms = Math.sqrt(sumSq / total);
+                out[k].fMaxUsed = maxUsed;
+                out[k].busyPct = 100.0 * aboveMin / total;
+            }
+        }
+        this.prevTimeInState = now;
+        return out;
+    }
+
     private void ensureClusterArrays() {
         int n = CpuTopology.clusters().size();
         if (this.clusterMaxThisRow == null || this.clusterMaxThisRow.length != n) {
@@ -273,7 +334,7 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
     }
 
     /** 1 throttled, 0 not, -1 undetermined. */
-    private int[] clusterThrottled(int[] scalingMax) {
+    private int[] clusterThrottled(int[] scalingMax, ClusterResidency[] res) {
         ensureClusterArrays();
         java.util.List<CpuTopology.Cluster> cl = CpuTopology.clusters();
         int[] out = new int[cl.size()];
@@ -286,6 +347,18 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
             }
             // Inferred. Needs a baseline: until the cluster has shown what it can do, say nothing
             // rather than report every opening interval as throttled.
+            // Preferred: the ceiling the kernel's own accounting shows was in force. A cluster
+            // free to reach its top bin and doing work will register time there; a capped one
+            // registers exactly zero above the cap. The busy floor is what stops an idle cluster
+            // -- which also never reaches its top bin -- from reading as throttled.
+            if (res != null && k < res.length && res[k].fMaxUsed > 0 && hwMax > 0
+                    && res[k].busyPct >= THROTTLE_BUSY_FLOOR_PCT) {
+                out[k] = res[k].fMaxUsed < hwMax ? 1 : 0;
+                continue;
+            }
+            // Last resort, from the sampled series: compare against the peak this cluster has
+            // actually reached this run rather than against cpuinfo_max_freq, or a decoder that
+            // never needs the top bin reads as permanently throttled.
             int peak = this.clusterMaxRun[k];
             int seen = this.clusterMaxThisRow[k];
             if (peak <= 0 || seen <= 0) continue;
@@ -1306,7 +1379,14 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
         ensureClusterArrays();
         int[] clFreqMax   = this.clusterMaxThisRow.clone();
         int[] clScalingMax = clusterScalingMax();
-        int[] clThrottled  = clusterThrottled(clScalingMax);
+        ClusterResidency[] res = sampleResidency();
+        int[] clThrottled  = clusterThrottled(clScalingMax, res);
+        double[] clFRms    = new double[res.length];
+        int[]    clFMaxUsed = new int[res.length];
+        double[] clBusyPct = new double[res.length];
+        for (int k = 0; k < res.length; k++) {
+            clFRms[k] = res[k].fRms; clFMaxUsed[k] = res[k].fMaxUsed; clBusyPct[k] = res[k].busyPct;
+        }
         this.pendingFrameDrops = 0;
         this.pendingDroppedToKeyframe = 0;
         this.pendingFramesRendered = 0;
@@ -1328,7 +1408,8 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
                 this.iterationStartMs, this.fileStartMs, this.totalIterations, vi,
                 frameDrops, droppedToKeyframe, framesRendered, d2kEvents,
                 thermalMax, headroom, refreshMin, refreshMax, freqMean, freqRms,
-                clFreqMax, clScalingMax, clThrottled, false, endOfFile);
+                clFreqMax, clScalingMax, clThrottled, clFRms, clFMaxUsed, clBusyPct,
+                false, endOfFile);
         this.lastTelemetryRowMs = System.currentTimeMillis();
 
         if(!this.viewModel.curTestDetails.getCurrentTestVideo().getFileName().equals(vi.fileName)){

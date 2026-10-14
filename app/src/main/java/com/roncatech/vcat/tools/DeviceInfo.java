@@ -307,8 +307,15 @@ public class DeviceInfo {
             // frequencies the cluster reached, which is a weaker statement.
             JsonObject capJ = new JsonObject();
             boolean capReadable = CpuTopology.isScalingMaxReadable();
+            boolean tisReadable = CpuTopology.isTimeInStateReadable();
             capJ.addProperty("scaling_max_freq_readable", capReadable);
-            capJ.addProperty("throttle_detection", capReadable ? "measured" : "inferred");
+            capJ.addProperty("time_in_state_readable", tisReadable);
+            // Which signal the per-row throttled flag came from, strongest first. "residency"
+            // means cpufreq's own time_in_state accounting showed the ceiling in force;
+            // "measured" means scaling_max_freq was read directly; "inferred" means neither was
+            // available and it was derived from sampled frequencies, which is a weaker claim.
+            capJ.addProperty("throttle_detection",
+                    capReadable ? "measured" : (tisReadable ? "residency" : "inferred"));
             capJ.addProperty("build_fingerprint", Build.FINGERPRINT);
             capJ.addProperty("security_patch", Build.VERSION.SECURITY_PATCH);
             root.add("capabilities", capJ);

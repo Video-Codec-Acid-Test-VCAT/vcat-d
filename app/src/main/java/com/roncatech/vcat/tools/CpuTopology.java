@@ -44,12 +44,15 @@ public final class CpuTopology {
         public final int capacity;
         /** {@code sm} / {@code lg} for two clusters, {@code prime} for the top of three or more. */
         public final String name;
+        /** cpufreq policy directory, source of this cluster's {@code stats/time_in_state}. */
+        public final String policyPath;
 
-        Cluster(int[] cpus, int maxFreqMhz, int capacity, String name) {
+        Cluster(int[] cpus, int maxFreqMhz, int capacity, String name, String policyPath) {
             this.cpus = cpus;
             this.maxFreqMhz = maxFreqMhz;
             this.capacity = capacity;
             this.name = name;
+            this.policyPath = policyPath;
         }
 
         @Override public String toString() {
@@ -113,7 +116,7 @@ public final class CpuTopology {
                 int maxKhz = readInt(new File(p, "cpuinfo_max_freq").getPath());
                 if (maxKhz <= 0) maxKhz = readInt(CPU_ROOT + "/cpu" + cpus[0] + "/cpufreq/cpuinfo_max_freq");
                 int cap = readInt(CPU_ROOT + "/cpu" + cpus[0] + "/cpu_capacity");
-                found.add(new Cluster(cpus, maxKhz > 0 ? maxKhz / 1000 : -1, cap, "?"));
+                found.add(new Cluster(cpus, maxKhz > 0 ? maxKhz / 1000 : -1, cap, "?", p.getPath()));
             }
         }
 
@@ -133,7 +136,7 @@ public final class CpuTopology {
         List<Cluster> named = new ArrayList<>(found.size());
         for (int i = 0; i < found.size(); i++) {
             Cluster c = found.get(i);
-            named.add(new Cluster(c.cpus, c.maxFreqMhz, c.capacity, nameFor(i, found.size())));
+            named.add(new Cluster(c.cpus, c.maxFreqMhz, c.capacity, nameFor(i, found.size()), c.policyPath));
         }
         Log.i(TAG, "clusters: " + named + " scaling_max readable=" + isScalingMaxReadable());
         return named;
@@ -150,6 +153,47 @@ public final class CpuTopology {
         if (index == 0) return "sm";
         if (index == total - 1) return "prime";
         return total == 3 ? "lg" : String.format(Locale.US, "mid%d", index);
+    }
+
+    /**
+     * Cumulative time per frequency bin for a cluster, from {@code stats/time_in_state}.
+     *
+     * <p>This is the kernel's own accounting in 10 ms jiffies, not a sample. Differencing it
+     * between two telemetry rows gives the exact time the cluster spent at every frequency over
+     * that interval, which is strictly better than polling {@code scaling_cur_freq}: no
+     * sampling error, and short excursions between polls are counted rather than missed.
+     *
+     * <p>It also makes throttling observable without {@code scaling_max_freq}. A cluster free to
+     * reach its top bin and under load will register time there; a capped one registers exactly
+     * zero above the cap, so the highest occupied bin is the ceiling that was actually in force.
+     *
+     * @return bin frequency in MHz to jiffies, or an empty map if unreadable.
+     */
+    public static java.util.Map<Integer, Long> readTimeInState(Cluster c) {
+        java.util.Map<Integer, Long> out = new java.util.LinkedHashMap<>();
+        File f = new File(c.policyPath, "stats/time_in_state");
+        if (!f.exists() || !f.canRead()) return out;
+        try (BufferedReader r = new BufferedReader(new FileReader(f), 4096)) {
+            String line;
+            while ((line = r.readLine()) != null) {
+                String[] parts = line.trim().split("\\s+");
+                if (parts.length != 2) continue;
+                try {
+                    out.put(Integer.parseInt(parts[0]) / 1000, Long.parseLong(parts[1]));
+                } catch (NumberFormatException ignored) { }
+            }
+        } catch (Exception e) {
+            return out;
+        }
+        return out;
+    }
+
+    /** Whether {@code time_in_state} is readable, which decides whether f_rms can be exact. */
+    public static synchronized boolean isTimeInStateReadable() {
+        for (Cluster c : clusters()) {
+            if (!readTimeInState(c).isEmpty()) return true;
+        }
+        return false;
     }
 
     private static int[] readCpuList(File f) {
