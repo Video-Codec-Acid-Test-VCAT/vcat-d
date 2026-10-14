@@ -14,6 +14,8 @@ import android.util.Log;
 import androidx.annotation.Nullable;
 import androidx.documentfile.provider.DocumentFile;
 
+import com.roncatech.vcat.tools.StorageManager;
+
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.annotations.SerializedName;
@@ -46,7 +48,9 @@ import java.util.Map;
 public final class TestSummary {
 
     private static final String TAG = "TestSummary";
-    public static final String FILE_NAME = "test_summary.json";
+    public static final String BASE_NAME = "test_summary";
+    private static final String EXTENSION = ".json";
+    public static final String FILE_NAME = BASE_NAME + EXTENSION;
 
     /** One completed run. */
     public static final class Entry {
@@ -187,8 +191,7 @@ public final class TestSummary {
         if (dir == null) return false;
         synchronized (LOCK) {
         try {
-            DocumentFile f = findSummary(dir);
-            if (f == null) f = dir.createFile("application/json", FILE_NAME);
+            DocumentFile f = StorageManager.getOrCreateFile(dir, "application/json", FILE_NAME);
             if (f == null) return false;
             // "wt" truncates; without it a shorter payload leaves a tail of the previous content
             // and the file no longer parses.
@@ -247,7 +250,29 @@ public final class TestSummary {
 
         List<Entry> out = new ArrayList<>(byName.values());
         if (changed) save(ctx, dir, out);
+        sweepStrays(dir);
         return out;
+        }
+    }
+
+    /**
+     * Deletes "test_summary (1).json" style siblings.
+     *
+     * <p>SAF produces these when createFile() collides with a file the listing failed to report.
+     * Nothing ever reads them again -- every lookup matches the canonical name -- so without a
+     * sweep they accumulate one per collision. Safe to delete unconditionally: the summary is
+     * derived from the logs and is rebuilt by this very method.
+     */
+    private static void sweepStrays(DocumentFile dir) {
+        if (dir == null) return;
+        DocumentFile[] kids = dir.listFiles();
+        if (kids == null) return;
+        for (DocumentFile f : kids) {
+            String n = f.getName();
+            if (n == null || n.equals(FILE_NAME)) continue;
+            if (n.startsWith(BASE_NAME + " (") && n.endsWith(")" + EXTENSION)) {
+                Log.i(TAG, "removing stale summary artifact " + n + ": " + f.delete());
+            }
         }
     }
 

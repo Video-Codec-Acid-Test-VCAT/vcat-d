@@ -203,12 +203,9 @@ public class TelemetryLogger {
             Log.e(TAG, "TEST_RESULTS folder not available");
             return null;
         }
-        DocumentFile existing = dir.findFile(csvFileName);
-        if (existing != null && existing.isFile()) {
-            csvDocFile = existing;
-        } else {
-            csvDocFile = dir.createFile("text/csv", csvFileName);
-        }
+        // Not findFile(): it answers from a cached tree, and a wrong "absent" here means
+        // createFile() collides and SAF leaves a "name (1).csv" nobody reads again.
+        csvDocFile = StorageManager.getOrCreateFile(dir, "text/csv", csvFileName);
         return csvDocFile;
     }
 

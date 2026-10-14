@@ -232,6 +232,46 @@ public class StorageManager {
     }
 
     /**
+     * Resolves a file of a fixed name inside {@code dir}, creating it only if the listing really
+     * does not have it.
+     *
+     * <p>The file counterpart of {@link #getFolder}, and it exists for the same reason: a
+     * provider that answers from a stale tree makes an existing file look absent, createFile()
+     * then collides, and SAF silently renames the new one to "name (1)". That artifact never
+     * gets read again -- lookups match the canonical name -- so it is pure accumulating litter.
+     * A rename is therefore treated as failure, and the file just created is deleted, since
+     * declining to return it would leave the litter behind anyway.
+     *
+     * @return the file, or null if it could not be created under the requested name.
+     */
+    @Nullable
+    public static DocumentFile getOrCreateFile(@Nullable DocumentFile dir, String mime, String name) {
+        if (dir == null || !dir.isDirectory()) return null;
+
+        DocumentFile[] kids = dir.listFiles();
+        if (kids != null) {
+            for (DocumentFile f : kids) {
+                if (name.equals(f.getName())) return f;
+            }
+        }
+
+        DocumentFile made = dir.createFile(mime, name);
+        if (made == null) {
+            Log.e(TAG, "could not create file " + name + " in " + dir.getUri());
+            return null;
+        }
+        if (!name.equals(made.getName())) {
+            String renamed = made.getName();
+            boolean removed = made.delete();
+            Log.e(TAG, "createFile(" + name + ") was renamed to " + renamed
+                    + " -- the listing is not reporting existing children. Created file "
+                    + (removed ? "removed." : "could NOT be removed; delete it by hand."));
+            return null;
+        }
+        return made;
+    }
+
+    /**
      * Returns the most-recently created telemetry CSV in the TEST_RESULTS folder,
      * or null if none found.
      */
