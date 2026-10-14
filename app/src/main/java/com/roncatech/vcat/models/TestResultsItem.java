@@ -91,8 +91,10 @@ public class TestResultsItem {
     @Nullable public TestSummary.Entry getSummary() { return this.summary; }
 
     /**
-     * Primary row label: date, run length and codec, e.g.
-     * {@code "Oct 14, 13:51  -  6h 12m  -  video/vvc"}.
+     * Primary row label: date, run length and codec, e.g. {@code "251014  -  8h 01m  -  VVC"}.
+     *
+     * <p>yymmdd with no clock time: the rows are one per run and sorted by date, so the hour
+     * never distinguished two of them, and dropping it buys the width the decoder name needs.
      *
      * <p>Falls back to the file name when the log has no summary entry, which happens only until
      * the next reconciliation backfills it. The file name carries nothing but an epoch
@@ -100,25 +102,35 @@ public class TestResultsItem {
      */
     public String getDisplayLabel() {
         if (this.summary == null) return getDisplayName();
-        String when = new SimpleDateFormat("MMM d, HH:mm", Locale.US)
+        String when = new SimpleDateFormat("yyMMdd", Locale.US)
                 .format(new Date(this.summary.startTimeMs > 0
                         ? this.summary.startTimeMs : this.timestampMillis));
         String codec = TestSummary.codecLabel(this.summary.codec);
         return when + "  -  " + TestSummary.formatDuration(this.summary.durationSec) + "  -  " + codec;
     }
 
-    /** Secondary row label: decoder and size, with drop rate when the run dropped anything. */
+    /**
+     * Trailing row label: the decoder, on the same line as {@link #getDisplayLabel()}.
+     *
+     * <p>Kept in its own view so it is the part that gives way when the row runs out of width.
+     * Only one decoder name is long enough to need it
+     * ({@code vcat-dav2d-ee033a4@salomethirot-arm}); the rest fit whole.
+     */
     public String getDisplaySubtitle() {
         if (this.summary == null) return getDisplaySize();
-        StringBuilder sb = new StringBuilder();
-        if (this.summary.decoder != null && !this.summary.decoder.isEmpty()) {
-            sb.append(this.summary.decoder).append("  -  ");
-        }
-        sb.append(getDisplaySize());
-        if (this.summary.dropsPerSec > 0.005) {
-            sb.append(String.format(Locale.US, "  -  %.2f drops/s", this.summary.dropsPerSec));
-        }
-        return sb.toString();
+        return (this.summary.decoder == null) ? "" : this.summary.decoder;
+    }
+
+    /**
+     * Date the row sorts by, which must be the one it displays.
+     *
+     * <p>The file name epoch and the recorded start time can disagree -- a log copied in, or one
+     * whose run began before the file was opened -- and sorting on the name while showing the
+     * summary put a row visibly out of order.
+     */
+    public long getSortTimeMillis() {
+        return (this.summary != null && this.summary.startTimeMs > 0)
+                ? this.summary.startTimeMs : this.timestampMillis;
     }
 
     public long getSizeBytes() {

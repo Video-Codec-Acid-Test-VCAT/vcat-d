@@ -269,7 +269,7 @@ public class FragmentTestLogs extends Fragment {
                 }
             }
             Collections.sort(results, (a, b) ->
-                    Long.compare(b.getTimestampMillis(), a.getTimestampMillis())
+                    Long.compare(b.getSortTimeMillis(), a.getSortTimeMillis())
             );
         }
         adapter.setResults(results);
@@ -290,7 +290,11 @@ public class FragmentTestLogs extends Fragment {
                 for (TestResultsItem item : results) {
                     item.setSummary(byName.get(item.getFileName()));
                 }
-                adapter.notifyDataSetChanged();
+                // Re-sort: the first pass could only order by the file-name epoch, and the
+                // summaries just supplied the start times the rows actually display.
+                Collections.sort(results, (a, b) ->
+                        Long.compare(b.getSortTimeMillis(), a.getSortTimeMillis()));
+                adapter.setResults(results);
             });
         }, "vcat-summary-reconcile").start();
     }
