@@ -91,10 +91,12 @@ public class TestResultsItem {
     @Nullable public TestSummary.Entry getSummary() { return this.summary; }
 
     /**
-     * Primary row label: date, run length and codec, e.g. {@code "251014  -  8h 01m  -  VVC"}.
+     * Primary row label: start, run length and codec, e.g.
+     * {@code "26/10/14 04:33:21  -  8h 01m  -  VVC"}.
      *
-     * <p>yymmdd with no clock time: the rows are one per run and sorted by date, so the hour
-     * never distinguished two of them, and dropping it buys the width the decoder name needs.
+     * <p>24-hour clock, seconds included: several runs can share a day, and the start time is
+     * what matches a row to a telemetry file. It leaves portrait too narrow for most decoder
+     * names, which is why the decoder is in its own ellipsized view and reads whole in landscape.
      *
      * <p>Falls back to the file name when the log has no summary entry, which happens only until
      * the next reconciliation backfills it. The file name carries nothing but an epoch
@@ -102,7 +104,7 @@ public class TestResultsItem {
      */
     public String getDisplayLabel() {
         if (this.summary == null) return getDisplayName();
-        String when = new SimpleDateFormat("yyMMdd", Locale.US)
+        String when = new SimpleDateFormat("yy/MM/dd HH:mm:ss", Locale.US)
                 .format(new Date(this.summary.startTimeMs > 0
                         ? this.summary.startTimeMs : this.timestampMillis));
         String codec = TestSummary.codecLabel(this.summary.codec);
