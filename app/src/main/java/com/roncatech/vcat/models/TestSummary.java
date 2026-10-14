@@ -68,7 +68,38 @@ public final class TestSummary {
         public Entry() { }
     }
 
+    /**
+     * Serialises every read-modify-write of the summary.
+     *
+     * <p>A run ending and the results panel opening can overlap, and both rewrite the file. On a
+     * real device that produced two files -- {@code test_summary.json} and
+     * {@code test_summary (1).json}, identical, same mtime -- because both callers resolved the
+     * file as absent and created it. SAF has no atomic create-or-open, so the mutual exclusion
+     * has to be here.
+     */
+    private static final Object LOCK = new Object();
+
     private TestSummary() { }
+
+    /**
+     * Finds the summary by listing the directory rather than via
+     * {@link DocumentFile#findFile(String)}.
+     *
+     * <p>findFile() queries a cached tree and returns null for a file that exists but was created
+     * after the DocumentFile was obtained -- which is exactly the case here, since the directory
+     * handle is taken before the first run writes a summary. A null answer then leads to
+     * createFile() and a duplicate.
+     */
+    @Nullable
+    private static DocumentFile findSummary(DocumentFile dir) {
+        if (dir == null) return null;
+        DocumentFile[] kids = dir.listFiles();
+        if (kids == null) return null;
+        for (DocumentFile f : kids) {
+            if (FILE_NAME.equals(f.getName())) return f;
+        }
+        return null;
+    }
 
     private static Gson gson() {
         return new GsonBuilder().setPrettyPrinting().create();
@@ -98,7 +129,15 @@ public final class TestSummary {
 
             e.startTimeMs = parseLong(first.get("test.timestamp"));
             // test.duration_ms is cumulative and never resets, so the last row is the run length.
+            // Older logs called it test.duration; older still have neither, in which case the
+            // span between the first and last row timestamps is the run. Without the fallbacks a
+            // legacy log indexes as "0s", which is worse than no entry because it looks real.
             long durMs = parseLong(last.get("test.duration_ms"));
+            if (durMs <= 0) durMs = parseLong(last.get("test.duration"));
+            if (durMs <= 0) {
+                long endMs = parseLong(last.get("test.timestamp"));
+                if (endMs > e.startTimeMs && e.startTimeMs > 0) durMs = endMs - e.startTimeMs;
+            }
             e.durationSec = durMs > 0 ? durMs / 1000 : 0;
 
             e.codec      = firstNonEmpty(rows, "video.codec_name");
@@ -129,7 +168,7 @@ public final class TestSummary {
 
     /** Reads the summary, or an empty list if absent or unreadable. */
     public static List<Entry> load(Context ctx, DocumentFile dir) {
-        DocumentFile f = dir == null ? null : dir.findFile(FILE_NAME);
+        DocumentFile f = findSummary(dir);
         if (f == null || !f.exists()) return new ArrayList<>();
         try (InputStream in = ctx.getContentResolver().openInputStream(f.getUri())) {
             if (in == null) return new ArrayList<>();
@@ -146,8 +185,9 @@ public final class TestSummary {
     /** Writes the summary, creating it if needed. Rewrites whole: the file is small. */
     public static boolean save(Context ctx, DocumentFile dir, List<Entry> entries) {
         if (dir == null) return false;
+        synchronized (LOCK) {
         try {
-            DocumentFile f = dir.findFile(FILE_NAME);
+            DocumentFile f = findSummary(dir);
             if (f == null) f = dir.createFile("application/json", FILE_NAME);
             if (f == null) return false;
             // "wt" truncates; without it a shorter payload leaves a tail of the previous content
@@ -161,15 +201,18 @@ public final class TestSummary {
             Log.e(TAG, "could not write " + FILE_NAME, e);
             return false;
         }
+        }
     }
 
     /** Appends one entry, replacing any existing entry for the same file. */
     public static void append(Context ctx, DocumentFile dir, Entry entry) {
         if (entry == null || entry.file == null) return;
-        List<Entry> all = load(ctx, dir);
-        all.removeIf(e -> entry.file.equals(e.file));
-        all.add(entry);
-        save(ctx, dir, all);
+        synchronized (LOCK) {
+            List<Entry> all = load(ctx, dir);
+            all.removeIf(e -> entry.file.equals(e.file));
+            all.add(entry);
+            save(ctx, dir, all);
+        }
     }
 
     /**
@@ -183,6 +226,7 @@ public final class TestSummary {
      * @return the reconciled list, newest first for display.
      */
     public static List<Entry> reconcile(Context ctx, DocumentFile dir, Map<String, Uri> logsByName) {
+        synchronized (LOCK) {
         List<Entry> existing = load(ctx, dir);
         Map<String, Entry> byName = new LinkedHashMap<>();
         for (Entry e : existing) {
@@ -204,6 +248,7 @@ public final class TestSummary {
         List<Entry> out = new ArrayList<>(byName.values());
         if (changed) save(ctx, dir, out);
         return out;
+        }
     }
 
     private static String firstNonEmpty(List<Map<String, String>> rows, String key) {

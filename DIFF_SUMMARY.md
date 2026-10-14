@@ -150,6 +150,47 @@ The existing logs cannot settle it because they do not record what was rendered.
 
 ---
 
+### Fixed: SAF folder resolution was creating duplicate directories
+
+On a Galaxy S25 the Logs panel came up empty while 28 logs sat in the folder. The cause was
+`StorageManager`, and it had been quietly damaging the storage layout:
+
+```
+media,        media (1)
+playlist,     playlist (1), playlist (2)
+test_results, test_results (1) ... test_results (8)
+```
+
+Eleven duplicates, all empty, created within about a minute of opening the Logs panel. The app
+then read and wrote the newest empty one, so the list was blank while every file was safe in the
+original.
+
+Both `init()` and `getFolder()` resolved a subfolder as `root.findFile(name)` and, on null,
+`root.createDirectory(name)`. Two properties of SAF make that a duplicate factory:
+`DocumentFile.findFile()` can return null for a directory that exists, because it queries a
+provider that may answer from a stale tree; and `createDirectory()` does not fail on collision,
+it silently renames. `init()` ran on every launch, so each one could add another.
+
+Resolution is now by listing the root and matching the name exactly, which does not depend on the
+provider answering a targeted query, and the result is cached so a miss cannot repeat. A rename
+on create is detected and **refused** rather than returned — returning it is what stranded data
+in an empty folder. `init()` delegates to the same resolver instead of repeating the pattern.
+
+Verified on device: restarting the app no longer adds folders.
+
+### Fixed: the summary index could create its own duplicate, and mis-timed legacy logs
+
+The same SAF trap hit `TestSummary`, which produced `test_summary.json` and
+`test_summary (1).json` — identical, same mtime. A run ending and the results panel opening both
+rewrite the file, each resolved it as absent, and each created it. Resolution now lists the
+directory, and every read-modify-write is serialised, since SAF has no atomic create-or-open.
+
+Duration also read `test.duration_ms` only, so logs predating that column indexed as `0s` —
+worse than no entry, because it looks real. It now falls back to the older `test.duration` and
+then to the span between the first and last row timestamps.
+
+---
+
 ### `test_summary.json`: browse logs by date, duration and codec
 
 The logs list showed file names, and a file name carries only an epoch timestamp. Finding "the

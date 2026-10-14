@@ -77,11 +77,17 @@ public class StorageManager {
             Log.e(TAG, "Root is not a directory: " + rootTreeUri);
             return;
         }
+        // Delegate to getFolder() rather than repeating findFile/createDirectory here. That
+        // pairing is what produced eight "test_results (N)" duplicates on a Galaxy S25: findFile
+        // can miss a directory that exists, and SAF's createDirectory renames on collision
+        // instead of failing. This ran on every startup, so each launch could add another.
+        FOLDER_CACHE.clear();          // the root may have changed since the last init
         for (VCATFolder folder : VCATFolder.values()) {
-            DocumentFile sub = root.findFile(folder.getFolderName());
-            if (sub == null || !sub.isDirectory()) {
-                root.createDirectory(folder.getFolderName());
-                Log.d(TAG, "Created subfolder: " + folder.getFolderName());
+            DocumentFile sub = getFolder(ctx, folder);
+            if (sub == null) {
+                Log.e(TAG, "folder unavailable: " + folder.getFolderName());
+            } else {
+                Log.d(TAG, "folder ready: " + folder.getFolderName());
             }
         }
     }
@@ -139,17 +145,68 @@ public class StorageManager {
     }
 
     /**
-     * Returns the DocumentFile for a sub-folder, creating it if absent.
+     * Resolved sub-folders, keyed by folder then root URI.
+     *
+     * <p>Cached because every miss risks creating a duplicate, and because the lookup lists the
+     * whole tree. Keyed on the root so re-granting a different folder does not return a stale
+     * handle.
+     */
+    private static final java.util.Map<String, DocumentFile> FOLDER_CACHE =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
+    /**
+     * Returns the DocumentFile for a sub-folder, creating it only if genuinely absent.
+     *
+     * <p>This used to be {@code root.findFile(name)} and, on null, {@code createDirectory(name)}.
+     * {@link DocumentFile#findFile(String)} can return null for a directory that exists — it
+     * queries a provider that may answer from a stale tree — and SAF's createDirectory does not
+     * fail on collision, it silently renames. The result on a Galaxy S25 was eight folders named
+     * {@code test_results}, {@code test_results (1)} … {@code test_results (8)} and two
+     * {@code playlist} duplicates, created in about a minute of opening the Logs panel. The app
+     * then read and wrote the newest empty one, so the logs list came up blank while every file
+     * sat safely in the original.
+     *
+     * <p>Resolution is now by listing the root and matching the name, which does not depend on
+     * the provider answering a targeted query, and the result is cached so a miss cannot be
+     * repeated. A rename on create is detected and reported rather than returned silently.
      */
     @Nullable
     public static DocumentFile getFolder(Context ctx, VCATFolder folder) {
         DocumentFile root = getRoot(ctx);
         if (root == null || !root.isDirectory()) return null;
-        DocumentFile sub = root.findFile(folder.getFolderName());
-        if (sub == null || !sub.isDirectory()) {
-            sub = root.createDirectory(folder.getFolderName());
+
+        final String wanted = folder.getFolderName();
+        final String key = root.getUri() + "|" + wanted;
+
+        DocumentFile cached = FOLDER_CACHE.get(key);
+        if (cached != null && cached.exists() && cached.isDirectory()) return cached;
+
+        // Exact-name match over the listing. Any "name (1)" duplicate is deliberately ignored:
+        // the canonical folder is the one holding the data.
+        DocumentFile[] kids = root.listFiles();
+        if (kids != null) {
+            for (DocumentFile f : kids) {
+                if (f.isDirectory() && wanted.equals(f.getName())) {
+                    FOLDER_CACHE.put(key, f);
+                    return f;
+                }
+            }
         }
-        return sub;
+
+        DocumentFile made = root.createDirectory(wanted);
+        if (made == null) {
+            Log.e(TAG, "could not create folder " + wanted);
+            return null;
+        }
+        if (!wanted.equals(made.getName())) {
+            // SAF renamed it, so something with that name already existed and the listing missed
+            // it. Returning this would strand data in a duplicate; refuse instead.
+            Log.e(TAG, "createDirectory(" + wanted + ") was renamed to " + made.getName()
+                    + "; refusing to use a duplicate folder");
+            return null;
+        }
+        FOLDER_CACHE.put(key, made);
+        return made;
     }
 
     /**
