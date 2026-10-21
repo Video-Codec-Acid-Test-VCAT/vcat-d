@@ -5,6 +5,61 @@ description of what shipped so the history is not lost when the working tree mov
 
 ---
 
+## 2026-10-20 — Browsable logs, SAF folder litter, and a stale-listing guard
+
+**Theme:** Making the results panel usable, and stopping the storage layer creating duplicates.
+
+### Logs list: one line per run
+
+The panel listed raw file names, so finding a run meant opening files one at a time to see which
+codec they used. It now reads `26/10/14 04:33:30  -  8h 01m  -  VVC  vcat-vvdec-3.2.0`:
+start time, run length, codec, decoder. Nineteen runs fit on screen where six did.
+
+* Date is `yy/MM/dd HH:mm:ss`. Several runs share a day, so the date alone did not identify a
+  row, and the start time is what matches a row to its telemetry file.
+* Codec shows a short label (`AV1`, `AV2`, `VVC`) rather than the raw MIME type the plugins
+  report. The logs keep the MIME type -- it is uniform across plugins and machine-readable --
+  and `TestSummary.codecLabel()` maps it for display only. Stripping the `video/` prefix alone
+  would leave `av01` and `x-vnd.on2.vp9`.
+* The decoder sits in its own view so it is the field that truncates when the row runs out of
+  width. At 384 dp only `vcat-dav2d-ee033a4@salomethirot-arm` is long enough to need it.
+
+**Row ordering was wrong.** The list sorted on the epoch in the file name while each row
+displayed `summary.startTimeMs`, and for one log the two disagree -- `260826` sat between
+`261002` and `260910`. Both now use `getSortTimeMillis()`, and the list re-sorts once the
+summaries are backfilled, since the first sort runs before they exist.
+
+### SAF: stop creating duplicate folders and files
+
+The device had accumulated `media (1)`..`(8)`, `playlist (1)`..`(12)`, `test_results (1)`..`(8)`,
+and a 9 KB `test_summary (1).json`. Cause: `DocumentFile.findFile()` answers from a cached tree
+and returns null for something that exists, after which `createDirectory()`/`createFile()`
+collides and SAF silently renames the new one.
+
+* `StorageManager.getFolder()` resolves by listing rather than `findFile()`, and when
+  `createDirectory()` comes back renamed it deletes what it just made -- declining to return it
+  is not enough, because the collision has already created it.
+* `StorageManager.getOrCreateFile()` is the file counterpart, used by `TestSummary.save()` and
+  `TelemetryLogger` (which had been calling `findFile()`, the unreliable lookup that causes the
+  collision).
+* `TestSummary.reconcile()` sweeps any `test_summary (N).json` siblings, so devices that already
+  have them get cleaned without manual work. Safe to delete: the summary is derived from the
+  logs and that method rebuilds it.
+
+### Stale listings can keep dead entries alive
+
+A directory listing can name files that are not there -- this provider returned seven deleted
+logs -- and `reconcile()` decides what to drop from exactly that map, so a ghost in the listing
+both showed a dead row and preserved its summary entry. Each log is now checked with `exists()`
+on the background thread that was already parsing logs, and missing files are dropped from the
+map and the row list together.
+
+### Commits
+
+`4f8c6d4`, `f0e76cf`, `6c28442`, `ef43ebf`, `9d6b1dc`, `5a3742f`
+
+---
+
 ## 2026-10-05 — Three durations, build type in the header, a completion estimate, and native-rate playback everywhere
 
 **Theme:** Making a run self-describing. A telemetry file now states how far into the test a row
