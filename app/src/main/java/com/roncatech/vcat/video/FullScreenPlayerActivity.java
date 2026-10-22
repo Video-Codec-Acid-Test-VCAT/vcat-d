@@ -139,6 +139,16 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
     private int runStartBatteryPct = -1;
     private long runStartBatteryMs = 0L;
 
+    /**
+     * Frames dropped so far this run, for the overlay's running average.
+     *
+     * <p>Accumulated from the same per-interval count the telemetry row uses, so the overlay and
+     * the CSV cannot disagree. A cumulative rate rather than the current interval's: an instant
+     * figure swings between 0 and hundreds as a stall starts and clears, which says nothing about
+     * whether a run is healthy. Total over elapsed time is the number worth watching.
+     */
+    private long runTotalFrameDrops = 0L;
+
     /** When the last telemetry row was written, so teardown can tell if one is still owed. */
     private long lastTelemetryRowMs = 0;
 
@@ -1430,6 +1440,7 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
         // interval and a stall reads as a spike rather than raising every row after it.
         sampleDrops();
         int frameDrops = this.pendingFrameDrops;
+        this.runTotalFrameDrops += frameDrops;
         int droppedToKeyframe = this.pendingDroppedToKeyframe;
         int framesRendered = this.pendingFramesRendered;
         int d2kEvents = this.pendingDroppedToKeyframeEvents;
@@ -1529,6 +1540,7 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
                             "Run Mode: %s\n" +
                             "Battery: %d%% %.1f:%.1f\n"+
                             "System Thermal Status: %d:%d\n"+
+                            "Framedrops/sec: %.2f (%,d total)\n"+
                             "Run Dur: %s (est %s)",
                     UriUtils.fileNameFromURI(vi.fileName),
                     vi.width,
@@ -1550,10 +1562,25 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
                     (int) BatteryInfo.getBatteryLevel(this),
                     curBatteryTempC, maxBatteryTempC,
                     curSysThermal, maxSysThermal,
+                    runFrameDropsPerSec(), this.runTotalFrameDrops,
                     this.viewModel.curTestDetails.getElapsedSinceStartHms(),
                     estimateTimeRemaining()
             ));
         }
+    }
+
+    /**
+     * Frames dropped per second over the whole run so far.
+     *
+     * <p>Zero until a second has elapsed, rather than dividing by a near-zero interval and
+     * reporting a rate in the thousands for the first tick of every run.
+     */
+    private double runFrameDropsPerSec() {
+        long startEpoch = this.viewModel.curTestDetails.getStartTimeAsEpoch();
+        if (startEpoch < 1_000_000_000_000L) startEpoch *= 1000L;   // tolerate seconds
+        long elapsedMs = System.currentTimeMillis() - startEpoch;
+        if (elapsedMs < 1000L) return 0.0;
+        return this.runTotalFrameDrops * 1000.0 / elapsedMs;
     }
 
     /** Formats a duration as hh:mm, clamped at zero. */
@@ -1623,7 +1650,43 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
             }
         }
 
+        // Fall back to measuring it. Containers rarely carry an average-bitrate field -- VVC in
+        // MP4 reports NO_VALUE here just as AV2 in IVF did -- and the overlay and the telemetry
+        // column both read -1 as a result. File size over media duration is the same figure the
+        // bitrate field would hold, and is exact for a single-track file.
+        if (bitrate == com.google.android.exoplayer2.Format.NO_VALUE) {
+            bitrate = measuredBitrate();
+        }
+
         return bitrate;
+    }
+
+    /**
+     * Average bitrate from source length and media duration, or {@code NO_VALUE}.
+     *
+     * <p>Only meaningful once the duration is known, so it reports nothing while the player is
+     * still preparing rather than dividing by {@code TIME_UNSET}.
+     */
+    private int measuredBitrate() {
+        if (this.exoPlayer == null
+                || this.testClips == null
+                || this.curFileIndex < 0
+                || this.curFileIndex >= this.testClips.size()) {
+            return com.google.android.exoplayer2.Format.NO_VALUE;
+        }
+        Uri uri = this.testClips.get(this.curFileIndex);
+        if (uri == null) return com.google.android.exoplayer2.Format.NO_VALUE;
+        long durMs = this.exoPlayer.getDuration();
+        if (durMs == com.google.android.exoplayer2.C.TIME_UNSET || durMs <= 0) {
+            return com.google.android.exoplayer2.Format.NO_VALUE;
+        }
+        androidx.documentfile.provider.DocumentFile f =
+                androidx.documentfile.provider.DocumentFile.fromSingleUri(this, uri);
+        long bytes = (f != null) ? f.length() : 0L;
+        if (bytes <= 0) return com.google.android.exoplayer2.Format.NO_VALUE;
+        double bps = bytes * 8.0 * 1000.0 / durMs;
+        return (bps > 0 && bps <= Integer.MAX_VALUE)
+                ? (int) Math.round(bps) : com.google.android.exoplayer2.Format.NO_VALUE;
     }
 
     public TelemetryLogger.VideoInfo getTlVideoInfo(

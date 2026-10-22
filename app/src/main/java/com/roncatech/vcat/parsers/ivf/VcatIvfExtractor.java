@@ -77,6 +77,9 @@ public final class VcatIvfExtractor implements Extractor {
     private IvfParserExtension plugin;
 
     private int state = STATE_FILE_HEADER;
+
+    /** Source length in bytes, or 0 when unknown. Used only for the average-bitrate estimate. */
+    private long fileLength = 0L;
     private int currentFrameSize;
     private long currentPtsUs;
     private int sampleBytesRemaining;
@@ -128,6 +131,10 @@ public final class VcatIvfExtractor implements Extractor {
             return RESULT_END_OF_INPUT; // empty input
         }
         fileHeader = IvfFileHeader.parse(header);
+        // Captured here for the average-bitrate estimate; C.LENGTH_UNSET on a non-seekable source,
+        // in which case the bitrate is simply left unreported rather than guessed.
+        long len = input.getLength();
+        fileLength = (len != C.LENGTH_UNSET) ? len : 0L;
         plugin = VcatDecoderManager.getInstance().findIvfPlugin(fileHeader.fourCc);
         if (plugin == null) {
             throw ParserException.createForMalformedContainer(
@@ -183,12 +190,54 @@ public final class VcatIvfExtractor implements Extractor {
         return RESULT_CONTINUE;
     }
 
+    /**
+     * Frame rate implied by the IVF time base, or 0 when it is not credible.
+     *
+     * <p>Rejects rates outside 1..480 fps, which is what separates the standard
+     * frames-per-second convention from writers that put a microsecond time base in the same
+     * fields and carry real timestamps.
+     */
+    private float ivfFrameRate() {
+        if (fileHeader == null) return 0f;
+        long rate = fileHeader.timeBaseRate;
+        long scale = fileHeader.timeBaseScale;
+        if (rate <= 0 || scale <= 0) return 0f;
+        double fps = rate / (double) scale;
+        if (fps < 1.0 || fps > 480.0) return 0f;
+        return (float) fps;
+    }
+
     private Format buildFormat(VideoConfiguration cfg) {
-        // Frame rate is intentionally left unset: IVF's rate/scale don't reliably give nominal fps.
         Format.Builder b = new Format.Builder()
                 .setSampleMimeType(cfg.mimeType)
                 .setWidth(cfg.width)
                 .setHeight(cfg.height);
+
+        // Nominal frame rate from the IVF time base. This was left unset on the grounds that
+        // rate/scale are not reliable, which is true of writers that use a microsecond time base
+        // (1000000/1) and carry real timestamps -- those yield an absurd rate and are rejected by
+        // the plausibility test below. For every AV1/AV2 clip under test the convention holds and
+        // rate/scale is the frame rate exactly: 30/1, 50/1, 30000/1000.
+        //
+        // Leaving it unset is not free: Format.frameRate feeds the overlay and the telemetry
+        // column, both of which read -1 for AV2 while MP4-carried VVC reported correctly.
+        final float fps = ivfFrameRate();
+        if (fps > 0f) {
+            b.setFrameRate(fps);
+        }
+
+        // Average bitrate over the whole file. The header's frame count is *displayed* frames,
+        // which is what the duration depends on -- an alt-ref clip has fewer packets than frames,
+        // so counting packets would overstate the rate by the alt-ref ratio.
+        if (fps > 0f && fileHeader.frameCount > 0 && fileLength > 0) {
+            double durationSec = fileHeader.frameCount / (double) fps;
+            if (durationSec > 0.0) {
+                long bps = Math.round(fileLength * 8.0 / durationSec);
+                if (bps > 0 && bps <= Integer.MAX_VALUE) {
+                    b.setAverageBitrate((int) bps);
+                }
+            }
+        }
         if (cfg.initializationData != null && !cfg.initializationData.isEmpty()) {
             b.setInitializationData(cfg.initializationData);
         }
