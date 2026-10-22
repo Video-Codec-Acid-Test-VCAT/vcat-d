@@ -5,6 +5,69 @@ description of what shipped so the history is not lost when the working tree mov
 
 ---
 
+## 2026-10-21 — Frame rate, bitrate, a running drop rate, and a 14.3% drop figure that was ours
+
+**Theme:** Three reported fields that were never populated, and the measurement that showed the
+AV2 drop rate had been an artefact of our own timestamp arithmetic.
+
+### The result first
+
+Same clip, same decoder, same thread count, 10-11 h each:
+
+| | Oct 7 (`vcatd_log_1791375199241`) | Oct 21 (`vcatd_log_1792603698468`) |
+|---|---|---|
+| rendered | 25.61 fps | **29.94 fps** |
+| dropped | 172,892 (14.3%) | **4 (0.0%)** |
+| total output | 29.90 pic/s | 29.94 pic/s |
+
+The last row is the important one: **total output was already at real time in the old run**, so
+the decoder was keeping up and those 172,892 frames were produced and then discarded as late.
+They were never a throughput problem.
+
+The cause was the plugin's display timestamps, fixed in `vcatd-dav2d-st-arm-plugin` the day
+before: a uniform ladder extrapolated from the gap between the first two packets and indexed by
+output position. On a 1:1 clip the step comes out slightly wrong and the error accumulates over
+hours until frames are persistently late. Taking each picture's time from `pic.m.timestamp`
+removes the accumulation.
+
+**Consequence for older results:** AV2 drop rates recorded before that fix were measuring our
+timestamp arithmetic, not the decoder. Comparisons across it are not valid.
+
+### `video.framerate` read -1 for AV2
+
+`VcatIvfExtractor` left `Format.frameRate` unset, with a comment that IVF's rate/scale do not
+reliably give nominal fps. That holds only for writers which put a microsecond time base in those
+fields and carry real timestamps; for every AV1/AV2 clip under test the standard convention holds
+exactly -- 30/1, 50/1, 30000/1000. It is now derived and kept only when it lands in 1..480 fps,
+which rejects the microsecond case rather than refusing the field outright.
+
+MP4-carried VVC already reported correctly, which is what made this look decoder-specific.
+
+### `video.bitrate` read -1 for everything
+
+Nothing measured it. `Format.bitrate` is populated only when the container carries an
+average-bitrate field, and neither the MP4 nor the IVF content here does -- so it read -1 for the
+hardware decoders too, not just the plugins.
+
+* IVF sets `averageBitrate` from the header. It divides by the *displayed* frame count, not the
+  packet count: an alt-ref clip has fewer packets than frames, so counting packets would
+  overstate the rate by the alt-ref ratio (1.86x on these clips).
+* `getVideoBitrate()` falls back to source length over media duration whenever the format has no
+  value, which covers MP4 and the hardware decoders.
+
+### Overlay: `Framedrops/sec`
+
+Cumulative over the run -- total drops over elapsed time -- not the current interval. An
+instantaneous figure swings between zero and hundreds as a stall starts and clears and says
+nothing about whether a run is healthy. It accumulates from the same per-interval count the
+telemetry row writes, so the overlay, the CSV and the Logs list cannot disagree.
+
+### Commits
+
+`e534e3d`
+
+---
+
 ## 2026-10-20 — Browsable logs, SAF folder litter, and a stale-listing guard
 
 **Theme:** Making the results panel usable, and stopping the storage layer creating duplicates.
