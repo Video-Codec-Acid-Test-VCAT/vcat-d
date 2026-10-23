@@ -81,4 +81,31 @@ All vcat-d artwork is owned exclusively by RoncaTech LLC. Use of vcat-d logos an
     <!-- Validation Errors -->
     <string name="error_staging_folder_required">Staging folder is required</string>
     <string name="error_vector_name_required">Vector name is required</string>
+
+    <string name="show_frame_number">Show frame number (diagnostic)</string>
+
+    <!-- Test Logs tab -->
+    <string name="test_logs_title">Test Logs</string>
+    <string name="test_logs_edit_desc">Select logs to delete</string>
+    <string name="select_all">Select All</string>
+    <string name="unselect_all">Unselect All</string>
+    <string name="log_action_details">Details</string>
+    <string name="log_action_delete">Delete</string>
+
+    <!-- Log deletion -->
+    <string name="delete_log_confirm_title">Delete Log</string>
+    <string name="delete_log_confirm_message">Are you sure you want to delete %1$s?</string>
+    <string name="delete_logs_confirm_title">Delete Logs</string>
+    <string name="delete_logs_confirm_message_one">Are you sure you want to delete %1$d log file?</string>
+    <string name="delete_logs_confirm_message_many">Are you sure you want to delete %1$d log files?</string>
+    <string name="delete_confirm_yes">Delete</string>
+    <string name="delete_confirm_no">Cancel</string>
+    <string name="delete_log_ok">Log deleted</string>
+    <string name="delete_log_failed">Failed to delete log</string>
+    <string name="logs_deleted_partial">%1$d of %2$d logs deleted</string>
+
+    <plurals name="logs_deleted">
+        <item quantity="one">%1$d log deleted</item>
+        <item quantity="other">%1$d logs deleted</item>
+    </plurals>
 </resources>

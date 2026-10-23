@@ -49,6 +49,8 @@ import java.util.Objects;
 
 import com.roncatech.vcat.tools.DeviceInfo;
 import com.roncatech.vcat.tools.CpuInfo;
+import com.roncatech.vcat.tools.PlaylistIdentity;
+import com.roncatech.vcat.tools.RunEnvironment;
 
 import java.lang.reflect.Type;
 import com.google.gson.JsonDeserializationContext;
@@ -67,6 +69,15 @@ public class SessionHeader {
     @SerializedName("header_version")
     private final int headerVersion;
 
+    /**
+     * Identifies this telemetry file. Minted once when the header is written and never rewritten,
+     * so a Resume — which appends to the existing file without a new header block — keeps the same
+     * execution_id. Two runs of the same playlist are therefore distinguishable, which the playlist
+     * id alone cannot do.
+     */
+    @SerializedName("execution_id")
+    private final String executionId;
+
     @SerializedName("device_info")
     private final DeviceInfo deviceInfo;
 
@@ -76,6 +87,14 @@ public class SessionHeader {
     @SerializedName("test_conditions")
     private final RunConfig testConditions;
 
+    /**
+     * Ambient state at the start of the run — radios, charger, power-save. Recorded because any of
+     * these silently invalidates a battery comparison and none were captured before, which made a
+     * 20 h baseline and an 8 h run look like the same experiment.
+     */
+    @SerializedName("run_environment")
+    private final RunEnvironment runEnvironment;
+
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
@@ -84,33 +103,62 @@ public class SessionHeader {
 
         if(this.headerVersion != that.headerVersion){return false;}
 
+        if(!this.executionId.equals(that.executionId)){return false;}
+
         if(!this.deviceInfo.equals(that.deviceInfo)){return false;}
 
         if(!this.testConditions.equals(that.testConditions)){return false;}
+
+        if(!Objects.equals(this.runEnvironment, that.runEnvironment)){return false;}
 
         return this.sessionInfo.equals(that.sessionInfo);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(this.headerVersion, this.deviceInfo, this.testConditions, this.sessionInfo);
+        return Objects.hash(this.headerVersion, this.executionId, this.deviceInfo, this.testConditions,
+                this.sessionInfo, this.runEnvironment);
     }
 
     public SessionHeader(int headerVersion,
+                         String executionId,
                          DeviceInfo deviceInfo,
                          RunConfig testConditions,
                          SessionInfo sessionInfo) {
+        this(headerVersion, executionId, deviceInfo, testConditions, sessionInfo, null);
+    }
+
+    public SessionHeader(int headerVersion,
+                         String executionId,
+                         DeviceInfo deviceInfo,
+                         RunConfig testConditions,
+                         SessionInfo sessionInfo,
+                         RunEnvironment runEnvironment) {
+        this.runEnvironment = runEnvironment;
         this.headerVersion  = headerVersion;
+        this.executionId    = executionId != null ? executionId : PlaylistIdentity.NIL;
         this.deviceInfo     = deviceInfo;
         this.testConditions = testConditions;
         this.sessionInfo = sessionInfo;
     }
 
-    public SessionHeader(Context context, RunConfig runCfg, SessionInfo sessioInfo){
+    public SessionHeader(Context context, String executionId, RunConfig runCfg, SessionInfo sessioInfo){
+        this.runEnvironment = RunEnvironment.capture(context);
         this.headerVersion = SessionInfo.getVersionCode(context);
+        this.executionId = executionId != null ? executionId : PlaylistIdentity.NIL;
         this.deviceInfo = new DeviceInfo(context);
         this.testConditions = new RunConfig(runCfg);
         this.sessionInfo = sessioInfo;
+    }
+
+    /** Ambient run state; null for logs written before the field existed. */
+    public RunEnvironment getRunEnvironment() {
+        return runEnvironment;
+    }
+
+    /** The uuid identifying this telemetry file; nil for logs written before the field existed. */
+    public String getExecutionId() {
+        return executionId;
     }
 
     /** The numeric header version from the JSON. */
@@ -139,9 +187,13 @@ public class SessionHeader {
         public JsonElement serialize(SessionHeader src, Type typeOfSrc, JsonSerializationContext ctx) {
             JsonObject root = new JsonObject();
             root.addProperty("header_version", src.headerVersion);
+            root.addProperty("execution_id", src.executionId);
             root.add("device_info",      ctx.serialize(src.deviceInfo, DeviceInfo.class));
             root.add("session_info",     ctx.serialize(src.sessionInfo, SessionInfo.class));
             root.add("test_conditions",  ctx.serialize(src.testConditions, RunConfig.class));
+            if (src.runEnvironment != null) {
+                root.add("run_environment", ctx.serialize(src.runEnvironment, RunEnvironment.class));
+            }
             return root;
         }
 
@@ -151,10 +203,28 @@ public class SessionHeader {
         {
             JsonObject o = json.getAsJsonObject();
             int hv = o.get("header_version").getAsInt();
+            String eid = readExecutionId(o);
             DeviceInfo di = ctx.deserialize(o.get("device_info"), DeviceInfo.class);
             SessionInfo si = ctx.deserialize(o.get("session_info"), SessionInfo.class);
             RunConfig tc = ctx.deserialize(o.get("test_conditions"), RunConfig.class);
-            return new SessionHeader(hv, di, tc, si);
+            RunEnvironment env = ctx.deserialize(o.get("run_environment"), RunEnvironment.class);
+            return new SessionHeader(hv, eid, di, tc, si, env);
+        }
+    }
+
+    /**
+     * Reads {@code execution_id}, falling back to the nil uuid. Logs written before the field
+     * existed stay parseable — they simply have no execution identity.
+     */
+    private static String readExecutionId(JsonObject o) {
+        JsonElement el = o.get("execution_id");
+        if (el == null || el.isJsonNull()) {
+            return PlaylistIdentity.NIL;
+        }
+        try {
+            return el.getAsString();
+        } catch (ClassCastException | IllegalStateException e) {
+            return PlaylistIdentity.NIL;
         }
     }
 
@@ -164,12 +234,17 @@ public class SessionHeader {
                 public void write(JsonWriter out, SessionHeader src) throws IOException {
                     out.beginObject();
                     out.name("header_version").value(src.headerVersion);
+                    out.name("execution_id").value(src.executionId);
                     out.name("device_info");
                     SessionHeader.gson.getAdapter(DeviceInfo.class).write(out, src.deviceInfo);
                     out.name("session_info");
                     SessionHeader.gson.getAdapter(SessionInfo.class).write(out, src.sessionInfo);
                     out.name("test_conditions");
                     SessionHeader.gson.getAdapter(RunConfig.class).write(out, src.testConditions);
+                    if (src.runEnvironment != null) {
+                        out.name("run_environment");
+                        SessionHeader.gson.getAdapter(RunEnvironment.class).write(out, src.runEnvironment);
+                    }
                     out.endObject();
                 }
                 @Override
@@ -213,7 +288,9 @@ public class SessionHeader {
                             return null;
                         }
 
-                        return new SessionHeader(hv, di, tc, si);
+                        RunEnvironment env = SessionHeader.gson.fromJson(
+                                o.get("run_environment"), RunEnvironment.class);
+                        return new SessionHeader(hv, readExecutionId(o), di, tc, si, env);
                     } catch (JsonParseException | NullPointerException e) {
                         // malformed subsections or unexpected null → bail out
                         return null;

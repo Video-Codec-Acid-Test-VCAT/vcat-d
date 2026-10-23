@@ -37,6 +37,7 @@ import android.net.Uri;
 import com.google.gson.Gson;
 
 import com.google.gson.annotations.SerializedName;
+import com.roncatech.vcat.tools.PlaylistIdentity;
 import com.roncatech.vcat.tools.UriUtils;
 
 import java.net.URI;
@@ -50,6 +51,9 @@ public class TestStatus {
     private String startTime = ""; // ISO 8601
     @SerializedName("playlist")
     private String playlistUri = "";
+    /** Identity of the running playlist, from its XSPF {@code <identifier>}. */
+    @SerializedName("playlist_id")
+    private String playlistId = PlaylistIdentity.NIL;
     public enum TestState { Starting, Running, Stopped};
     private TestState testState;
 
@@ -65,13 +69,27 @@ public class TestStatus {
     public void reset(){
         this.startTime = Instant.now().toString(); // Machine-readable ISO 8601
         this.playlistUri = "";
+        this.playlistId = PlaylistIdentity.NIL;
         this.currentTestVideo = emptyTestVideo;
         this.testState = TestState.Stopped;
     }
 
-    public void startTest(String playlistUri){
-        this.startTime = Instant.now().toString(); // Machine-readable ISO 8601
+    public void startTest(String playlistUri, String playlistId){
+        startTest(playlistUri, playlistId, System.currentTimeMillis());
+    }
+
+    /**
+     * Start (or resume) a test with an explicit effective start time. Resume passes
+     * {@code originalStart + stoppedGap} so elapsed/run-limit time continues from where the prior
+     * run left off (the stopped gap is excluded); a normal start passes "now".
+     *
+     * @param playlistId the playlist's {@code <identifier>} id, recorded in telemetry and used to
+     *                   confirm a Resume targets the same playlist the prior run used.
+     */
+    public void startTest(String playlistUri, String playlistId, long startEpochMs){
+        this.startTime = Instant.ofEpochMilli(startEpochMs).toString(); // Machine-readable ISO 8601
         this.playlistUri = playlistUri;
+        this.playlistId = playlistId != null ? playlistId : PlaylistIdentity.NIL;
         this.currentTestVideo = emptyTestVideo;
         this.testState = TestState.Starting;
     }
@@ -110,6 +128,10 @@ public class TestStatus {
 
     public String getPlaylist(){
         return this.playlistUri;
+    }
+
+    public String getPlaylistId(){
+        return this.playlistId;
     }
 
     public CurrentTestVideo getCurrentTestVideo() {

@@ -33,6 +33,13 @@
 package com.roncatech.vcat.models;
 
 public class ResumeInfo {
+    /**
+     * Identity of the playlist the prior run used, from the log's {@code session_info.playlist.id}.
+     * Resume is offered only for the playlist whose id matches this — matching on the display name
+     * (as this did before playlists carried ids) misfired whenever a playlist was renamed or two
+     * folders held the same name.
+     */
+    public final String playlistId;
     public final String playlistName;
     public final String logFileUri;
     public final long testStartTime;
@@ -40,9 +47,10 @@ public class ResumeInfo {
 
     public final long logTimestampOffset;
 
-    public static final ResumeInfo empty = new ResumeInfo("", "", -1, 0, 0);
+    public static final ResumeInfo empty = new ResumeInfo("", "", "", -1, 0, 0);
 
-    public ResumeInfo(String playlistName, String logFileUri, long testStartTime, long lastLogTimestamp, long logTimestampOffset){
+    public ResumeInfo(String playlistId, String playlistName, String logFileUri, long testStartTime, long lastLogTimestamp, long logTimestampOffset){
+        this.playlistId = playlistId;
         this.playlistName = playlistName;
         this.logFileUri = logFileUri;
         this.testStartTime = testStartTime;

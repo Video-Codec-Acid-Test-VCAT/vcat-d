@@ -47,8 +47,11 @@ import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 import org.w3c.dom.NodeList;
 
+import org.w3c.dom.Node;
+
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.List;
 
@@ -104,6 +107,8 @@ public class XSPFPlaylistCreator {
             playlist.setAttribute("xmlns", "http://xspf.org/ns/0/");
             document.appendChild(playlist);
 
+            appendIdentifier(document, playlist, PlaylistIdentity.newId());
+
             Element trackList = document.createElement("trackList");
             playlist.appendChild(trackList);
         }
@@ -140,6 +145,16 @@ public class XSPFPlaylistCreator {
     }
 
     public static void writePlaylistFile(Context context, Uri xspfFile, List<String> files){
+        writePlaylistFile(context, xspfFile, files, PlaylistIdentity.newId());
+    }
+
+    /**
+     * @param playlistId the identity written as the playlist-scope {@code <identifier>}. Callers
+     *                   that already hold a stable id for this playlist (a test-vector manifest
+     *                   uuid, or the existing id when re-saving an edited playlist) should pass it
+     *                   so the playlist keeps one identity across rewrites.
+     */
+    public static void writePlaylistFile(Context context, Uri xspfFile, List<String> files, String playlistId){
 
         try {
             // Create XML Document
@@ -153,6 +168,8 @@ public class XSPFPlaylistCreator {
             rootElement.setAttribute("version", "1");
             rootElement.setAttribute("xmlns", "http://xspf.org/ns/0/");
             doc.appendChild(rootElement);
+
+            appendIdentifier(doc, rootElement, playlistId);
 
             // <trackList> element
             Element trackList = doc.createElement("trackList");
@@ -203,6 +220,92 @@ public class XSPFPlaylistCreator {
         }
         catch(Exception e){
             Log.e("XSPFPlaylist", "Error creating/updating playlist"+xspfFile.toString(), e);
+        }
+    }
+
+    /**
+     * Writes the playlist-scope {@code <identifier>} (see {@link PlaylistIdentity}). A caller-
+     * supplied id that is not a usable UUID is replaced with a fresh one, so a playlist VCAT writes
+     * is never left non-conformant (and therefore hidden) by a bad id from upstream.
+     */
+    private static void appendIdentifier(Document doc, Element playlist, String playlistId) {
+        Element identifier = doc.createElement("identifier");
+        identifier.setTextContent(PlaylistIdentity.toUrn(PlaylistIdentity.canonicalizeOrNew(playlistId)));
+        playlist.appendChild(identifier);
+    }
+
+    /** The conformant playlist id on a direct child {@code <identifier>}, or null if there is none. */
+    private static String readIdentifier(Element playlist) {
+        NodeList children = playlist.getChildNodes();
+        for (int i = 0; i < children.getLength(); i++) {
+            Node child = children.item(i);
+            if (child.getNodeType() == Node.ELEMENT_NODE && "identifier".equals(child.getNodeName())) {
+                return PlaylistIdentity.fromUrn(child.getTextContent());
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Brings a pre-identifier playlist into conformance by inserting a playlist-scope
+     * {@code <identifier>} ahead of {@code <trackList>}, rewriting the file in place. Track entries
+     * are preserved exactly as parsed. A playlist that already has a conformant identifier is left
+     * untouched.
+     *
+     * @return the id the playlist now carries, or null if it could not be read or rewritten — in
+     *         which case the playlist stays non-conformant and remains hidden from the UI.
+     */
+    public static String stampIdentifier(Context context, Uri playlistUri) {
+        try {
+            DocumentBuilder builder = DocumentBuilderFactory.newInstance().newDocumentBuilder();
+            Document doc;
+            try (InputStream in = context.getContentResolver().openInputStream(playlistUri)) {
+                if (in == null) {
+                    Log.e("XSPFPlaylist", "stampIdentifier: cannot open " + playlistUri);
+                    return null;
+                }
+                doc = builder.parse(in);
+            }
+
+            Element root = doc.getDocumentElement();
+            if (root == null || !"playlist".equals(root.getNodeName())) {
+                Log.e("XSPFPlaylist", "stampIdentifier: not an XSPF playlist: " + playlistUri);
+                return null;
+            }
+
+            String existing = readIdentifier(root);
+            if (existing != null) {
+                return existing;
+            }
+
+            String playlistId = PlaylistIdentity.newId();
+            Element identifier = doc.createElement("identifier");
+            identifier.setTextContent(PlaylistIdentity.toUrn(playlistId));
+            root.insertBefore(identifier, root.getFirstChild());
+
+            TransformerFactory transformerFactory = TransformerFactory.newInstance();
+            Transformer transformer = transformerFactory.newTransformer();
+            transformer.setOutputProperty(OutputKeys.INDENT, "yes");
+            transformer.setOutputProperty("{http://xml.apache.org/xslt}indent-amount", "4");
+            transformer.setOutputProperty(OutputKeys.METHOD, "xml");
+            transformer.setOutputProperty(OutputKeys.ENCODING, "UTF-8");
+            transformer.setOutputProperty(OutputKeys.OMIT_XML_DECLARATION, "no");
+
+            // "wt" truncates: "w" leaves any trailing bytes of the longer original file behind on
+            // providers that don't truncate implicitly, which would corrupt the XML.
+            try (OutputStream out = context.getContentResolver().openOutputStream(playlistUri, "wt")) {
+                if (out == null) {
+                    Log.e("XSPFPlaylist", "stampIdentifier: cannot write " + playlistUri);
+                    return null;
+                }
+                transformer.transform(new DOMSource(doc), new StreamResult(out));
+                out.flush();
+            }
+            Log.i("XSPFPlaylist", "Stamped identifier " + playlistId + " into " + playlistUri);
+            return playlistId;
+        } catch (Exception e) {
+            Log.e("XSPFPlaylist", "stampIdentifier failed for " + playlistUri, e);
+            return null;
         }
     }
 

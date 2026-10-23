@@ -35,18 +35,22 @@ package com.roncatech.vcat.models;
 import static androidx.core.content.ContextCompat.getSystemService;
 
 import android.content.Context;
+import com.roncatech.vcat.tools.BatteryInfo;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.os.BatteryManager;
 
+import com.roncatech.vcat.BuildConfig;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.google.gson.TypeAdapter;
 import com.google.gson.annotations.SerializedName;
 import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonWriter;
+import com.roncatech.vcat.tools.PlaylistIdentity;
 
 import java.io.IOException;
 import java.time.Instant;
@@ -60,13 +64,28 @@ public class SessionInfo {
     public final Battery battery;
 
     @SerializedName("playlist")
-    public final String playlist;
+    public final Playlist playlist;
 
     @SerializedName("start_time")
     public final StartTime start_time;
 
     @SerializedName("vcat_version")
     public final String vcat_version;
+
+    /**
+     * Which variant of the host app produced the log: {@code "debug"} or {@code "release"}.
+     *
+     * <p>Worth recording because the two are not performance-equivalent. Release sets
+     * {@code minifyEnabled false}, so the bytecode is identical and the only difference is the
+     * debug variant's implicit {@code debuggable true} — which makes ART compile with
+     * {@code --debuggable} and restrict optimisations such as inlining. That slows host Java, and
+     * the whole ExoPlayer pipeline is host Java: the renderer's earliness check and drop
+     * decision, the sample queues, the extractors, the media clock, and doSomeWork every 10 ms.
+     * Only the decode itself is native and unaffected. {@code vcat_version} is the same string in
+     * both variants, so without this a log cannot say which one produced it.
+     */
+    @SerializedName("vcat_build_type")
+    public final String vcat_build_type;
 
 
     @Override
@@ -75,6 +94,7 @@ public class SessionInfo {
         if (!(o instanceof SessionInfo)) return false;
         SessionInfo that = (SessionInfo) o;
         if(!this.vcat_version.equals(that.vcat_version)){return false;}
+        if(!Objects.equals(this.vcat_build_type, that.vcat_build_type)){return false;}
         if(!this.playlist.equals(that.playlist)){return false;}
         if(!this.battery.equals(that.battery)){return false;}
 
@@ -83,7 +103,41 @@ public class SessionInfo {
 
     @Override
     public int hashCode() {
-        return Objects.hash(this.vcat_version, this.playlist, this.battery, this.start_time);
+        return Objects.hash(this.vcat_version, this.vcat_build_type, this.playlist, this.battery, this.start_time);
+    }
+
+    /**
+     * The playlist a run was launched from, recorded as identity plus display name.
+     *
+     * <p>This replaced a bare file-name string: a name is not unique across folders and changes
+     * when a playlist is renamed, so it could not answer "which playlist produced this log". The
+     * {@code id} is the playlist's {@code <identifier>} (see
+     * {@link com.roncatech.vcat.tools.PlaylistIdentity}); {@code name} is kept for display only.
+     */
+    public static class Playlist {
+        @SerializedName("id")
+        public final String id;
+
+        @SerializedName("name")
+        public final String name;
+
+        public Playlist(String id, String name) {
+            this.id = id != null ? id : PlaylistIdentity.NIL;
+            this.name = name != null ? name : "";
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) return true;
+            if (!(o instanceof Playlist)) return false;
+            Playlist that = (Playlist) o;
+            return this.id.equals(that.id) && this.name.equals(that.name);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(this.id, this.name);
+        }
     }
 
     public static class StartTime {
@@ -131,17 +185,30 @@ public class SessionInfo {
         @SerializedName("initial_level_pct")
         public final double initial_level_pct;
 
+        /**
+         * Battery temperature in C when the run began.
+         *
+         * <p>A phone just off the charger starts warm, and the first hour of a discharge test
+         * then measures charge heat rather than the decoder. Recording it lets a run that began
+         * hot be identified afterwards instead of silently skewing the comparison. {@code NaN}
+         * if unavailable.
+         */
+        @SerializedName("initial_temp_c")
+        public final double initial_temp_c;
+
         public Battery(Context context, double initial_level_pct, long capacity_ma) {
             BatteryManager batteryManager = (BatteryManager)getSystemService(context, BatteryManager.class);
             this.capacity_ma = capacity_ma;
             this.initial_level_ma  = batteryManager.getLongProperty(BatteryManager.BATTERY_PROPERTY_CHARGE_COUNTER)/1000;
             this.initial_level_pct = initial_level_pct;
+            this.initial_temp_c    = BatteryInfo.getBatteryTemperatureC(context);
         }
 
         public Battery(int capacity, int levelMa, double levelPct) {
             this.capacity_ma = capacity;
             this.initial_level_ma = levelMa;
             this.initial_level_pct = levelPct;
+            this.initial_temp_c = Double.NaN;
         }
 
         @Override
@@ -160,17 +227,24 @@ public class SessionInfo {
         }
     }
 
-    public SessionInfo(Context context, long startTime, String playlist, double initial_level_pct, long capacity_ma) {
+    public SessionInfo(Context context, long startTime, Playlist playlist, double initial_level_pct, long capacity_ma) {
 
         this.start_time = new StartTime(startTime);
         this.vcat_version = getAppVersion(context);
+        this.vcat_build_type = BuildConfig.DEBUG ? "debug" : "release";
         this.battery = new Battery(context, initial_level_pct, capacity_ma);  // defaults to zero
         this.playlist = playlist;
     }
 
-    public SessionInfo(StartTime start_Time, String vcat_version, Battery battery, String playlist){
+    public SessionInfo(StartTime start_Time, String vcat_version, Battery battery, Playlist playlist){
+        this(start_Time, vcat_version, null, battery, playlist);
+    }
+
+    public SessionInfo(StartTime start_Time, String vcat_version, String vcat_build_type,
+                       Battery battery, Playlist playlist){
         this.start_time = start_Time;
         this.vcat_version = vcat_version;
+        this.vcat_build_type = vcat_build_type;
         this.battery = battery;
         this.playlist = playlist;
     }
@@ -195,6 +269,27 @@ public class SessionInfo {
         }
     }
 
+    /**
+     * Reads either playlist shape: the current object form, or the pre-identifier bare string that
+     * held just a file name. Logs written before playlists carried an id therefore still parse,
+     * with a nil id — which is what keeps existing test results readable in the Results tab.
+     */
+    private static Playlist readPlaylist(JsonElement el) {
+        if (el == null || el.isJsonNull()) {
+            return new Playlist(PlaylistIdentity.NIL, "");
+        }
+        if (el.isJsonObject()) {
+            JsonObject o = el.getAsJsonObject();
+            JsonElement idEl = o.get("id");
+            JsonElement nameEl = o.get("name");
+            return new Playlist(
+                    idEl != null && !idEl.isJsonNull() ? idEl.getAsString() : PlaylistIdentity.NIL,
+                    nameEl != null && !nameEl.isJsonNull() ? nameEl.getAsString() : "");
+        }
+        // Legacy: "playlist": "av2-1080p30.xspf"
+        return new Playlist(PlaylistIdentity.NIL, el.getAsString());
+    }
+
     public static final TypeAdapter<SessionInfo> TYPE_ADAPTER =
             new TypeAdapter<SessionInfo>() {
                 @Override
@@ -207,10 +302,17 @@ public class SessionInfo {
                     out.name("capacity_ma").value(src.battery.capacity_ma);
                     out.name("initial_level_ma").value(src.battery.initial_level_ma);
                     out.name("initial_level_pct").value(src.battery.initial_level_pct);
+                    if (!Double.isNaN(src.battery.initial_temp_c)) {
+                        out.name("initial_temp_c").value(src.battery.initial_temp_c);
+                    }
                     out.endObject();
 
-                    // 2) playlist
-                    out.name("playlist").value(src.playlist);
+                    // 2) playlist — object form: {"id", "name"}
+                    out.name("playlist");
+                    out.beginObject();
+                    out.name("id").value(src.playlist.id);
+                    out.name("name").value(src.playlist.name);
+                    out.endObject();
 
                     // 3) start_time
                     out.name("start_time");
@@ -222,6 +324,7 @@ public class SessionInfo {
 
                     // 4) vcat_version
                     out.name("vcat_version").value(src.vcat_version);
+                    out.name("vcat_build_type").value(src.vcat_build_type);
 
                     out.endObject();
                 }
@@ -237,7 +340,7 @@ public class SessionInfo {
                             batJ.get("initial_level_pct").getAsDouble()
                     );
 
-                    String play = o.get("playlist").getAsString();
+                    Playlist play = readPlaylist(o.get("playlist"));
 
                     JsonObject stJ = o.getAsJsonObject("start_time");
                     StartTime st = new StartTime(
@@ -247,8 +350,11 @@ public class SessionInfo {
                     );
 
                     String ver = o.get("vcat_version").getAsString();
+                    // Absent in logs written before the field existed.
+                    String build = o.has("vcat_build_type") && !o.get("vcat_build_type").isJsonNull()
+                            ? o.get("vcat_build_type").getAsString() : null;
 
-                    return new SessionInfo(st, ver, bat, play);
+                    return new SessionInfo(st, ver, build, bat, play);
                 }
             };
 

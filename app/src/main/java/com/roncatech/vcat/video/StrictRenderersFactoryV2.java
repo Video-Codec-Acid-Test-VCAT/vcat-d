@@ -7,6 +7,8 @@ import android.util.Log;
 import androidx.annotation.Nullable;
 
 import com.google.android.exoplayer2.DefaultRenderersFactory;
+import com.google.android.exoplayer2.audio.AudioRendererEventListener;
+import com.google.android.exoplayer2.audio.AudioSink;
 import com.google.android.exoplayer2.Renderer;
 import com.google.android.exoplayer2.decoder.DecoderException;
 import com.google.android.exoplayer2.mediacodec.MediaCodecInfo;
@@ -51,6 +53,38 @@ public final class StrictRenderersFactoryV2 extends DefaultRenderersFactory {
             Log.i(TAG, "MediaCodecSelector for " + mimeType + " -> default list (count=" + infos.size() + ")");
             return infos;
         };
+    }
+
+    /**
+     * Builds no audio renderer at all, so no {@code AudioTrack} is ever opened.
+     *
+     * <p>VCAT measures video decode, and an audio path costs real power: two matched CPH2625
+     * battery runs differing only in whether a silent clock track was injected discharged
+     * 100%-14% in 17.72 h without it against 11.02 h with it — 38% of battery life, for
+     * scaffolding rather than for the decoder the run exists to measure.
+     *
+     * <p>With no audio renderer enabled, {@code DefaultMediaClock} falls back to
+     * {@code StandaloneMediaClock}, which advances at wall-clock rate. The video renderer then
+     * measures each frame's earliness against it and drops frames that are late, which is what a
+     * benchmark needs: a decoder below realtime must show up as dropped frames, not as a
+     * stretched timeline.
+     *
+     * <p>Deliberately does not call {@code super}: adding {@code MediaCodecAudioRenderer} as a
+     * fallback would let a stream with real audio re-open an {@code AudioTrack}. The MP4 extractor
+     * also declines to publish audio tracks, so this is the second of two guards.
+     */
+    @Override
+    protected void buildAudioRenderers(
+            Context context,
+            int extensionRendererMode,
+            MediaCodecSelector mediaCodecSelector,
+            boolean enableDecoderFallback,
+            AudioSink audioSink,
+            Handler eventHandler,
+            AudioRendererEventListener eventListener,
+            ArrayList<Renderer> out
+    ) {
+        Log.i(TAG, "Audio renderers: none (video-only; media clock is the system clock)");
     }
 
     @Override

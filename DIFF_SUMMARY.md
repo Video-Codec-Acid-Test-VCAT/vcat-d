@@ -5,6 +5,1080 @@ description of what shipped so the history is not lost when the working tree mov
 
 ---
 
+## 2026-10-21 — Frame rate, bitrate, a running drop rate, and a 14.3% drop figure that was ours
+
+**Theme:** Three reported fields that were never populated, and the measurement that showed the
+AV2 drop rate had been an artefact of our own timestamp arithmetic.
+
+### The result first
+
+Same clip, same decoder, same thread count, 10-11 h each:
+
+| | Oct 7 (`vcatd_log_1791375199241`) | Oct 21 (`vcatd_log_1792603698468`) |
+|---|---|---|
+| rendered | 25.61 fps | **29.94 fps** |
+| dropped | 172,892 (14.3%) | **4 (0.0%)** |
+| total output | 29.90 pic/s | 29.94 pic/s |
+
+The last row is the important one: **total output was already at real time in the old run**, so
+the decoder was keeping up and those 172,892 frames were produced and then discarded as late.
+They were never a throughput problem.
+
+The cause was the plugin's display timestamps, fixed in `vcatd-dav2d-st-arm-plugin` the day
+before: a uniform ladder extrapolated from the gap between the first two packets and indexed by
+output position. On a 1:1 clip the step comes out slightly wrong and the error accumulates over
+hours until frames are persistently late. Taking each picture's time from `pic.m.timestamp`
+removes the accumulation.
+
+**Consequence for older results:** AV2 drop rates recorded before that fix were measuring our
+timestamp arithmetic, not the decoder. Comparisons across it are not valid.
+
+### `video.framerate` read -1 for AV2
+
+`VcatIvfExtractor` left `Format.frameRate` unset, with a comment that IVF's rate/scale do not
+reliably give nominal fps. That holds only for writers which put a microsecond time base in those
+fields and carry real timestamps; for every AV1/AV2 clip under test the standard convention holds
+exactly -- 30/1, 50/1, 30000/1000. It is now derived and kept only when it lands in 1..480 fps,
+which rejects the microsecond case rather than refusing the field outright.
+
+MP4-carried VVC already reported correctly, which is what made this look decoder-specific.
+
+### `video.bitrate` read -1 for everything
+
+Nothing measured it. `Format.bitrate` is populated only when the container carries an
+average-bitrate field, and neither the MP4 nor the IVF content here does -- so it read -1 for the
+hardware decoders too, not just the plugins.
+
+* IVF sets `averageBitrate` from the header. It divides by the *displayed* frame count, not the
+  packet count: an alt-ref clip has fewer packets than frames, so counting packets would
+  overstate the rate by the alt-ref ratio (1.86x on these clips).
+* `getVideoBitrate()` falls back to source length over media duration whenever the format has no
+  value, which covers MP4 and the hardware decoders.
+
+### Overlay: `Framedrops/sec`
+
+Cumulative over the run -- total drops over elapsed time -- not the current interval. An
+instantaneous figure swings between zero and hundreds as a stall starts and clears and says
+nothing about whether a run is healthy. It accumulates from the same per-interval count the
+telemetry row writes, so the overlay, the CSV and the Logs list cannot disagree.
+
+### Commits
+
+`e534e3d`
+
+---
+
+## 2026-10-20 — Browsable logs, SAF folder litter, and a stale-listing guard
+
+**Theme:** Making the results panel usable, and stopping the storage layer creating duplicates.
+
+### Logs list: one line per run
+
+The panel listed raw file names, so finding a run meant opening files one at a time to see which
+codec they used. It now reads `26/10/14 04:33:30  -  8h 01m  -  VVC  vcat-vvdec-3.2.0`:
+start time, run length, codec, decoder. Nineteen runs fit on screen where six did.
+
+* Date is `yy/MM/dd HH:mm:ss`. Several runs share a day, so the date alone did not identify a
+  row, and the start time is what matches a row to its telemetry file.
+* Codec shows a short label (`AV1`, `AV2`, `VVC`) rather than the raw MIME type the plugins
+  report. The logs keep the MIME type -- it is uniform across plugins and machine-readable --
+  and `TestSummary.codecLabel()` maps it for display only. Stripping the `video/` prefix alone
+  would leave `av01` and `x-vnd.on2.vp9`.
+* The decoder sits in its own view so it is the field that truncates when the row runs out of
+  width. At 384 dp only `vcat-dav2d-ee033a4@salomethirot-arm` is long enough to need it.
+
+**Row ordering was wrong.** The list sorted on the epoch in the file name while each row
+displayed `summary.startTimeMs`, and for one log the two disagree -- `260826` sat between
+`261002` and `260910`. Both now use `getSortTimeMillis()`, and the list re-sorts once the
+summaries are backfilled, since the first sort runs before they exist.
+
+### SAF: stop creating duplicate folders and files
+
+The device had accumulated `media (1)`..`(8)`, `playlist (1)`..`(12)`, `test_results (1)`..`(8)`,
+and a 9 KB `test_summary (1).json`. Cause: `DocumentFile.findFile()` answers from a cached tree
+and returns null for something that exists, after which `createDirectory()`/`createFile()`
+collides and SAF silently renames the new one.
+
+* `StorageManager.getFolder()` resolves by listing rather than `findFile()`, and when
+  `createDirectory()` comes back renamed it deletes what it just made -- declining to return it
+  is not enough, because the collision has already created it.
+* `StorageManager.getOrCreateFile()` is the file counterpart, used by `TestSummary.save()` and
+  `TelemetryLogger` (which had been calling `findFile()`, the unreliable lookup that causes the
+  collision).
+* `TestSummary.reconcile()` sweeps any `test_summary (N).json` siblings, so devices that already
+  have them get cleaned without manual work. Safe to delete: the summary is derived from the
+  logs and that method rebuilds it.
+
+### Stale listings can keep dead entries alive
+
+A directory listing can name files that are not there -- this provider returned seven deleted
+logs -- and `reconcile()` decides what to drop from exactly that map, so a ghost in the listing
+both showed a dead row and preserved its summary entry. Each log is now checked with `exists()`
+on the background thread that was already parsing logs, and missing files are dropped from the
+map and the row list together.
+
+### Commits
+
+`4f8c6d4`, `f0e76cf`, `6c28442`, `ef43ebf`, `9d6b1dc`, `5a3742f`
+
+---
+
+## 2026-10-05 — Three durations, build type in the header, a completion estimate, and native-rate playback everywhere
+
+**Theme:** Making a run self-describing. A telemetry file now states how far into the test a row
+is, how far into the current playlist pass and file, and which build produced it — all of which
+were needed to interpret a set of battery results that turned out not to be comparable.
+
+### Why: battery results that could not be compared
+
+Three CPH2625 battery runs looked like clear outcomes and were not:
+
+| decoder | battery | loops/hr | realtime | reading |
+|---|---|---|---|---|
+| vvdec 3.0.0 | 8.00 h | 3.8 | 5.95 | **0.64×** — slow motion |
+| vvdec 3.2.0 | 6.57 h | 5.8 | 5.95 | 0.97× — native rate |
+| dav2d `13d21d5` | 9.20 h | 266 | 277 | 0.96× |
+| dav2d `ee033a4` st-arm | 12.18 h | 268 | 277 | 0.97× |
+
+vvdec 3.0.0 appeared to beat 3.2.0 on battery life. It was playing the 604.8 s / 29.97 fps VVC
+stream at 64% of realtime and reporting `frames_dropped = 0`, so the older build was being
+rewarded for not doing the job. The dav2d pair, both at native rate, is the only directly
+comparable result in the set: **st-arm lasts 32% longer on identical content at identical
+throughput.**
+
+The lesson is that battery hours only means something when the workload is fixed, and the check
+for that is `loops/hour × clip_duration ÷ 3600`. Nothing in the telemetry stated the clip's
+nominal duration, so this had to be reconstructed after the fact — and getting it wrong once
+produced a confidently wrong conclusion.
+
+### Three durations
+
+`test.duration_ms` previously restarted on every playlist pass, which lost the only answer to
+"how far into the run is this row". Now:
+
+| column | resets |
+|---|---|
+| `test.duration_ms` | **never** — measured from test start |
+| `test.playlist.duration_ms` | every playlist pass |
+| `test.file_duration_ms` | every file |
+
+With a single-file playlist `advanceToNextClip()` wraps on every file, so an iteration is a file
+and the latter two are equal — expected, not a bug. The cumulative one is measured from
+`curTestDetails.getStartTimeAsEpoch()`, the same source the original `test.duration` used, so it
+keeps Resume's semantics of continuing a prior run's elapsed clock.
+
+### `vcat_build_type` in the session header
+
+Emitted immediately after `vcat_version`, from `BuildConfig.DEBUG`, so it reads `debug` or
+`release` with no manual bookkeeping.
+
+Needed because the two variants are not performance-equivalent and `vcat_version` is the same
+string in both. Release sets `minifyEnabled false`, so the bytecode is identical and the only
+difference is the debug variant's implicit `debuggable true` — which makes ART compile with
+`--debuggable` and restrict optimisations such as inlining. That slows host Java, and the whole
+ExoPlayer pipeline is host Java: the renderer's earliness check and drop decision, the sample
+queues, the extractors, the media clock, `doSomeWork` every 10 ms. Only decode is native and
+unaffected. The effect is probably small, but over 9–12 hours at 30 fps it is not obviously
+negligible, and until now a log could not say which variant produced it.
+
+`SessionInfo` has a hand-written `TYPE_ADAPTER`, so the field is emitted explicitly rather than
+reflectively; the read path tolerates its absence so older logs still parse, where `null` means
+"written before the field existed".
+
+### Native-rate playback across all decoders (plugin repos)
+
+Not a change in this repository, but it determines whether anything measured here is meaningful.
+`shouldForceRenderOutputBuffer` returning `earlyUs <= 0` made every late frame render and left
+the drop logic unreachable, so a decoder that could not keep up stretched the timeline instead of
+dropping frames. That was fixed in the dav2d plugins earlier and is now fixed in **dav1d and
+vvdec** as well, so all five decoders hold the content's frame rate and shed frames when they
+fall behind — what a player does, and what makes `frames_dropped` meaningful.
+
+`decoder-plugins/` now carries five AARs: dav1d, dav2d (`13d21d5`, unpatched upstream),
+dav2d-st-arm (`ee033a4` + 2 patches), vvdec 3.2.0, and a new **vvdec 3.0.0** plugin
+(`vcat.vvdec.30`, package `…libvcat.vvdec30`, soname `libvcat_vvdec30_jni.so`) forked so the two
+vvdec versions can be installed together and the frame-rate fix sanity-checked directly.
+
+Plugin AARs are always release-built. A debug variant would compile the native decoder at `-O0`
+via `buildCMakeDebug`, and `dist`'s `classes.dex` injection — which the host's `DexClassLoader`
+requires — only exists on the release path. The host's build type does not constrain the
+plugin's.
+
+### Completion estimate on the overlay
+
+The run-duration line now reads `Run Dur: hh:mm:ss (est hh:mm)` — `Duration` was trimmed to `Dur`
+to make room. A run can last twelve hours, and until now the overlay said how long it had been
+going but nothing about when it would end, so checking on a device meant doing the arithmetic.
+
+The estimate is per run mode: `N/A` for a single pass, where completion depends on playlist length
+rather than elapsed time; the remaining wall clock for a timed run; and for a battery run, the
+drain rate extrapolated to the configured stop level. The battery figure uses a whole-run average
+rather than a sliding window — level is only reported to the nearest percent, so over a nine-hour
+discharge one percent lasts about six minutes and any short window is mostly quantisation noise.
+Discharge under a fixed playback workload is close to linear, which is what makes the average
+usable. It reads `--:--` until the level has moved a whole percent and there is a rate to
+extrapolate from.
+
+### Frame drops: read the counter, and make every row checkable
+
+`video.frames_dropped` came from the `onDroppedVideoFrames` analytics callback. Two defects
+followed from that, both fixed here.
+
+**The outgoing player was credited to the incoming clip.** `startClipWithFreshPlayer()` attached
+the analytics listener to the new player, moved the surface with `setPlayer()`, and only then —
+forty lines later — detached the old one. For that whole window the outgoing player was still
+playing, still reporting, and after the surface moved was decoding with no output while a second
+1080p decoder spun up on the same cores. Everything it dropped landed in the new clip's first
+row. This is the likely source of the ~28-frame drop recorded at the start of nearly every
+iteration in the vvdec runs: ExoPlayer flushes residue below its 50-frame notify threshold when
+the renderer stops, which is exactly a sub-50 figure arriving just after a swap.
+
+The outgoing player is now paused and detached *before* the new one is wired up, which also stops
+two decoders competing during the handover.
+
+**The callback is batched, so the count and its row were decoupled.** It only fires once drops
+reach `maxDroppedFramesToNotify` (50) and again on renderer stop, so arrival time has little to
+do with when the frame was dropped. `frames_dropped` now reads `decoderCounters.droppedBufferCount`
+directly, the same way `dropped_to_keyframe` already reads `droppedInputBufferCount` — one
+player's counter, sampled on the 2 s tick, with no possibility of cross-crediting.
+
+**New column `video.dropped_to_keyframe_events`**, from `droppedToKeyframeCount`. The frame
+count alone cannot be sanity-checked, which is how the absurd values survived. One skip discards
+only what is in the sample queue, and `DefaultLoadControl.DEFAULT_MAX_BUFFER_MS` caps that at
+50 s — about 1,499 samples at 29.97 fps. So a row reporting 5,979 frames must have come from at
+least four separate skips; if it reports one or two, the frame count is wrong by arithmetic
+rather than by judgement. The event count is free to read and settles it either way.
+
+**New column `video.frames_rendered`**, from `renderedOutputBufferCount`. This is the point of
+the change: until now a drop count could only be trusted, not checked. With rendered frames
+beside it, `frames_rendered + frames_dropped` should account for the interval's elapsed time at
+the clip's frame rate, and a row that will not close that way is reporting a counting error
+rather than a decoder result.
+
+**Why this was needed.** Four rows in the CPH2625 vvdec 3.2.0 run report 1,554–7,495 frames
+dropped in a single interval — up to 83% of the frames the interval contains. Those numbers are
+not credible for a decoder that holds 98.4% of realtime overall and drops nothing in the body of
+any other iteration. Two checks against the existing data were inconclusive rather than
+exonerating: `cpu.usage.total` is identical on storm rows and clean rows (26.7% both), but a
+saturated thread reads the same whether or not it is keeping up, so utilisation cannot separate
+the cases; and all five storm rows sample the big cores at roughly half clock (1260 MHz against
+2424 MHz on clean rows), which would genuinely halve throughput and could produce real drops.
+
+The existing logs cannot settle it because they do not record what was rendered. New runs will.
+
+---
+
+### Fixed: SAF folder resolution was creating duplicate directories
+
+On a Galaxy S25 the Logs panel came up empty while 28 logs sat in the folder. The cause was
+`StorageManager`, and it had been quietly damaging the storage layout:
+
+```
+media,        media (1)
+playlist,     playlist (1), playlist (2)
+test_results, test_results (1) ... test_results (8)
+```
+
+Eleven duplicates, all empty, created within about a minute of opening the Logs panel. The app
+then read and wrote the newest empty one, so the list was blank while every file was safe in the
+original.
+
+Both `init()` and `getFolder()` resolved a subfolder as `root.findFile(name)` and, on null,
+`root.createDirectory(name)`. Two properties of SAF make that a duplicate factory:
+`DocumentFile.findFile()` can return null for a directory that exists, because it queries a
+provider that may answer from a stale tree; and `createDirectory()` does not fail on collision,
+it silently renames. `init()` ran on every launch, so each one could add another.
+
+Resolution is now by listing the root and matching the name exactly, which does not depend on the
+provider answering a targeted query, and the result is cached so a miss cannot repeat. A rename
+on create is detected and **refused** rather than returned — returning it is what stranded data
+in an empty folder. `init()` delegates to the same resolver instead of repeating the pattern.
+
+Verified on device: restarting the app no longer adds folders.
+
+### Fixed: the summary index could create its own duplicate, and mis-timed legacy logs
+
+The same SAF trap hit `TestSummary`, which produced `test_summary.json` and
+`test_summary (1).json` — identical, same mtime. A run ending and the results panel opening both
+rewrite the file, each resolved it as absent, and each created it. Resolution now lists the
+directory, and every read-modify-write is serialised, since SAF has no atomic create-or-open.
+
+Duration also read `test.duration_ms` only, so logs predating that column indexed as `0s` —
+worse than no entry, because it looks real. It now falls back to the older `test.duration` and
+then to the span between the first and last row timestamps.
+
+---
+
+### `test_summary.json`: browse logs by date, duration and codec
+
+The logs list showed file names, and a file name carries only an epoch timestamp. Finding "the
+12-hour vvdec run" among a folder of mostly-short throwaway runs meant opening files one at a
+time.
+
+`test_results/test_summary.json` is now an index of completed runs, maintained beside the logs.
+Each entry holds what the list needs to be browsable — start time, duration, codec, decoder,
+resolution — plus the same three indicators the detail dialog colours: `max_thermal_status`,
+`max_battery_temp_c`, and `drops_per_sec`. That means the list can show status without parsing a
+log.
+
+Rows now read `Oct 14, 13:51  -  6h 12m  -  video/vvc` over
+`vcat-vvdec-3.2.0  -  248 KB  -  0.03 drops/s`, falling back to the file name for any log not yet
+indexed.
+
+**Written at completion.** `stopTestAndCleanup()` appends an entry after the final telemetry
+flush, on a background thread — it re-reads the log it just wrote, which is a few hundred KB
+after a long run, and teardown is on the main thread. Failures are logged and swallowed: the
+index is a convenience, and nothing about a finished run should be put at risk to maintain it.
+
+**Reconciled on opening the results panel.** Entries whose log has been deleted are dropped —
+the common case, since deleting logs is how the folder is managed — and any log without an entry
+is summarised and appended. That covers logs copied in from another device, runs that predate
+this file, and a summary that was deleted or corrupted, which rebuilds itself rather than
+needing regeneration. Existing entries keep their position, so the file stays in completion
+order and only ever grows at the bottom.
+
+Reconciliation runs off the main thread, since backfilling parses each unindexed log; the list is
+already on screen showing file names and the labels improve when it returns.
+
+**One deliberate choice:** entries are derived from the written log, not from counters held
+during the run. The same code therefore produces an entry whether it is appended at completion or
+backfilled later, so the two can never disagree — at the cost of re-reading the file once.
+
+---
+
+### Throttle-aware CPU metrics: clusters from cpufreq, and a per-interval throttled flag
+
+Implements most of `analysis/vcat-d-telemetry-spec-thermal_events.md`. The motivating anomaly:
+a run using fewer bits showed a *higher* f_rms than a heavier one, because the heavier run spent
+14% of its time capped near 1,400 MHz and that dragged its whole-run RMS below a run that never
+throttled. f_rms is supposed to measure what the decoder demands, so throttled time has to be
+identifiable and excluded.
+
+**Series are now unambiguous (§1).** `cpu.freq0..N` is renamed `cpu.freq_mean0..N`, beside the
+existing `cpu.freq_rms0..N`. Two adjacent series called `cpu.freqN` and `cpu.freq_rmsN` read as
+unlabelled, and a report that averages all eight mixes mean with RMS. **This renames an existing
+column**; report tooling reading `cpu.freqN` must be updated.
+
+**Clusters are detected, not assumed (§2).** `CpuTopology` reads
+`cpufreq/policyN/related_cpus`, `cpuinfo_max_freq` and `cpu_capacity`, ranks clusters weakest to
+strongest and names them `sm`/`lg`, with `prime` for the top of three or more. The old
+cpu0-3 / cpu4-7 assumption holds on this CPH2625 and silently misgroups any 1+3+4 SoC, averaging
+a prime core in with the big ones to produce a frequency no core ever ran at.
+
+**`scaling_max_freq` is not readable on this device (§3).** Verified: SELinux denies it even to
+adb shell, at both the per-core and policy paths. `cpuinfo_max_freq`, `related_cpus`,
+`cpu_capacity` and `scaling_cur_freq` all read fine. Nothing is guessed — the cap column is left
+blank and the header records the fact.
+
+**Per-interval throttle classification (§5).** New per-cluster columns, one field per cluster:
+
+| column | meaning |
+|---|---|
+| `cpu.<cluster>.freq_max` | highest frequency any core in the cluster reached in the interval |
+| `cpu.<cluster>.scaling_max` | current cap, blank where unreadable |
+| `cpu.<cluster>.throttled` | 1 throttled, 0 not, blank undetermined |
+
+Where the cap is readable the flag is **measured** (`scaling_max < cpuinfo_max`). Where it is not,
+it is **inferred**, and the header's `capabilities.throttle_detection` says which — an inferred
+interval is a weaker claim and the report must be able to tell.
+
+The inference deviates from the spec deliberately. The spec suggests comparing against the
+cluster's usual peak; this compares against the peak *that cluster has actually reached during
+this run*, flagging an interval when it falls below 90% of it. Calibrating against
+`cpuinfo_max_freq` instead would mark a decoder that simply never needs the top bin as
+permanently throttled — dav1d sits around 1,460 MHz on a 2,500 MHz cluster by choice, not by cap.
+A baseline is required before any flag is emitted, so opening intervals report blank rather than
+throttled.
+
+**Thermal (§4).** `getThermalHeadroom()` now asks for a 10 s forecast rather than the instant
+value, and a telemetry row is written on every thermal-status transition as well as on the timer,
+so an episode shorter than the row interval cannot fall between samples.
+
+**Battery (§8).** Adds `battery.current_now` (µA) beside the existing `battery.charge_counter`.
+
+**Header metadata (§10).** `device.cpu_clusters[]` carries each cluster's name, core list,
+`cpuinfo_max_freq_mhz` and `cpu_capacity`; `device.capabilities` carries
+`scaling_max_freq_readable`, `throttle_detection`, `build_fingerprint` and `security_patch`.
+Firmware changes governors and scheduling, so a run is not comparable across fingerprints.
+
+**Not done, and why.** §6 (f_rms over unthrottled time) and §7 (drops split by throttle state)
+are report-side computations; the app now logs every input they need — per-core RMS, the
+per-cluster throttled flag, and interval durations. §9 (start-of-run thermal gate) needs a UI
+setting and is a separate change. §11 is the report, not this repository.
+
+**Not yet run on device.** It compiles and the sysfs readability was verified through adb, but
+`installDebug` is blocked by the release signature currently installed, so the cluster detection
+has not been exercised in the app's own SELinux context.
+
+---
+
+### CPU frequency: oversample it, report mean and RMS, and cap the row interval at 1 minute
+
+Frequency was one instantaneous `scaling_cur_freq` read per core per row, and rows ramped to
+**five minutes** apart. So a twelve-hour run produced about 150 readings per core, each a
+snapshot. That cannot distinguish a core held at 1800 MHz from one alternating 600/2500 — which
+is exactly the difference between a decoder sitting at the top OPP and one spread across the
+DVFS range, the distinction the whole efficiency argument rests on.
+
+Three changes.
+
+**Sampled on the existing 2 s tick** instead of once per row, giving ~30 readings per core per
+row rather than 1.
+
+**Mean and RMS both emitted.** `cpu.freq0..N` now carries the interval *mean* (it was a point
+sample), and `cpu.freq_rms0..N` is new. RMS alone would not have been enough:
+
+| | mean | RMS |
+|---|---|---|
+| steady 1800 MHz | 1800.0 | 1800.0 |
+| alternating 600 / 2500 MHz | 1550.0 | 1818.0 |
+
+Nearly identical RMS, completely different behaviour. Together they give the spread for free —
+`sigma = sqrt(rms^2 - mean^2)` is 0 and 950 MHz for those two cases.
+
+**Row interval capped at 1 minute** (was 5). A twelve-hour run goes from ~154 rows to ~740,
+about 258 KB with the new columns — nowhere near the size that ruled out 2 s *rows*.
+
+`getCurrentCpuFreq()` also stopped shelling out. It read each core via
+`Runtime.exec("cat " + path)`, forking a process per core per call. Acceptable once every five
+minutes; at 2 s intervals that is roughly 173,000 forks over a twelve-hour run, which would
+perturb the measurement it is taking. It now reads the sysfs file directly.
+
+**Known limitation, unchanged by any of this:** `scaling_cur_freq` reports the OPP a core is
+*set to*, not whether it is executing. An idle core parked at 450 MHz contributes 450 MHz to
+every statistic, so "the little cores sit at 625 MHz" still conflates *running slowly* with
+*mostly idle* — and for the question of whether work reaches the A55s those are opposite claims.
+Separating them needs per-core utilization from `/proc/stat` alongside the frequency.
+
+---
+
+### `video.codec_name` now reports the MIME type for AV1 like every other software decoder
+
+`mimeTypeToCodecName()` mapped `video/av01` to the friendly string `"AV1"`. Nothing maps
+`video/av02` or `video/vvc`, so those fall through to the raw MIME type — leaving
+`video.codec_name` reading `AV1` for one plugin and `video/av02` / `video/vvc` for the rest.
+
+The `video/av01` case is removed so AV1 falls through too. The column is now uniform across the
+software decoders and stays machine-readable, which matters for grouping runs by codec without
+special-casing one value.
+
+The fix is host-side. The dav1d plugin was already correct — it declares `video/av01`, parallel
+to dav2d's `video/av02` — so nothing in the plugin changed.
+
+Note this reports `video/av01`, the actual MIME type and the form that parallels `video/av02`,
+rather than `video/av1`.
+
+The hardware codecs keep their friendly names (`H.264`, `H.265`, `VP8`, `VP9`), so the same
+inconsistency still exists between the hardware and software paths. Left alone because the
+report was about the software decoders and those names are the useful ones in the UI.
+
+---
+
+### Fixed: the condition check crashed the app instead of reporting a playback failure
+
+`verifyTestConditions()` is posted three seconds out, because the panel mode switch is
+asynchronous. That window is long enough for the run to have ended first — a clip that fails to
+load tears the activity down well inside it. The check then called `AlertDialog.show()` on a dead
+window:
+
+```
+BadTokenException: Unable to add window -- token ... is not valid; is your activity running?
+    at FullScreenPlayerActivity.abortOnCondition(FullScreenPlayerActivity.java:289)
+    at FullScreenPlayerActivity.verifyTestConditions(FullScreenPlayerActivity.java:242)
+```
+
+Two faults, one visible and one not. The visible one: **any clip failing to load within three
+seconds crashed the process**, which is worse than the failure it was reporting, and destroyed
+the error that would have explained it. The hidden one: `stopTestAndCleanup()` restores the
+original screen brightness, so a check running after teardown compares the restored value against
+the configured one and "fails" a condition that had in fact applied correctly — the dialog would
+have named the wrong cause even had it shown.
+
+Both paths now bail if `isFinishing()`, `isDestroyed()`, or the player is already gone.
+`abortOnCondition()` carries its own guard rather than trusting the caller, since its whole
+purpose is to end a run cleanly.
+
+This was introduced with the condition check itself and masked unrelated playback failures as
+crashes for as long as it was in.
+
+---
+
+### Abort the run when a configured test condition did not take effect
+
+Recording the actual refresh rate tells you afterwards that a run was invalid. That is better
+than wondering, but it still spends the run. A benchmark that silently executes under conditions
+other than the ones configured produces numbers that look valid and are not, and those numbers
+then propagate into every comparison they are used in. Failing loudly costs one run; failing
+silently costs all of them.
+
+`verifyTestConditions()` runs once, three seconds into the first clip — delayed because the
+panel mode switch is asynchronous. On a mismatch it shows a non-cancellable **Test Condition Not
+Applied** dialog naming the condition, the configured value, the actual value, and why it
+invalidates the run, then calls `stopTestAndCleanup()` so telemetry already collected is still
+flushed.
+
+| condition | checked against | catches |
+|---|---|---|
+| refresh rate | `Display.getRefreshRate()`, ±1 Hz | the system declining `preferredRefreshRate`, or the panel pinned elsewhere by a system setting |
+| brightness | `getWindow().getAttributes().screenBrightness`, ±1% | the window override failing to stick or being reset to `BRIGHTNESS_OVERRIDE_NONE` |
+
+**The brightness check is weaker than the refresh one, and deliberately so.** There is no public
+API for the achieved panel backlight: `getAttributes()` returns what we set, and
+`Settings.System.SCREEN_BRIGHTNESS` is the system slider, which a window-level override bypasses
+by design — comparing against it would produce false failures. So this verifies the override is
+in place, not that the panel obeyed it, and thermal dimming applied below the framework stays
+invisible. It is worth having because a lost override is the failure that would otherwise be
+silent; the rest still needs an eyeball.
+
+The ±1 Hz tolerance exists because reported rates are floats — this panel reports its 120 Hz
+mode as `120.00001`.
+
+**Open question:** this aborts only on conditions that fail at startup. A panel that holds
+60 Hz for eleven hours and then drifts is equally invalidating, but aborting hour eleven of a
+twelve-hour battery run is its own kind of damage. For now mid-run drift is recorded via
+`display.refresh_hz_min` / `_max` and left visible rather than fatal.
+
+---
+
+### Record the panel's actual refresh rate, not just the configured one
+
+`runConfig.displayRefreshHz` went into the session header; the rate the panel actually ran at
+went to logcat once at startup and nowhere else. logcat rotates, so a finished run could not
+answer whether the configured condition held — and frame-drop figures cannot be read without
+knowing what the display was doing.
+
+`lp.preferredRefreshRate` is **advisory**. The system may refuse it, and an LTPO panel changes
+rate on its own regardless of what was asked. So this is not a hypothetical gap: a 21 h dav1d run
+with `displayRefreshHz = 60` in its header finished with the panel reporting 120 Hz, and nothing
+in the log can say whether it was 120 Hz throughout, 60 Hz throughout, or moved between them.
+
+Two columns now, sampled on the existing 2 s tick and reported as a range per row:
+
+| column | meaning |
+|---|---|
+| `display.refresh_hz_min` | lowest rate seen since the previous row |
+| `display.refresh_hz_max` | highest rate seen since the previous row |
+
+A range rather than a point sample because the failure mode is a panel that *moves*. When both
+equal `displayRefreshHz` the condition held for the whole interval; anything else says it did
+not, and by how much. Configured value is in the header, actual is in every row, so a log is
+self-contained — no logcat, no external knowledge.
+
+A one-shot `REFRESH MISMATCH` warning also goes to logcat for live runs, but it is a
+convenience; the CSV is the record.
+
+**The general point:** a configured condition that is never measured is an assumption.
+`screenBrightness` has the same exposure — it is requested, and adaptive brightness or thermal
+dimming can override it — and is not yet verified.
+
+---
+
+### Thermal telemetry: stop sampling, start listening — and record headroom
+
+`system.thermal_status` was read once per row with `getCurrentThermalStatus()`. Two things made
+it near-useless, and neither was a bug in the collection.
+
+**It was undersampled.** A point sample every ~300 s misses any episode shorter than the
+interval. The 10-05 vvdec run came back uniformly `0` across 177 rows while stalling five times.
+
+**The device cannot report the interesting states.** The CPH2625's vendor HAL defines SKIN
+thresholds as `[NaN, 43.0, 45.0, 41.0, 56.0, 58.0, 80.0]` — indexed by status, so LIGHT is 43 °C,
+MODERATE is 45 °C, and **SEVERE is 41 °C**. SEVERE trips *below* both, so skin crossing 41 °C
+jumps straight to 3 and the intermediate states can never be the reported value. Every other
+sensor has LIGHT and MODERATE as `NaN` outright. The column is structurally binary on this
+hardware and nothing app-side can change that.
+
+Three columns now:
+
+| column | source |
+|---|---|
+| `system.thermal_status` | unchanged point sample, kept so existing plots keep working |
+| `system.thermal_status_max` | highest status since the previous row, via `addThermalStatusListener` |
+| `system.thermal_headroom` | highest `getThermalHeadroom(0)` since the previous row |
+
+Headroom is the one to read. It is continuous, with `1.0` at the throttling threshold, so it
+shows the *approach* to a trip rather than the trip itself — which is the regime the 10-05 run
+spent six hours in. Sampled on the existing 2 s drop tick, comfortably clear of the platform's
+~1 Hz rate limit; blank if the platform returns `NaN`.
+
+The status max re-bases to the *current* status after each row rather than to zero, so a
+sustained throttle keeps showing on every row it spans instead of only the one where it began.
+
+**Not yet verified on device.** `installDebug` fails against the installed release build
+(`INSTALL_FAILED_UPDATE_INCOMPATIBLE`), and uninstalling would discard the run configuration. The
+check is simply that `system.thermal_headroom` is populated rather than blank.
+
+---
+
+### Measured: skip-to-keyframe is the stall, not the cure
+
+A 6.8 h vvdec 3.2.0 run on CPH2625 with the new counters settles what the drop spikes were.
+They are real — every row closes, `rendered + dropped` accounting for its interval at the clip's
+frame rate to within 1–2% — but their cause is the recovery mechanism itself.
+
+`DecoderVideoRenderer.maybeDropBuffersToKeyframe()` calls `flushDecoder()` on **every** skip.
+Decode throughput tracks the flush count and nothing else:
+
+| flushes / 300 s | 0 | 6–7 | 25 | 42 | 76–79 | 138–139 |
+|---|---|---|---|---|---|---|
+| decoded fps | 30.0 | 28.6 | 26.0 | 22.9 | 17.7 | **8.5** |
+
+At 139 flushes vvdec decodes 2,562 frames against a 9,000 capacity, losing roughly 46 frames of
+throughput per flush — about 1.5 s of decode each. One skip costs far more than the ~47 frames it
+discards, so the renderer falls further behind and skips again. Logcat shows the spiral directly:
+lateness climbs monotonically through consecutive skips (−506 → −759 → −1005 → … → −5764 ms)
+while skipping the entire way.
+
+**CPU frequency is a symptom, not a cause.** An earlier reading of this data had it backwards.
+The same run decodes a clean 29.5–29.8 fps with big cores sampled at 575–1275 MHz and collapses
+to 8.5 fps at 1350–1400 MHz. A decoder that spends its time flushing leaves the cores idle, the
+governor drops the clock, and the instantaneous `cpu.freq` sample catches the idle.
+
+**Why dav2d never shows this.** `VcatIvfExtractor` flags only the first sample of the file as a
+keyframe, so `SampleQueue.getSkipCount()` never finds a sync point, `skipSource()` returns 0, and
+`maybeDropBuffersToKeyframe()` bails before flushing. dav2d cannot enter the spiral at all. The
+graceful-degradation-versus-cliff difference between the two decoders is therefore a container
+and extractor asymmetry, not a decoder property — which makes the two codecs' drop figures
+non-comparable as they stand.
+
+**Not yet fixed.** The obvious levers are rate-limiting skips, raising the −500 ms threshold, or
+disabling drop-to-keyframe where a flush is expensive. Which to pick needs a decision about what
+the benchmark should measure, since any of them changes it.
+
+### Fixed: the heartbeat died at the first clip swap
+
+`startClipWithFreshPlayer()` posted the 1 s heartbeat and then, forty lines later while releasing
+the outgoing player, called `hb.removeCallbacks(heartbeat)` — cancelling the one it had just
+started. Per-second `COUNTERS rendered/dropped/skipped` logging therefore stopped after the first
+clip and was missing from every stall in the run above. The stray cancel is removed; the handler
+is already cleared on teardown.
+
+---
+
+### Known gaps
+
+**Nominal duration is not recorded.** The telemetry still does not state the clip's duration or
+frame rate, so the native-rate check has to be computed from external knowledge of the content.
+
+**Fixed: `dropped_to_keyframe` double-counted a file's drops at every wrap.** On both vvdec
+runs, summed `video.dropped_to_keyframe` exceeded summed `video.frames_dropped` (24,260 vs
+22,577 on 3.2.0; 172,431 vs 158,588 on 3.0.0) — impossible, since ExoPlayer folds the keyframe
+drops into the same counter (`DecoderVideoRenderer:535-538`), making the former a strict subset.
+
+The spikes were not drops at all. Each one is exactly the sum of what the preceding file had
+already reported — seven occurrences, seven exact matches:
+
+| run | spike | the same file's prior rows |
+|---|---|---|
+| 3.2.0 | 6,047 | 4,559 + 1,488 |
+| 3.2.0 | 1,223 | 1,118 + 105 |
+| 3.0.0 | 4,740 | 696 + 1,455 + 1,487 + 1,102 |
+| 3.0.0 | 13,048 | 3,994 + 5,296 + 3,758 |
+
+That `skipSource()` is bounded by the SampleQueue was the first clue: with ExoPlayer's default
+50 s buffer, at most ~1,500 samples can be discarded at once, so 6,047 — 201 seconds of content
+inside a 1.6 s window — could not be a real skip.
+
+**Cause.** `startClipWithFreshPlayer()` zeroed `lastDroppedToKeyframe` to re-base the delta for
+the new clip, but left `videoCounters` pointing at the *outgoing* player's `DecoderCounters`.
+That player is released after the swap, so its counter stays alive holding the previous file's
+cumulative `droppedInputBufferCount`. Any 2 s sampler tick landing in that window read the old
+total against a baseline of zero and booked the entire file's history as one delta.
+
+The fix detaches the counter alongside the re-base; the sampler is already null-guarded, so it
+skips until `onVideoEnabled` attaches the new player's counter. A second ordering hazard was
+fixed with it: `onVideoDisabled` nulled `videoCounters` unconditionally, so a late teardown from
+the outgoing player could clear the incoming player's live reference and silently stop collecting
+for the rest of that clip. It now only detaches the counter it is actually holding.
+
+**Impact on results already gathered.** The dav2d runs are untouched — they never drop to a
+keyframe, so `dropped_to_keyframe` is 0 on every row and there was nothing to double-count.
+On the vvdec runs the corrected totals are 16,990 (3.2.0, was 24,260) and 132,665 (3.0.0, was
+172,431), which restores the subset invariant against `frames_dropped` — 22,577 and 158,588
+respectively — in every row. As a share of frames presented that is 2.5% dropped to keyframe for
+3.2.0 and 40.7% for 3.0.0, against overall drop rates of 3.3% and 48.6%. No conclusion moves: the native-rate check rests on
+`file_duration_ms` against nominal clip duration and the battery findings on hours and
+`total_iterations`, neither of which touches these counters.
+
+**Still to verify on device.** The fix is reasoned from the logs and compiles, but has not yet
+been confirmed by a run — the devices were occupied. The check is that no wrap row carries a
+`dropped_to_keyframe` value equal to the sum of its file's preceding rows.
+
+---
+
+## 2026-10-01 — Remove the silent audio clock; force frame drops; telemetry for looping runs (branch `initial_av2`)
+
+**Theme:** A benchmark has to measure the decoder, not its own scaffolding, and it has to fail
+visibly rather than quietly change what it is measuring. Three of the changes here came from
+discovering that VCAT was doing neither.
+
+### The silent audio clock cost 38% of battery life
+
+`SilentAudioTrack` existed so an audio renderer would supply the media clock, because
+`DefaultMediaClock` adopts the clock of an enabled renderer and a video-only input enables none.
+Two matched CPH2625 runs, identical but for `RunConfig.audioClock`, discharged 100%→14% in
+**17.72 h** without it and **11.02 h** with it.
+
+The cost is not decode work. With audio on the big cluster averaged *lower* (1605 vs 1784 MHz),
+spent less time at its 2500 MHz peak (11.7% vs 26.6%), and `cpu.usage.total` was lower (12.63% vs
+14.09%) — yet the battery ran 1.3 °C warmer. The visible fingerprint is the big cluster never
+dropping below 1200 MHz across 30,224 samples, against a 400 MHz floor without audio: a periodic
+callback holding cores out of deep idle. For a tool whose purpose is measuring decoder battery
+cost, scaffolding consuming 38% of the battery invalidates the measurement.
+
+Removed: `parsers/SilentAudioTrack.java`, the `injectSilentAudio` flag in both extractors,
+`RunConfig.audioClock` with its equals/hashCode/comparator/copy/default sites, the conditions-tab
+checkbox and its layout entry, and the flag plumbing in `FullScreenPlayerActivity`.
+`StrictRenderersFactoryV2.buildAudioRenderers` now builds **nothing** and deliberately does not
+call `super`, so no `AudioTrack` can be opened even by a stream carrying real audio. The MP4
+extractor still declines to publish the container's audio tracks, now unconditionally — audio is
+**suppressed**, never **generated**. Six silent-audio tests are replaced by one pinning the new
+invariant.
+
+With no audio renderer, `DefaultMediaClock` falls back to `StandaloneMediaClock`, which advances
+at wall-clock rate. Confirmed on device: the player reached `STATE_ENDED` at `pos=17026` ms on a
+13,000 ms clip.
+
+### Frames now actually drop
+
+The clock being right was not enough. Every software decoder plugin overrode
+`shouldForceRenderOutputBuffer` to `earlyUs <= 0`, and
+`DecoderVideoRenderer.processOutputBuffer` runs the force-render check *before* the drop checks —
+so every frame that was due or late was rendered and the `shouldDropOutputBuffer` override below
+it was unreachable. **No frame could ever be dropped.**
+
+Measured at 1080p AV2, threads=1: four loops each took **17.6 s** of wall time for **13.0 s** of
+media (0.74×) with `frames_dropped = 0`. After removing the override: **13.5–13.7 s** per loop
+with drops reported.
+
+So `video.frames_dropped` had been structurally zero for every software decoder, which is why max
+drops was 0 or 1 across all 20 historical logs. Every software-decoder run to date measured *time
+to decode N frames*, not realtime playback with drops; relative comparisons hold, the absolute
+framing does not. Fixed in the dav2d plugins; **the identical override is still present in the
+dav1d and vvdec plugins**, so AV1 and VVC results are not yet comparable with AV2 ones.
+
+### Telemetry: looping runs are now readable
+
+- `test.duration` → **`test.duration_ms`**, measured from the start of the current playlist pass
+  so it restarts each loop rather than growing for the length of the run
+- **`test.file_duration_ms`** — position within the current file
+- **`test.total_iterations`** — playlist passes completed
+
+With a single-file playlist `advanceToNextClip()` wraps on every file, so an iteration is a file
+and the two durations track each other. Nothing read the old column name —
+`TestResultsDetailDialog` derives duration from timestamps — so the rename breaks no reader.
+
+- **`video.dropped_to_keyframe`** — frames discarded from the source to reach a keyframe, from
+  `DecoderCounters.droppedInputBufferCount`, which ExoPlayer increments *only* there. Frames, not
+  events: `droppedToKeyframeCount` reads a flat 1 however large the block. Measured 70/64/63 on
+  successive playthroughs, matching one 65-frame GOP and `decoded ≈ 320` of 390. These frames are
+  never decoded, so a non-zero value marks an interval where the run did **less work** than the
+  clip demanded and its throughput is not comparable with a clean one.
+
+Both drop columns are per-interval, so a stall reads as a spike rather than a step.
+
+### Telemetry: three collection bugs
+
+- **Drop counters are sampled on their own 2 s timer** into local accumulators, which the
+  telemetry row reports and clears. The cadences must differ: rows ramp 30 s → 5 min because
+  polling battery, thermal, eight CPU frequencies and memory every 2 s for a 17 h run would make
+  the log unusable, but `startClipWithFreshPlayer()` builds a **new ExoPlayer** per clip, so a
+  fresh `DecoderCounters` starts at zero and anything not read before the next clip began was
+  lost. With 13 s clips and minutes between rows, most of it was.
+- **`stopTestAndCleanup()` wrote no row.** Of five paths into teardown only `STATE_ENDED` logged
+  first, so the stop button, the ADB stop command and both error dialogs discarded everything
+  since the last row — including, on an error, the state at failure. It now flushes first, guarded
+  against duplicating the row `STATE_ENDED` just wrote.
+- **The telemetry timer leaked.** `startTelemetryTimer()` posted without `removeCallbacks`, and
+  `onPlaybackStarted()` calls it at every clip start, so each clip left another self-rescheduling
+  timer behind: rows got denser as a run progressed and a looping playlist accumulated one timer
+  per playthrough. Row cadence in every previous log is therefore not what it appears.
+
+### Frame-number overlay, host-side
+
+New "Show frame number (diagnostic)" checkbox under Refresh Rate, backed by
+`RunConfig.showFrameNumber`. Driven by `VideoFrameMetadataListener`, which fires immediately
+before each frame is released to the surface, so the number names the frame being presented. The
+index comes from the presentation timestamp rather than a render count, which would stay
+contiguous across dropped frames and misname every frame after the first drop.
+
+This replaces an equivalent overlay burned into the luma plane inside the dav2d plugins: that
+needed a copy in each of four plugins plus a SharedPreferences contract duplicated as untyped
+strings, because an app cannot set a `debug.*` system property. The host version also covers
+hardware decoders, which an in-plugin overlay could not. What is lost is that the burned-in
+number was composited with the image and so could not disagree with a screen capture.
+
+### AV2 decoder selection
+
+- `VideoDecoderEnumerator` — `AV2("video/av02")` added to the `MimeType` enum. One line, and the
+  one that unblocks everything: `FragmentTestConditions` builds its spinners from
+  `MimeType.values()`, so AV2 gets a row listing every registered `video/av02` plugin and both
+  dav2d builds appear side by side, selectable without a rebuild.
+- `VcatDecoderManager.registerDecoder` uses `putIfAbsent` and logs at **error** level on a
+  duplicate id, naming both the kept and discarded build. With two builds of one decoder
+  installed, a silently dropped duplicate was the failure that produces a clean-looking wrong
+  number: the discarded plugin is unreachable but the run still reports the id that was asked for.
+- `FragmentTestConditions` — stale saved-id fallback. `getPosition()` returns −1 for an id no
+  longer registered and that went straight to `setSelection(-1, false)`; the config then kept a
+  dead id, `StrictRenderersFactoryV2` found nothing, added **no renderer**, and AV2 silently
+  stopped decoding.
+
+### Logs tab
+
+Rows show the file name with `.csv` stripped, matching vcat-ai, plus a right-aligned size column
+(`x.x MB`, rounded up so a non-empty log never reads `0.0`). Per-item `PopupMenu` with
+Details/Delete and confirmation; edit mode with checkboxes, Select All/Unselect All, Cancel, a
+trashcan dimmed until something is selected, and batch delete reporting partial success.
+Selection is keyed by document URI rather than display name: two logs can render the same
+timestamp string, and the URI is what a delete needs.
+
+### Also in this change set
+
+- **Display refresh control** — new `tools/DisplayInfo.java`, `RunConfig.displayRefreshHz`,
+  `DEFAULT_REFRESH_HZ`, `DeviceInfo.displayRefresh`, the conditions dropdown. Adds
+  `display_refresh` to the telemetry header.
+- **Run environment capture** — new `tools/RunEnvironment.java` and `SessionHeader.run_environment`
+  (airplane mode, charging, power save, brightness, wifi/cellular). This is what made it possible
+  to confirm which battery runs were actually on battery — two earlier runs were not.
+- Player Options spacing tightened to match Run Options, which carries no inter-control margins.
+
+**Telemetry schema:** `test_conditions` is serialised reflectively from `RunConfig`, so removing
+`audioClock` and adding `showFrameNumber` change the header with no version bump. Deliberate while
+on this branch; `headerVersion` is the app `versionCode`, not a schema version, so there is no
+independent number to bump.
+
+Verified: builds clean, 35 unit tests pass, installed and exercised on CPH2629 — forced frame
+dropping, the keyframe-frame counts, and the new duration/iteration columns all confirmed against
+live runs. The final-row flush and the timer-leak fix are not separately exercised.
+
+---
+
+## 2026-08-30 — Remove error-resilient decode; decoder-plugin-api back to `1.0.4`
+
+**Theme:** Error resilience was scaffolding for an immature dav2d. dav2d now decodes AV2 cleanly on
+both test devices, so the option is removed: for a benchmarking tool, failing on a decode error is
+the correct behavior. A run that dies is a result; a run that silently skips frames and still emits
+telemetry is a bad number that looks like a good one.
+
+- `RunConfig.errorResilient` removed, with its `equals` / `hashCode` / comparator / copy-ctor /
+  default sites, the conditions-tab checkbox (`FragmentTestConditions`,
+  `fragment_conditions.xml`), and the flag argument in `StrictRenderersFactoryV2`.
+- **`decoder-plugin-api` `1.1.0` → `1.0.4`.** The 6-arg `VcatDecoder.createVideoRenderer` overload
+  is gone, and since that overload plus the version bump were the *entirety* of 1.1.0, the version
+  reverts rather than advancing. Safe because 1.1.0 never left Maven Local — every build here logs
+  `GitHubPackages repo skipped (missing creds)` — and VCAT is the only consumer of this API.
+- The dav2d plugin drops its implementation of the overload and its four error-resilient branches,
+  which revert to failing the run; it moves back to api `1.0.4`, matching dav1d.
+
+**Side effect worth noting:** this closes the plugin inconsistency recorded in the previous entry —
+`errorResilient` being inert for AV1 — by deleting the feature rather than porting it to dav1d. The
+remaining dav1d/dav2d asymmetry is the segment-splice flush, which is still open (and is a dav2d
+0.0.x workaround whose relevance to mature dav1d is unproven).
+
+Verified: host compiles, unit tests pass, dav2d plugin builds and its 8 tests pass against api
+1.0.4. Not installed on-device — no device was connected at the time.
+
+---
+
+## 2026-08-30 — Test Duration shows hours; AV2 freeze root-caused to dav2d (host exonerated)
+
+**Theme:** A small results-UI change, plus the host-side conclusion of an AV2 playback
+investigation that turned out not to be a host bug.
+
+### `ui/TestResultsDetailDialog.java`
+
+- Test Duration now reads `18171s (5.05h)` instead of `18171 secs`. Seconds stay the primary
+  figure — they are what the telemetry records — with hours alongside so a long run is legible at
+  a glance. `Locale.US` so the decimal separator matches the `%.2f` usage already in the file.
+
+### AV2-from-IVF freeze — not a host defect
+
+AV2 playback showed the first frame and then froze with the UI still responsive. The host was the
+prime suspect (IVF timebase math, `VcatIvfExtractor`, the sample pipeline) and was cleared:
+
+- `VcatIvfExtractor.toMicros` is correct: `raw × 1e6 × scale / rate`, reading rate at bytes 16–19
+  and scale at 20–23.
+- The test file's header was parsed by hand to confirm the inputs — `DKIF`/`AV02`, 1920×1080 (and
+  a 640×360 sibling), rate 30 / scale 1, 390 frames, first frame pts 0 — so `ptsUs = N × 33333`.
+- On-device tracing showed the host queueing exactly those values to the decoder
+  (`queued_pts=1000000000000, …033333, …066666`; the 1e12 offset is ExoPlayer's normal sample
+  offset).
+
+**The fault is in dav2d**, which has timestamp propagation compiled out (`#if 0` around both
+`dav2d_data_props_copy()` calls in its `src/picture.c`), so every output picture carries
+`INT64_MIN`. ExoPlayer's earliness check `bufferPresentationTimeUs - positionUs` then *overflows*
+into a large positive value, so frames are held rather than dropped — hence
+`video.frames_dropped = 0`, `cpu.usage.total` at 3–9%, and a frozen first frame. Worked around in
+the dav2d plugin by carrying the PTS there; see that repo's DIFF_SUMMARY.
+
+Two host-side notes from the investigation:
+
+- `video.frames_dropped = 0` alongside frozen video is not contradictory — it distinguishes "held
+  by the renderer" from "dropped as late", which is what made the diagnosis tractable. Worth
+  remembering when reading telemetry from a stalled run.
+- The AV2 path had never actually worked end-to-end. The dav2d plugin's "AV1-from-IVF confirmed
+  operational" entry was copied text from the dav1d plugin, so there was no real baseline to
+  regress from.
+
+### Decoder plugin consistency
+
+The dav1d and dav2d plugins were audited file-by-file (identifiers normalized) since the decoders
+are architecturally identical outside codec tools. Two inconsistencies found sit in the **dav1d**
+plugin and affect the host's behavior, so they are recorded here too:
+
+1. **`RunConfig.errorResilient` is inert for AV1.** The host threads the flag through
+   `StrictRenderersFactoryV2` to the api-1.1.0 6-arg `VcatDecoder.createVideoRenderer`, and dav2d
+   honors it, but the dav1d plugin never implements that overload — so the conditions-tab checkbox
+   silently affects AV2 only.
+2. **dav1d lacks dav2d's segment-splice flush.** dav2d detects a subsequent sequence header and
+   flushes so frame-parallel workers quiesce, without which feeding the new-sequence keyframe races
+   the decoder's reference-buffer reset and crashes at `threads > 1`. Playlists splice
+   independently-encoded clips, so AV1 playlists are exposed to the same race.
+
+Neither is fixed yet.
+
+---
+
+## 2026-08-30 — Playlist UUID identity + telemetry `execution_id`; Resume; CPU/thermal telemetry; error-resilient decode (branch `initial_av2`)
+
+**Theme:** Remove the ambiguity of identifying a playlist by its file name, and identify each
+telemetry file. Six independent change sets that accumulated in one working tree.
+
+### Playlist identity (`<identifier>`) and `execution_id`
+
+The file name was doing the job of an identity: it is not unique across folders, it changes on
+rename, and a telemetry log recording only `"playlist": "av2-1080p30.xspf"` could not say which
+playlist produced it.
+
+- **Playlists carry a UUID.** New `tools/PlaylistIdentity` owns the id format: the XSPF-standard
+  playlist-scope `<identifier>`, whose value the spec requires to be a URI — hence
+  `<identifier>urn:uuid:3f2504e0-…</identifier>`, written as the first child of `<playlist>`,
+  above `<trackList>`. `canonicalize()` rejects values `UUID.fromString` accepts but that would
+  not compare equal later (`1-2-3-4-5`); `canonicalizeOrNew()` is used on every write path so VCAT
+  can never emit a playlist its own reader would reject.
+- **All writers stamp it:** both `XSPFPlaylistCreator` write paths (new `writePlaylistFile`
+  overload taking an explicit id) and `XspfBuilder`. `XspfParser.parseIdentifier` reads it,
+  stopping at `<trackList>` — XSPF allows a per-`<track>` `<identifier>` too, and a track's id is
+  not the playlist's.
+- **Identity is preserved, not re-minted.** Editing a playlist re-reads its id before the
+  delete/recreate save (`PlaylistDialog`), so telemetry from before and after an edit still refers
+  to one playlist. An imported playlist takes its id from the manifest uuid, and
+  `ExportTestVectors` now writes the source playlist's id into the exported manifest header (new
+  4-arg `TestVectorManifests.Header` ctor) — so a playlist exported from one device and imported on
+  another keeps one identity, and telemetry from both devices can be grouped by playlist.
+- **Telemetry header.** `execution_id` (uuid) added immediately after `header_version` at the same
+  scope, minted in `TelemetryLogger.writeHeaderRows`. That placement is what makes it per-file:
+  Resume appends to an existing CSV and skips header writing entirely, so resumed rows stay under
+  the execution_id the file was created with. `session_info.playlist` changed from a bare string to
+  `{"id", "name"}`.
+- **Backward compatible reads.** `SessionInfo` accepts both playlist shapes (legacy string → nil
+  id, name preserved) and `SessionHeader` defaults a missing `execution_id` to the nil uuid, so
+  pre-existing logs still open in the Results tab. The nil UUID
+  (`00000000-0000-0000-0000-000000000000`) is used rather than a non-UUID placeholder so consumers
+  can parse it instead of special-casing it.
+- **Conformance is verified on every launch.** New `tools/PlaylistConformance` partitions the
+  playlist folder by whether each `.xspf` carries a usable id. Non-conformant playlists are
+  **omitted from the UI entirely** — enforced at the listing level in both `FragmentMain` and
+  `FragmentVectorExport`, not by the dialog, so declining the prompt cannot leave a hidden playlist
+  reachable. `MainActivity` prompts with the offending names and offers one-tap repair
+  (`XSPFPlaylistCreator.stampIdentifier`, in-place, `"wt"` to truncate). Repair is per-file, so a
+  partial run is safe to re-attempt next launch. The HTTP/command surface has no playlist-start
+  path, so there is no bypass there.
+- **Resume now matches on identity**, in `FragmentMain` and `FullScreenPlayerActivity`, replacing a
+  display-name comparison that could neither survive a rename nor distinguish same-named playlists
+  in different folders. `ResumeInfo` gains `playlistId`; `TestStatus` gains `playlist_id` (also
+  exposed in the status JSON) and `startTest` takes the id.
+- **Tests:** `PlaylistIdentityTest` (URN round-trip, case/whitespace normalization, rejection of
+  malformed and non-`urn:uuid:` values, write-path guarantees) and `SessionInfoPlaylistTest`
+  (object form, round-trip, legacy bare-string log, missing fields).
+
+### Resume
+
+- `TestStatus.startTest(uri, id, startEpochMs)` takes an explicit effective start —
+  `originalStart + stoppedGap` — so elapsed/run-limit time continues from where the prior run left
+  off with the stopped gap excluded.
+- `TelemetryLogger` takes a `timestampOffsetMs` and subtracts it from logged timestamps, so
+  1h run + 5h stopped + 1h run reads as 2h of test time, not 7h. Duration is measured from the raw
+  clock against the already-shifted effective start, so both reduce to
+  (logged timestamp − original start) — the offset must not be subtracted twice.
+- `FullScreenPlayerActivity` appends to the prior CSV with no second header block, and the resume
+  request is consumed so a later normal Play does not re-resume.
+- Deliberately **no staleness or completion gating** on eligibility: Resume is for continuing a
+  test a short time after stopping it, the offset math is gap-size-agnostic, and the single most
+  recent log is offered regardless of age.
+
+### `cpu.usage.total` — supersedes the 2026-07-09 entry
+
+That fix computed utilization from the system-wide `/proc/stat`. **It never worked:** SELinux
+denies `untrusted_app` read access to `/proc/stat` on modern Android, so every read failed and the
+column was silently pinned at 0.0 — the same symptom the 2026-07-09 entry set out to fix.
+
+- `CpuUsageSampler` now reads **`/proc/self/stat`**. A process's own `/proc/self` entries carry its
+  own domain label and AOSP policy grants `allow domain self:file r_file_perms`, so this is
+  readable on every AOSP-derived device with no kernel-config dependency.
+- Fields 14/15 (`utime`/`stime`) are cumulative for the whole thread group including exited
+  threads, so in-process software decoders (dav1d, vvdec) are fully accounted for. **Hardware
+  decode runs in a separate vendor process and is NOT included.**
+- `usage = 100 × (Δticks / TICKS_PER_SEC) / (Δwall × numCpus)`, wall time from
+  `SystemClock.elapsedRealtimeNanos()` (monotonic — unaffected by clock adjustments during a long
+  run), `TICKS_PER_SEC` from `sysconf(_SC_CLK_TCK)` falling back to 100. Same 0–100 scale as
+  before. Parsing starts after the **last** `)` because field 2 (`comm`) may itself contain spaces
+  or `)`.
+- Primed in the constructor so the first row reports a real value, capped at 100 for tick
+  quantization, and a 250 ms minimum interval returns the previous value — rows are also logged
+  out-of-band (end of file, resume), which can land two samples close together.
+- **Note for comparisons:** logs written before this change have an all-zero `cpu.usage.total` and
+  cannot serve as a baseline.
+
+### Error-resilient decoding
+
+- New `RunConfig.errorResilient`, **default off** so a decode error still fails the run and
+  surfaces bad content. Included in `equals`/`hashCode`/comparator/copy-ctor.
+- Checkbox in the conditions tab (`fragment_conditions.xml`, `FragmentTestConditions`).
+- Threaded through `StrictRenderersFactoryV2` to a new **default 6-arg**
+  `VcatDecoder.createVideoRenderer` overload that delegates to the 5-arg form, so existing decoders
+  need no change; decoders that honor the flag override it.
+- **`decoder-plugin-api` `1.0.4 → 1.1.0`** — the one change here with an external consumer.
+
+### Thermal / battery overlay
+
+- `BatteryInfo.getBatteryTemperatureC` (from the `ACTION_BATTERY_CHANGED` sticky intent,
+  `EXTRA_TEMPERATURE` is tenths °C, −1 when unavailable).
+- Player overlay tracks battery temp and `PowerManager.getCurrentThermalStatus()` (0–6, the only
+  system thermal metric available to an app) as session cur:max, so the reading reflects the whole
+  run regardless of when the overlay is opened.
+
+### URI handling
+
+- `UriUtils.fileNameFromURI` decodes before splitting: without it, `split("/")` on a `content://`
+  document URI returned the whole encoded document id
+  (`primary%3Avcat-d%2Fmedia%2Fav2%2Fclip.ivf`) — the long string that filled the overlay. Also
+  strips a query and trailing slashes, and handles null/empty.
+- `UriUtils.resolveMediaUri` re-maps standalone `content://` document URIs as well as legacy
+  `file://` paths onto the current MEDIA tree, so playback relies on the app's **persisted tree
+  grant** rather than a per-file grant. Picker-added `content://` entries otherwise carry only a
+  transient grant and fail to open after a restart or reinstall. Other schemes pass through.
+
+### Player controller UX
+
+- `setControllerAutoShow(false)` + start hidden, so the controller and its synced overlay appear
+  only on a screen touch rather than at playback start and at each playlist item.
+
+### Verification
+
+- `./gradlew compileDebugJavaWithJavac` clean; full unit suite passes.
+- **On-device (CPH2629, Android 15, debug build):** all 35 previously-unstamped playlists were
+  hidden, the launch prompt listed them, and one tap stamped all 35 with **35 distinct** ids,
+  correctly placed above `<trackList>` with track locations preserved. The run logged during that
+  session shows `execution_id` after `header_version` and `playlist: {id, name}`, with the logged
+  `playlist.id` matching the stamped file's id exactly.
+- Release build (unsigned by config — no release `signingConfig`; signed with the debug keystore
+  for testing) installed on SM-S938U1, Android 16.
+- **Not yet verified:** Resume end-to-end — stopping a run and resuming it, then confirming the
+  appended rows stay under the original `execution_id` with no second header block.
+
+---
+
 ## 2026-08-15 — IVF playlist support + playlist save/refresh ANR & folder fixes (branch `codec_plugin_refactor`)
 
 **Theme:** Make IVF usable end-to-end from the UI, and fix playlist save regressions surfaced

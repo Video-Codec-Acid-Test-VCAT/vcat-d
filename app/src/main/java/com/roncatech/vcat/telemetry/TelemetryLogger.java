@@ -41,8 +41,12 @@ import android.net.Uri;
 import android.os.BatteryManager;
 import android.os.Build;
 import android.os.PowerManager;
+import android.os.SystemClock;
+import android.system.Os;
+import android.system.OsConstants;
 import android.util.Log;
 
+import androidx.annotation.Nullable;
 import androidx.documentfile.provider.DocumentFile;
 
 import com.roncatech.vcat.models.SessionHeader;
@@ -50,6 +54,7 @@ import com.roncatech.vcat.models.RunConfig;
 import com.roncatech.vcat.tools.AppMemoryInfo;
 import com.roncatech.vcat.tools.BatteryInfo;
 import com.roncatech.vcat.models.SessionInfo;
+import com.roncatech.vcat.tools.CpuTopology;
 import com.roncatech.vcat.tools.DeviceInfo;
 import com.roncatech.vcat.tools.StorageManager;
 
@@ -57,13 +62,13 @@ import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;
 import java.io.IOException;
-import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.UUID;
 import java.util.Map;
 
 /**
@@ -79,14 +84,36 @@ public class TelemetryLogger {
      */
     public enum Column {
         TEST_TIMESTAMP        ("test.timestamp"),
-        TEST_DURATION         ("test.duration"),
+        TEST_DURATION_MS      ("test.duration_ms"),
+        TEST_PLAYLIST_DURATION_MS("test.playlist.duration_ms"),
+        TEST_FILE_DURATION_MS ("test.file_duration_ms"),
+        TEST_TOTAL_ITERATIONS ("test.total_iterations"),
         TEST_FILENAME         ("test.filename"),
         BATTERY_CHARGE_COUNTER("battery.charge_counter"),
         BATTERY_MILLIAMPS     ("battery.milliamps"),
+        BATTERY_CURRENT_NOW   ("battery.current_now"),   // uA, instantaneous; sign is vendor-defined
         BATTERY_TEMPERATURE   ("battery.temperature"),
         SYSTEM_THERMAL_STATUS ("system.thermal_status"),
-        CPU_FREQ              ("cpu.freq"),           // a *list* of values
+        SYSTEM_THERMAL_STATUS_MAX("system.thermal_status_max"),
+        SYSTEM_THERMAL_HEADROOM("system.thermal_headroom"),
+        DISPLAY_REFRESH_HZ_MIN("display.refresh_hz_min"),
+        DISPLAY_REFRESH_HZ_MAX("display.refresh_hz_max"),
+        // Per-CPU lists: one field per core, suffixed with the core index.
+        // Named _mean / _rms because a bare "cpu.freqN" beside "cpu.freq_rmsN" read as two
+        // unlabelled series, and a report that averages all of them mixes the two statistics.
+        CPU_FREQ_MEAN         ("cpu.freq_mean"),      // per-interval mean, per core
+        CPU_FREQ_RMS          ("cpu.freq_rms"),       // per-interval RMS, per core
+        // Per-cluster lists: one field per cpufreq policy, named cpu.<cluster>.<suffix>.
+        CPU_CLUSTER_F_RMS     ("f_rms"),              // exact time-weighted RMS over the interval
+        CPU_CLUSTER_F_MAX_USED("f_max_used"),         // highest frequency bin with non-zero time
+        CPU_CLUSTER_BUSY_PCT  ("busy_pct"),           // % of interval above the cluster's min bin
+        CPU_CLUSTER_FREQ_MAX  ("freq_max"),           // highest freq any core in the cluster hit
+        CPU_CLUSTER_SCALING_MAX("scaling_max"),       // current cap, blank where unreadable
+        CPU_CLUSTER_THROTTLED ("throttled"),          // 1 throttled, 0 not
         VIDEO_FRAMES_DROPPED  ("video.frames_dropped"),
+        VIDEO_DROPPED_TO_KEYFRAME("video.dropped_to_keyframe"),
+        VIDEO_FRAMES_RENDERED ("video.frames_rendered"),
+        VIDEO_DROPPED_TO_KEYFRAME_EVENTS("video.dropped_to_keyframe_events"),
         VIDEO_RESOLUTION      ("video.resolution"),
         VIDEO_BITRATE         ("video.bitrate"),
         VIDEO_CODEC_NAME      ("video.codec_name"),
@@ -109,7 +136,9 @@ public class TelemetryLogger {
     private final String csvFileName;
     private DocumentFile csvDocFile;
     private final int numCpus;
-    private final CpuUsageSampler cpuSampler = new CpuUsageSampler();
+    private final CpuUsageSampler cpuSampler;
+    /** Resume: ms spent stopped, subtracted from logged timestamps. 0 for a normal start. */
+    private final long timestampOffsetMs;
 
     public static class VideoInfo{
         public final String fileName;
@@ -144,9 +173,27 @@ public class TelemetryLogger {
     }
 
     public TelemetryLogger(Context ctx, String csvFileName){
+        this(ctx, csvFileName, 0L);
+    }
+
+    /**
+     * @param timestampOffsetMs on Resume, the accumulated stopped-gap in ms; subtracted from
+     *                          {@code test.timestamp} so the logged clock continues from where the
+     *                          prior run left off instead of jumping by the time spent stopped.
+     *                          0 for a normal start.
+     */
+    public TelemetryLogger(Context ctx, String csvFileName, long timestampOffsetMs){
         this.ctx = ctx.getApplicationContext();
         this.csvFileName = csvFileName;
+        this.timestampOffsetMs = timestampOffsetMs;
         this.numCpus = getTotalCpus();
+        this.cpuSampler = new CpuUsageSampler(this.numCpus);
+    }
+
+    /** The log this run is writing to, or null before the first row. */
+    @Nullable
+    public DocumentFile getCsvDocFile() {
+        return this.csvDocFile;
     }
 
     private DocumentFile getOrCreateCsvDocFile() {
@@ -156,12 +203,9 @@ public class TelemetryLogger {
             Log.e(TAG, "TEST_RESULTS folder not available");
             return null;
         }
-        DocumentFile existing = dir.findFile(csvFileName);
-        if (existing != null && existing.isFile()) {
-            csvDocFile = existing;
-        } else {
-            csvDocFile = dir.createFile("text/csv", csvFileName);
-        }
+        // Not findFile(): it answers from a cached tree, and a wrong "absent" here means
+        // createFile() collides and SAF leaves a "name (1).csv" nobody reads again.
+        csvDocFile = StorageManager.getOrCreateFile(dir, "text/csv", csvFileName);
         return csvDocFile;
     }
 
@@ -191,9 +235,14 @@ public class TelemetryLogger {
         List<String> hdr = new ArrayList<>();
 
         for (Column col : Column.values()) {
-            if(col == Column.CPU_FREQ){
+            if (isPerCpuColumn(col)) {
                 for(int i = 0; i < this.numCpus; ++i){
                     hdr.add(col.getName()+i);
+                }
+            }
+            else if (isPerClusterColumn(col)) {
+                for (CpuTopology.Cluster c : CpuTopology.clusters()) {
+                    hdr.add("cpu." + c.name + "." + col.getName());
                 }
             }
             else{
@@ -215,7 +264,9 @@ public class TelemetryLogger {
         Map<Column,Object> row = new EnumMap<>(Column.class);
 
         for (Column col : Column.values()) {
-            if (col == Column.CPU_FREQ) {
+            if (isPerClusterColumn(col)) {
+                row.put(col, emptyStrings(CpuTopology.clusters().size()));
+            } else if (isPerCpuColumn(col)) {
                 row.put(col, emptyFreqs(cpuCount));
             } else {
                 // default empty string for all other columns
@@ -229,17 +280,110 @@ public class TelemetryLogger {
     /**
      * Log one Row, all cells will be populated even if only with ""
      * @param ct the Context to be used when collecting data
-     * @param startTimeMS the time the test started.  Used to calculate current duration
+     * @param testStartMs when the test began. {@code test.duration_ms} is measured from here and
+     *     never resets, so it states how far into the run a row is.
+     * @param iterationStartMs when the current playlist iteration began.
+     *     {@code test.playlist.duration_ms} is measured from here, so it restarts on every loop;
+     *     with a single-file playlist every file end is also a loop, which makes it equal to
+     *     {@code test.file_duration_ms}.
+     * @param fileStartMs when the current file began. {@code test.file_duration_ms} is measured
+     *     from here, giving the position within the clip.
+     * @param totalIterations how many times the playlist has completed. Together with the two
+     *     durations this makes a looping run readable: without it, rows from the tenth pass are
+     *     indistinguishable from the first.
      * @param vi the video information for the video columns
      * @param frameDrops number of frame drops
+     * @param droppedToKeyframe frames discarded from the source to reach a keyframe since the
+     *     previous row, matching the per-interval convention of {@code frameDrops}. A count of
+     *     frames rather than of events, so a stall shows the size of the block that was thrown
+     *     away. These frames are never decoded at all, so unlike an ordinary late frame they
+     *     shrink the decode workload: any row above zero marks an interval where the run did
+     *     less work than the clip demanded, and its throughput is not comparable with a clean
+     *     one. They are also counted inside {@code frameDrops}, which totals both kinds.
+     * @param framesRendered frames actually put on screen since the previous row. Recorded so a
+     *     row can be checked rather than trusted: {@code framesRendered + frameDrops} should
+     *     account for the interval's elapsed time at the clip's frame rate, and a row that
+     *     cannot be closed that way is reporting a counting error, not a decoder result. Both
+     *     come from the same {@code DecoderCounters} of the same player, so they are directly
+     *     comparable.
+     * @param droppedToKeyframeEvents how many skip-to-keyframe operations produced
+     *     {@code droppedToKeyframe}, as opposed to how many frames they discarded. Recorded
+     *     because the frame count alone cannot be sanity-checked: a single skip is bounded by
+     *     what is in the sample queue, and {@code DefaultLoadControl} caps that at
+     *     {@code DEFAULT_MAX_BUFFER_MS} (50 s), so frames-per-event above roughly
+     *     50 s x frame rate is arithmetically impossible and marks a counting error rather than
+     *     a stall.
+     * @param thermalStatusMax highest {@code PowerManager} thermal status observed since the
+     *     previous row, from a registered listener rather than a point sample. The plain
+     *     {@code system.thermal_status} column reads whatever happened to be true at the instant
+     *     the row was written, so a throttling episode shorter than the telemetry interval is
+     *     invisible -- which is how a 6.5 h run came back uniformly zero while stalling five
+     *     times.
+     * @param thermalHeadroom highest {@code getThermalHeadroom(0)} seen since the previous row,
+     *     where 1.0 means at the throttling threshold. This is the column to read: the status
+     *     code is quantised and, on the CPH2625, unusable. Its vendor HAL defines SKIN
+     *     thresholds as {@code [NaN, 43.0, 45.0, 41.0, ...]} -- SEVERE at 41 C, *below* LIGHT at
+     *     43 and MODERATE at 45 -- so the device jumps 0 to 3 and can never report the
+     *     intermediate states. Headroom is continuous and shows the approach to the trip.
+     *     {@code NaN} if the platform declines to answer (it rate-limits to roughly 1 Hz).
+     * @param refreshHzMin lowest panel refresh rate observed since the previous row.
+     * @param refreshHzMax highest panel refresh rate observed since the previous row. Recorded
+     *     as a range because {@code preferredRefreshRate} is advisory — the system may refuse
+     *     it, and an LTPO panel changes rate on its own regardless. A configured condition that
+     *     is never measured is an assumption, and frame-drop figures cannot be read without
+     *     knowing what the display was actually doing. When both match
+     *     {@code runConfig.displayRefreshHz} the condition held for the whole interval; any
+     *     other combination says it did not.
+     * @param freqMean per-core mean frequency over the interval, or {@code null} to fall back to
+     *     a single instantaneous read. Previously every row carried one point sample per core,
+     *     which could not distinguish a core held at 1800 MHz from one alternating 600/2500.
+     * @param freqRms per-core RMS frequency over the same samples. Recorded alongside the mean
+     *     rather than instead of it: RMS alone is ambiguous — steady 1800 MHz and alternating
+     *     600/2500 MHz give 1800 and 1818 — but together they yield the spread for free, since
+     *     {@code sigma = sqrt(rms^2 - mean^2)} (0 and 950 MHz for those two cases).
+     * @param clusterFreqMax per-cluster highest frequency any core reached during the interval,
+     *     in MHz. This is the signal throttling is inferred from where the cap cannot be read.
+     * @param clusterScalingMax per-cluster current cap in MHz, or -1 where {@code scaling_max_freq}
+     *     is not readable. On the CPH2625 SELinux denies it even to adb shell.
+     * @param clusterThrottled 1 throttled, 0 not, -1 undetermined. Measured from the cap where
+     *     readable; otherwise inferred, and the header's {@code throttle_detection} field says
+     *     which, since an inferred interval is a weaker claim than a measured one.
+     * @param clusterFRms per-cluster time-weighted RMS frequency over the interval, computed
+     *     from {@code stats/time_in_state} deltas. This is kernel accounting rather than a
+     *     sample, so it carries no sampling error and counts excursions shorter than the poll
+     *     interval. Where available this is the series f_rms should be built from.
+     * @param clusterFMaxUsed per-cluster highest frequency bin with non-zero time in the
+     *     interval -- the ceiling actually in force, which is how throttling is detected without
+     *     {@code scaling_max_freq}.
+     * @param clusterBusyPct per-cluster percentage of the interval spent above the lowest bin.
+     *     Qualifies the ceiling: an idle cluster does not reach its top bin either, so a low
+     *     ceiling only means throttling when the cluster was doing something.
      * @param isResume true if the test was resumed
      */
-    public void logTelemetryRow(Context ct, long startTimeMS, VideoInfo vi, Integer frameDrops, boolean isResume, boolean isEndOfCurFile){
+    public void logTelemetryRow(Context ct, long testStartMs, long iterationStartMs,
+                                long fileStartMs, int totalIterations, VideoInfo vi,
+                                Integer frameDrops, Integer droppedToKeyframe,
+                                Integer framesRendered, Integer droppedToKeyframeEvents,
+                                Integer thermalStatusMax, Float thermalHeadroom,
+                                Float refreshHzMin, Float refreshHzMax,
+                                Double[] freqMean, Double[] freqRms,
+                                int[] clusterFreqMax, int[] clusterScalingMax, int[] clusterThrottled,
+                                double[] clusterFRms, int[] clusterFMaxUsed, double[] clusterBusyPct,
+                                boolean isResume,
+                                boolean isEndOfCurFile){
         Map<Column, Object> row = initRow(this.numCpus);
 
-        Long curTime = System.currentTimeMillis();
+        // Two clocks, deliberately: the logged timestamp is shifted back by the resume gap so the
+        // series is continuous across a stop/resume, while duration is measured from the raw clock
+        // against the already-gap-shifted effective start (TestStatus.startTest). Both therefore
+        // reduce to (logged timestamp − original start) — do not subtract the offset twice.
+        long rawNow = System.currentTimeMillis();
+        Long curTime = rawNow - this.timestampOffsetMs;
         row.put(Column.TEST_TIMESTAMP, curTime.toString());
-        row.put(Column.TEST_DURATION, Long.toString(curTime - startTimeMS));
+        row.put(Column.TEST_DURATION_MS, Long.toString(rawNow - testStartMs));
+        row.put(Column.TEST_PLAYLIST_DURATION_MS, Long.toString(rawNow - iterationStartMs));
+        row.put(Column.TEST_FILE_DURATION_MS, Long.toString(rawNow - fileStartMs));
+        row.put(Column.TEST_TOTAL_ITERATIONS, Integer.toString(totalIterations));
         row.put(Column.TEST_RESTART, Boolean.toString(isResume));
         row.put(Column.TEST_FILENAME, vi.fileName);
         row.put(Column.TEST_END_OF_CUR_FILE, Boolean.toString(isEndOfCurFile));
@@ -256,6 +400,13 @@ public class TelemetryLogger {
         Double batteryTemperature = batteryStatus.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, -1) / 10.0;
         Double batLevelPcnt = BatteryInfo.getBatteryLevel(ct) / 100.0;
 
+        Long currentNow = null;
+        try {
+            currentNow = batteryManager.getLongProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_NOW);
+        } catch (Exception ignored) { }
+        row.put(Column.BATTERY_CURRENT_NOW,
+                currentNow == null || currentNow == Long.MIN_VALUE ? "" : currentNow.toString());
+
         row.put(Column.BATTERY_CHARGE_COUNTER, chargeCount.toString());
         row.put(Column.BATTERY_MILLIAMPS, batteryInMilliamps.toString());
         row.put(Column.BATTERY_TEMPERATURE, batteryTemperature.toString());
@@ -267,21 +418,55 @@ public class TelemetryLogger {
         }
 
         row.put(Column.SYSTEM_THERMAL_STATUS, thermalCode.toString());
+        row.put(Column.SYSTEM_THERMAL_STATUS_MAX,
+                thermalStatusMax == null ? "" : thermalStatusMax.toString());
+        row.put(Column.DISPLAY_REFRESH_HZ_MIN,
+                (refreshHzMin == null || refreshHzMin <= 0f)
+                        ? "" : String.format(Locale.US, "%.2f", refreshHzMin));
+        row.put(Column.DISPLAY_REFRESH_HZ_MAX,
+                (refreshHzMax == null || refreshHzMax <= 0f)
+                        ? "" : String.format(Locale.US, "%.2f", refreshHzMax));
+        row.put(Column.SYSTEM_THERMAL_HEADROOM,
+                (thermalHeadroom == null || thermalHeadroom.isNaN())
+                        ? "" : String.format(Locale.US, "%.3f", thermalHeadroom));
 
-        Double[] cpuFreqs = getCurrentCpuFreq(this.numCpus);
+        // Fall back to an instantaneous read only when the sampler has nothing yet -- the very
+        // first row, before the 2 s tick has fired.
+        Double[] cpuFreqs = (freqMean != null && freqMean.length == this.numCpus)
+                ? freqMean : getCurrentCpuFreq(this.numCpus);
         String[] strCpuFreqs = new String[cpuFreqs.length];
-        for(int i = 0; i < cpuFreqs.length; ++i){strCpuFreqs[i] = cpuFreqs[i].toString();}
+        for (int i = 0; i < cpuFreqs.length; ++i) {
+            strCpuFreqs[i] = String.format(Locale.US, "%.1f", cpuFreqs[i] == null ? 0.0 : cpuFreqs[i]);
+        }
+        row.put(Column.CPU_FREQ_MEAN, strCpuFreqs);
 
-        row.put(Column.CPU_FREQ, strCpuFreqs);
+        int nClusters = CpuTopology.clusters().size();
+        row.put(Column.CPU_CLUSTER_F_RMS, clusterDoubles(clusterFRms, nClusters));
+        row.put(Column.CPU_CLUSTER_F_MAX_USED, clusterInts(clusterFMaxUsed, nClusters));
+        row.put(Column.CPU_CLUSTER_BUSY_PCT, clusterDoubles(clusterBusyPct, nClusters));
+        row.put(Column.CPU_CLUSTER_FREQ_MAX, clusterInts(clusterFreqMax, nClusters));
+        row.put(Column.CPU_CLUSTER_SCALING_MAX, clusterInts(clusterScalingMax, nClusters));
+        row.put(Column.CPU_CLUSTER_THROTTLED, clusterInts(clusterThrottled, nClusters));
+
+        if (freqRms != null && freqRms.length == this.numCpus) {
+            String[] strRms = new String[freqRms.length];
+            for (int i = 0; i < freqRms.length; ++i) {
+                strRms[i] = String.format(Locale.US, "%.1f", freqRms[i] == null ? 0.0 : freqRms[i]);
+            }
+            row.put(Column.CPU_FREQ_RMS, strRms);
+        }
         row.put(Column.VIDEO_FRAMES_DROPPED, frameDrops.toString());
+        row.put(Column.VIDEO_DROPPED_TO_KEYFRAME, droppedToKeyframe.toString());
+        row.put(Column.VIDEO_FRAMES_RENDERED, framesRendered.toString());
+        row.put(Column.VIDEO_DROPPED_TO_KEYFRAME_EVENTS, droppedToKeyframeEvents.toString());
         row.put(Column.VIDEO_DECODER_NAME, vi.decoderName);
         row.put(Column.VIDEO_RESOLUTION, vi.width + "x" + vi.height);
         row.put(Column.VIDEO_BITRATE, vi.bitrate);
         row.put(Column.VIDEO_CODEC_NAME, vi.codec);
         row.put(Column.VIDEO_FRAMERATE, Float.toString(vi.fps));
 
-        // System-wide CPU utilization (0–100%) from /proc/stat, sampled once per telemetry
-        // interval so each row's delta spans exactly one interval. First row emits 0.0.
+        // vcat's own CPU utilization (0–100% of total device capacity) from /proc/self/stat,
+        // sampled once per telemetry interval so each row's delta spans exactly one interval.
         double cpuUsageTotal = this.cpuSampler.sample();
         row.put(Column.CPU_USAGE_TOTAL, String.format(Locale.US, "%.1f", cpuUsageTotal));
         row.put(Column.BATTERY_LEVEL, batLevelPcnt.toString());
@@ -296,8 +481,10 @@ public class TelemetryLogger {
         // build row string in same order as column defiinitions
         List<String> values = new ArrayList<>();
         for (Column col : Column.values()) {
-            if (col == Column.CPU_FREQ) {
-                String[] freqs = emptyFreqs(this.numCpus);
+            if (isPerCpuColumn(col) || isPerClusterColumn(col)) {
+                String[] freqs = isPerClusterColumn(col)
+                        ? emptyStrings(CpuTopology.clusters().size())
+                        : emptyFreqs(this.numCpus);
                 Object o = row.getOrDefault(col, freqs);
 
                 if (o instanceof String[]) {
@@ -319,6 +506,47 @@ public class TelemetryLogger {
 
         String rowStr = String.join(",", values);
         writeRow(rowStr);
+    }
+
+    /** Columns that expand to one field per CPU (cpu.freq0..N). */
+    private static boolean isPerCpuColumn(Column col) {
+        return col == Column.CPU_FREQ_MEAN || col == Column.CPU_FREQ_RMS;
+    }
+
+    /** Columns that expand to one field per cpufreq cluster (cpu.sm.throttled, ...). */
+    private static boolean isPerClusterColumn(Column col) {
+        return col == Column.CPU_CLUSTER_F_RMS
+                || col == Column.CPU_CLUSTER_F_MAX_USED
+                || col == Column.CPU_CLUSTER_BUSY_PCT
+                || col == Column.CPU_CLUSTER_FREQ_MAX
+                || col == Column.CPU_CLUSTER_SCALING_MAX
+                || col == Column.CPU_CLUSTER_THROTTLED;
+    }
+
+    /** Formats a per-cluster int array, leaving negatives blank rather than writing -1. */
+    private static String[] clusterInts(int[] v, int n) {
+        String[] out = emptyStrings(n);
+        if (v == null) return out;
+        for (int i = 0; i < n && i < v.length; i++) {
+            if (v[i] >= 0) out[i] = Integer.toString(v[i]);
+        }
+        return out;
+    }
+
+    /** Formats per-cluster doubles to 1 dp, leaving negatives blank. */
+    private static String[] clusterDoubles(double[] v, int n) {
+        String[] out = emptyStrings(n);
+        if (v == null) return out;
+        for (int i = 0; i < n && i < v.length; i++) {
+            if (v[i] >= 0) out[i] = String.format(Locale.US, "%.1f", v[i]);
+        }
+        return out;
+    }
+
+    private static String[] emptyStrings(int n) {
+        String[] a = new String[n];
+        java.util.Arrays.fill(a, "");
+        return a;
     }
 
     private static String[] emptyFreqs(int totalCpus){
@@ -354,21 +582,19 @@ public class TelemetryLogger {
                 cpuFrequencies[i] = -1.0; // Indicate no valid path
                 continue;
             }
-            // Read the CPU frequency from the valid path
-            try {
-                Process process = Runtime.getRuntime().exec("cat " + validPath);
-                process.waitFor();
-                BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+            // Read the sysfs file directly. This used to shell out via
+            // Runtime.exec("cat " + path), which forks a process per core per call -- tolerable
+            // once every five minutes, but this is now sampled every 2 s, where it would be
+            // ~173,000 forks over a twelve-hour run and would perturb the measurement itself.
+            try (BufferedReader reader = new BufferedReader(new FileReader(validPath), 32)) {
                 String line = reader.readLine();
                 if (line != null) {
-                    float freq = Float.parseFloat(line);
-                    cpuFrequencies[i] = freq / 1000.0; // Convert to MHz
+                    cpuFrequencies[i] = Float.parseFloat(line.trim()) / 1000.0; // kHz -> MHz
                 } else {
-                    cpuFrequencies[i] = 0.0; // Default value if no data
+                    cpuFrequencies[i] = 0.0;
                 }
             } catch (Exception e) {
-                Log.e(TAG, e.getLocalizedMessage());
-                cpuFrequencies[i] = 0.0; // Default value on error
+                cpuFrequencies[i] = 0.0;
             }
         }
         return cpuFrequencies;
@@ -395,95 +621,153 @@ public class TelemetryLogger {
     }
 
     /**
-     * System-wide CPU utilization sampler backed by {@code /proc/stat}, computed identically to
-     * vcat-web's {@code get_cpu_stats()}.
+     * CPU utilization sampler for the vcat process, backed by {@code /proc/self/stat}.
      *
-     * <p>The aggregate {@code cpu} line already sums every core; its columns are
-     * {@code user nice system idle iowait irq softirq steal guest guest_nice}. A percentage
-     * requires two samples one interval apart, so we retain the previous read and compute a
-     * delta against it:
+     * <p>This deliberately does NOT use the system-wide {@code /proc/stat}: SELinux denies
+     * {@code untrusted_app} read access to it on modern Android, so every read failed and the
+     * column was silently pinned to 0.0. A process's own {@code /proc/self} entries carry the
+     * process's own domain label and AOSP policy grants {@code allow domain self:file
+     * r_file_perms}, so {@code /proc/self/stat} is readable on every AOSP-derived device with no
+     * kernel config dependency.
+     *
+     * <p>Fields 14 ({@code utime}) and 15 ({@code stime}) are cumulative clock ticks for the whole
+     * thread group — including threads that have already exited — so in-process software decoders
+     * (dav1d, vvdec) are fully accounted for. Work performed by a hardware decoder runs in a
+     * separate vendor process and is therefore NOT included in this figure.
+     *
+     * <p>A percentage requires two samples an interval apart, so the previous read is retained and
+     * a delta computed against it:
      * <pre>
-     *   deltaTotal = sum(all columns now) − sum(all columns prev)
-     *   deltaIdle  = idle_now − idle_prev            (idle = the 4th value column; iowait excluded)
-     *   usage      = 100 * (1 − deltaIdle / deltaTotal)   (rounded to 1 decimal)
+     *   deltaCpuSeconds  = (utime + stime now − prev) / TICKS_PER_SEC
+     *   deltaWallSeconds = (elapsedRealtimeNanos now − prev) / 1e9
+     *   usage            = 100 * deltaCpuSeconds / (deltaWallSeconds * numCpus)
      * </pre>
-     * The result is 0–100 as a fraction of total capacity across all cores (no division by core
-     * count). The first sample — and any non-positive delta — yields 0.0.
+     * The result is 0–100 as a fraction of total device capacity across all cores, matching the
+     * scale this column used previously. Wall time comes from
+     * {@link SystemClock#elapsedRealtimeNanos()} — monotonic, and unaffected by wall-clock
+     * adjustments during a long run.
      *
-     * <p>Per-core values are intentionally not collected: an unprivileged app cannot reliably
-     * read the per-core {@code cpuN} lines without root, so only the aggregate is reported.
+     * <p>Per-core values are not available: the per-core {@code cpuN} lines live in the same
+     * unreadable {@code /proc/stat}, and the cgroup cpuacct fallbacks are gone on current Android.
      */
     public static class CpuUsageSampler {
         private static final String TAG = "CpuUsageSampler";
 
-        // 0-based index (within a cpu line's value columns) of the idle field. iowait is 4.
-        private static final int IDLE_COLUMN = 3;
-
-        /** Previous read of the aggregate cpu line: {sumOfAllColumns, idle}. */
-        private long[] prev = null;
+        /** USER_HZ — the unit of the utime/stime fields in /proc/self/stat. */
+        private static final long TICKS_PER_SEC = clockTicksPerSecond();
 
         /**
-         * Read {@code /proc/stat} and compute aggregate CPU utilization (0–100%) since the
-         * previous call. Should be invoked once per telemetry interval so each delta spans
-         * exactly one interval. Returns 0.0 on the first sample.
+         * Intervals shorter than this can't be measured meaningfully against a 10ms tick, so the
+         * previous value is reported instead. Telemetry normally ticks every 30s–5min, but rows
+         * are also logged out-of-band (end of file, resume), which can land two samples close
+         * together.
          */
-        public synchronized double sample() {
-            long[] cur = readAggregateCpu();
-            double usage = 0.0;
-            if (prev != null && cur != null) {
-                long deltaTotal = cur[0] - prev[0];
-                long deltaIdle  = cur[1] - prev[1];
-                if (deltaTotal > 0) {
-                    usage = 100.0 * (1.0 - (double) deltaIdle / (double) deltaTotal);
-                    usage = Math.round(usage * 10.0) / 10.0;
-                }
-            }
-            if (cur != null) {
-                prev = cur;
-            }
-            return usage;
+        private static final long MIN_INTERVAL_NANOS = 250_000_000L;
+
+        private final int numCpus;
+
+        /** Cumulative utime+stime in ticks at the previous sample; -1 until primed. */
+        private long prevTicks = -1L;
+        /** Monotonic timestamp captured alongside prevTicks. */
+        private long prevNanos = 0L;
+        /** Last computed utilization, reported when an interval is too short to measure. */
+        private double lastUsage = 0.0;
+
+        public CpuUsageSampler(int numCpus) {
+            this.numCpus = Math.max(1, numCpus);
+            // Prime immediately so the first logged row spans construction→first row and reports
+            // a real value rather than a placeholder 0.0.
+            sample();
         }
 
-        /** Parse the aggregate {@code cpu} line of /proc/stat into {sumOfAllColumns, idle}. */
-        private static long[] readAggregateCpu() {
-            try (BufferedReader br = new BufferedReader(new FileReader("/proc/stat"))) {
-                String line;
-                while ((line = br.readLine()) != null) {
-                    // The aggregate line is exactly "cpu" (per-core lines are "cpu0", "cpu1", …).
-                    if (!line.startsWith("cpu ") && !line.startsWith("cpu\t")) continue;
-                    String[] parts = line.trim().split("\\s+");
-                    if (parts.length < 2) return null;
-                    long sum = 0L;
-                    long idle = 0L;
-                    // parts[0] is the "cpu" label; value columns start at parts[1].
-                    for (int i = 1; i < parts.length; i++) {
-                        long v;
-                        try {
-                            v = Long.parseLong(parts[i]);
-                        } catch (NumberFormatException e) {
-                            continue;
-                        }
-                        sum += v;
-                        if (i - 1 == IDLE_COLUMN) idle = v;
-                    }
-                    return new long[]{sum, idle};
+        /**
+         * Read {@code /proc/self/stat} and compute this process's CPU utilization (0–100% of total
+         * device capacity) since the previous call. Should be invoked once per telemetry interval
+         * so each delta spans exactly one interval.
+         */
+        public synchronized double sample() {
+            long ticks = readSelfCpuTicks();
+            // Timestamp as close to the read as possible so the delta pairs with the tick delta.
+            long nanos = SystemClock.elapsedRealtimeNanos();
+
+            if (ticks < 0) return lastUsage;
+
+            if (prevTicks >= 0) {
+                long deltaNanos = nanos - prevNanos;
+                if (deltaNanos < MIN_INTERVAL_NANOS) {
+                    // Leave prev untouched so the next sample spans a measurable window.
+                    return lastUsage;
                 }
-            } catch (IOException e) {
-                Log.e(TAG, "Failed to read /proc/stat: " + e.getLocalizedMessage());
+                long deltaTicks = ticks - prevTicks;
+                if (deltaTicks >= 0) {
+                    double cpuSeconds  = (double) deltaTicks / TICKS_PER_SEC;
+                    double wallSeconds = deltaNanos / 1_000_000_000.0;
+                    double usage = 100.0 * cpuSeconds / (wallSeconds * numCpus);
+                    // Tick quantization can nudge a fully-saturated interval just past 100.
+                    lastUsage = Math.min(100.0, usage);
+                }
             }
-            return null;
+
+            prevTicks = ticks;
+            prevNanos = nanos;
+            return lastUsage;
+        }
+
+        /**
+         * @return cumulative utime+stime for this process in clock ticks, or -1 if unreadable.
+         */
+        private static long readSelfCpuTicks() {
+            try (BufferedReader br = new BufferedReader(new FileReader("/proc/self/stat"), 512)) {
+                String line = br.readLine();
+                if (line == null) return -1L;
+
+                // Field 2 (comm) is parenthesised and may itself contain spaces or ')', so field
+                // splitting has to start after the LAST ')'. The first token after it is field 3.
+                int close = line.lastIndexOf(')');
+                if (close < 0 || close + 2 >= line.length()) return -1L;
+
+                String[] f = line.substring(close + 2).split("\\s+");
+                // f[0] == field 3 (state), so field N is at f[N - 3]: utime 14, stime 15.
+                if (f.length < 13) return -1L;
+                return Long.parseLong(f[11]) + Long.parseLong(f[12]);
+            } catch (IOException | NumberFormatException e) {
+                Log.e(TAG, "Failed to read /proc/self/stat: " + e.getLocalizedMessage());
+                return -1L;
+            }
+        }
+
+        /** @return sysconf(_SC_CLK_TCK), falling back to the universal Android value of 100. */
+        private static long clockTicksPerSecond() {
+            try {
+                long hz = Os.sysconf(OsConstants._SC_CLK_TCK);
+                if (hz > 0) return hz;
+            } catch (Throwable t) {
+                Log.w(TAG, "sysconf(_SC_CLK_TCK) failed, assuming 100: " + t.getLocalizedMessage());
+            }
+            return 100L;
         }
     }
 
-    public void writeHeaderRows(Context ct, String playlist, RunConfig runCfg, long startTime){
+    /**
+     * Writes the JSON header block that opens a telemetry file.
+     *
+     * <p>The {@code execution_id} is minted here, which is precisely what makes it a per-file id:
+     * a Resume appends to an existing file and skips this method entirely, so the resumed rows stay
+     * under the execution_id the file was created with.
+     *
+     * @param playlistId the playlist's {@code <identifier>} id
+     * @param playlistName the playlist file name, recorded for display only
+     */
+    public void writeHeaderRows(Context ct, String playlistId, String playlistName, RunConfig runCfg, long startTime){
 
         List<String> rows = new ArrayList<>();
 
         double batLevelPct = BatteryInfo.getBatteryLevel(ct) / 100.0;
         long capacityMA = (long) BatteryInfo.getBatteryDesignCapacity(ct);
-        SessionInfo si = new SessionInfo(ct, startTime, playlist, batLevelPct, capacityMA);
+        SessionInfo si = new SessionInfo(ct, startTime,
+                new SessionInfo.Playlist(playlistId, playlistName), batLevelPct, capacityMA);
 
-        SessionHeader sh = new SessionHeader(ct, runCfg, si);
+        SessionHeader sh = new SessionHeader(ct, UUID.randomUUID().toString(), runCfg, si);
 
         rows.add(SessionHeader.gson.toJson(sh, SessionHeader.class).toString());
 

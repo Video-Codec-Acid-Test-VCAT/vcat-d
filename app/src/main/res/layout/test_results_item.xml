@@ -37,17 +37,45 @@ All vcat-d artwork is owned exclusively by RoncaTech LLC. Use of vcat-d logos an
     xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:orientation="vertical"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:background="?attr/selectableItemBackground"
     android:paddingStart="16dp"
     android:paddingEnd="16dp"
     android:paddingTop="8dp"
     android:paddingBottom="8dp">
 
-<TextView
-    android:id="@+id/tvTimestamp"
-    android:layout_width="wrap_content"
-    android:layout_height="wrap_content"
-    android:textSize="16sp"
-    android:lineSpacingExtra="2dp"
-    android:textAppearance="?attr/textAppearanceBody1"/>
-    </LinearLayout>
+    <!-- Shown only in edit mode. Not itself clickable: the whole row toggles selection,
+         so a tap near the box behaves the same as a tap on the name. -->
+    <CheckBox
+        android:id="@+id/cbSelected"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginEnd="8dp"
+        android:visibility="gone"
+        android:clickable="false"
+        android:focusable="false"/>
+
+    <!-- One line. The label is wrap_content and the decoder takes the remainder, so the
+         decoder is what truncates when the row runs out of width; only the st-arm build
+         has a name long enough for that. The reverse weighting wrapped the label instead. -->
+    <TextView
+        android:id="@+id/tvTimestamp"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:textSize="14sp"
+        android:maxLines="1"
+        android:textAppearance="?attr/textAppearanceBody1"/>
+
+    <TextView
+        android:id="@+id/tvSize"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:layout_marginStart="10dp"
+        android:textSize="14sp"
+        android:maxLines="1"
+        android:ellipsize="end"
+        android:textColor="?android:attr/textColorSecondary"/>
+
+</LinearLayout>

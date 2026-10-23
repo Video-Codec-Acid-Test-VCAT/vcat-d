@@ -77,11 +77,17 @@ public class StorageManager {
             Log.e(TAG, "Root is not a directory: " + rootTreeUri);
             return;
         }
+        // Delegate to getFolder() rather than repeating findFile/createDirectory here. That
+        // pairing is what produced eight "test_results (N)" duplicates on a Galaxy S25: findFile
+        // can miss a directory that exists, and SAF's createDirectory renames on collision
+        // instead of failing. This ran on every startup, so each launch could add another.
+        FOLDER_CACHE.clear();          // the root may have changed since the last init
         for (VCATFolder folder : VCATFolder.values()) {
-            DocumentFile sub = root.findFile(folder.getFolderName());
-            if (sub == null || !sub.isDirectory()) {
-                root.createDirectory(folder.getFolderName());
-                Log.d(TAG, "Created subfolder: " + folder.getFolderName());
+            DocumentFile sub = getFolder(ctx, folder);
+            if (sub == null) {
+                Log.e(TAG, "folder unavailable: " + folder.getFolderName());
+            } else {
+                Log.d(TAG, "folder ready: " + folder.getFolderName());
             }
         }
     }
@@ -139,17 +145,130 @@ public class StorageManager {
     }
 
     /**
-     * Returns the DocumentFile for a sub-folder, creating it if absent.
+     * Resolved sub-folders, keyed by folder then root URI.
+     *
+     * <p>Cached because every miss risks creating a duplicate, and because the lookup lists the
+     * whole tree. Keyed on the root so re-granting a different folder does not return a stale
+     * handle.
+     */
+    private static final java.util.Map<String, DocumentFile> FOLDER_CACHE =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
+    /**
+     * Returns the DocumentFile for a sub-folder, creating it only if genuinely absent.
+     *
+     * <p>This used to be {@code root.findFile(name)} and, on null, {@code createDirectory(name)}.
+     * {@link DocumentFile#findFile(String)} can return null for a directory that exists — it
+     * queries a provider that may answer from a stale tree — and SAF's createDirectory does not
+     * fail on collision, it silently renames. The result on a Galaxy S25 was eight folders named
+     * {@code test_results}, {@code test_results (1)} … {@code test_results (8)} and two
+     * {@code playlist} duplicates, created in about a minute of opening the Logs panel. The app
+     * then read and wrote the newest empty one, so the logs list came up blank while every file
+     * sat safely in the original.
+     *
+     * <p>Resolution is now by listing the root and matching the name, which does not depend on
+     * the provider answering a targeted query, and the result is cached so a miss cannot be
+     * repeated. A rename on create is detected and reported rather than returned silently.
      */
     @Nullable
     public static DocumentFile getFolder(Context ctx, VCATFolder folder) {
         DocumentFile root = getRoot(ctx);
         if (root == null || !root.isDirectory()) return null;
-        DocumentFile sub = root.findFile(folder.getFolderName());
-        if (sub == null || !sub.isDirectory()) {
-            sub = root.createDirectory(folder.getFolderName());
+
+        final String wanted = folder.getFolderName();
+        final String key = root.getUri() + "|" + wanted;
+
+        DocumentFile cached = FOLDER_CACHE.get(key);
+        if (cached != null && cached.exists() && cached.isDirectory()) return cached;
+
+        // Exact-name match over the listing. Any "name (1)" duplicate is deliberately ignored:
+        // the canonical folder is the one holding the data.
+        DocumentFile[] kids = root.listFiles();
+        if (kids != null) {
+            for (DocumentFile f : kids) {
+                // Match on name alone. isDirectory() was in this test and cost us: it issues a
+                // second provider query per child, and when that answers wrongly the folder
+                // looks absent and a duplicate gets created. An exact name collision with a
+                // plain file is far less likely than that, and far less damaging.
+                if (wanted.equals(f.getName())) {
+                    FOLDER_CACHE.put(key, f);
+                    return f;
+                }
+            }
         }
-        return sub;
+        // Nothing matched. Record what the listing actually returned before creating anything --
+        // an empty listing on a folder known to have children is the signature of a provider
+        // answering from a stale tree, and that is worth seeing in a bug report.
+        StringBuilder seen = new StringBuilder();
+        if (kids == null) {
+            seen.append("<listFiles() returned null>");
+        } else if (kids.length == 0) {
+            seen.append("<empty>");
+        } else {
+            for (DocumentFile f : kids) seen.append('[').append(f.getName()).append(']');
+        }
+        Log.w(TAG, "folder '" + wanted + "' not found under " + root.getUri()
+                + "; listing returned " + seen);
+
+        DocumentFile made = root.createDirectory(wanted);
+        if (made == null) {
+            Log.e(TAG, "could not create folder " + wanted);
+            return null;
+        }
+        if (!wanted.equals(made.getName())) {
+            // SAF renamed it, so something with that name already existed and the listing missed
+            // it. Refusing to return it is not enough: createDirectory has already created the
+            // directory on disk, so merely declining leaves litter behind and the next call
+            // makes another. Delete what we just made, then report failure.
+            String renamed = made.getName();
+            boolean removed = made.delete();
+            Log.e(TAG, "createDirectory(" + wanted + ") was renamed to " + renamed
+                    + " -- the listing is not reporting existing children. Created directory "
+                    + (removed ? "removed." : "could NOT be removed; delete it by hand."));
+            return null;
+        }
+        FOLDER_CACHE.put(key, made);
+        return made;
+    }
+
+    /**
+     * Resolves a file of a fixed name inside {@code dir}, creating it only if the listing really
+     * does not have it.
+     *
+     * <p>The file counterpart of {@link #getFolder}, and it exists for the same reason: a
+     * provider that answers from a stale tree makes an existing file look absent, createFile()
+     * then collides, and SAF silently renames the new one to "name (1)". That artifact never
+     * gets read again -- lookups match the canonical name -- so it is pure accumulating litter.
+     * A rename is therefore treated as failure, and the file just created is deleted, since
+     * declining to return it would leave the litter behind anyway.
+     *
+     * @return the file, or null if it could not be created under the requested name.
+     */
+    @Nullable
+    public static DocumentFile getOrCreateFile(@Nullable DocumentFile dir, String mime, String name) {
+        if (dir == null || !dir.isDirectory()) return null;
+
+        DocumentFile[] kids = dir.listFiles();
+        if (kids != null) {
+            for (DocumentFile f : kids) {
+                if (name.equals(f.getName())) return f;
+            }
+        }
+
+        DocumentFile made = dir.createFile(mime, name);
+        if (made == null) {
+            Log.e(TAG, "could not create file " + name + " in " + dir.getUri());
+            return null;
+        }
+        if (!name.equals(made.getName())) {
+            String renamed = made.getName();
+            boolean removed = made.delete();
+            Log.e(TAG, "createFile(" + name + ") was renamed to " + renamed
+                    + " -- the listing is not reporting existing children. Created file "
+                    + (removed ? "removed." : "could NOT be removed; delete it by hand."));
+            return null;
+        }
+        return made;
     }
 
     /**

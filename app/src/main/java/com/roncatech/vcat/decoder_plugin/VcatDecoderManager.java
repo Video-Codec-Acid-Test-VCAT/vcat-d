@@ -32,6 +32,8 @@ package com.roncatech.vcat.decoder_plugin;
  * Contact: legal@roncatech.com
  */
 
+import android.util.Log;
+
 import androidx.annotation.Nullable;
 
 import com.roncatech.vcat.decoder_plugin_api.ContainerParser;
@@ -48,8 +50,10 @@ import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
-/** Central registry for VCAT decoder plugins (last-wins). */
+/** Central registry for VCAT decoder plugins (first registration for an id wins). */
 public final class VcatDecoderManager {
+
+    private static final String TAG = "VcatDecoderManager";
 
     private static final VcatDecoderManager INSTANCE = new VcatDecoderManager();
     private final ConcurrentMap<String, VcatDecoder> decoders = new ConcurrentHashMap<>();
@@ -61,16 +65,30 @@ public final class VcatDecoderManager {
         return INSTANCE;
     }
 
-    /** Register/replace a decoder by its ID (last registration wins). */
+    /**
+     * Registers a decoder under its {@link VcatDecoder#getId()}. First registration wins.
+     *
+     * <p>Returns false when the id is already taken. That case is logged at error level because it
+     * silently changes what a run measures: two plugin AARs built from different sources but
+     * sharing an id (say a mainline and a branch build of the same decoder) leave the second one
+     * unreachable, and the run reports the id that was asked for while executing the other build.
+     * A comparison between the two then shows no difference for reasons that have nothing to do
+     * with the decoders. Plugin variants must therefore carry distinct ids.
+     */
     public boolean registerDecoder(VcatDecoder decoder) {
         Objects.requireNonNull(decoder, "decoder");
         String id = Objects.requireNonNull(decoder.getId(), "decoder.getId()");
 
-        if(!this.decoders.containsKey(id)) {
-            decoders.put(id, decoder); // first wins
+        VcatDecoder existing = this.decoders.putIfAbsent(id, decoder);
+        if (existing == null) {
             return true;
         }
 
+        Log.e(TAG, "Duplicate decoder id '" + id + "': keeping "
+                + existing.getDisplayName() + " " + existing.getVersion()
+                + ", DISCARDING " + decoder.getDisplayName() + " " + decoder.getVersion()
+                + ". Two plugins cannot share an id — the discarded one is unusable and any"
+                + " comparison against it is invalid.");
         return false;
     }
 

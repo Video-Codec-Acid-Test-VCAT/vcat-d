@@ -34,6 +34,7 @@ package com.roncatech.vcat.test_vectors;
 
 import com.roncatech.vcat.models.TestVectorManifests;
 import com.roncatech.vcat.models.TestVectorMediaAsset;
+import com.roncatech.vcat.tools.PlaylistIdentity;
 
 import java.io.IOException;
 import java.util.Map;
@@ -57,8 +58,15 @@ public class XspfBuilder {
     ) {
         StringBuilder sb = new StringBuilder();
 
+        // Identity comes from the manifest uuid so the playlist and its manifest agree; a manifest
+        // without one still yields a conformant playlist.
+        String playlistId = PlaylistIdentity.canonicalizeOrNew(playlistManifest.header.uuid);
+
         sb.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")
                 .append("<playlist version=\"1\" xmlns=\"http://xspf.org/ns/0/\">\n")
+                .append("  <identifier>")
+                .append(escapeXml(PlaylistIdentity.toUrn(playlistId)))
+                .append("</identifier>\n")
                 .append("  <title>")
                 .append(escapeXml(playlistManifest.header.name))
                 .append("</title>\n")

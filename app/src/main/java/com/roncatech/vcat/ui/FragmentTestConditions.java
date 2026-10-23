@@ -62,6 +62,7 @@ import com.google.android.exoplayer2.mediacodec.MediaCodecUtil;
 import com.roncatech.vcat.models.RunConfig;
 import com.roncatech.vcat.models.SharedViewModel;
 
+import com.roncatech.vcat.tools.DisplayInfo;
 import com.roncatech.vcat.tools.VideoDecoderEnumerator;
 import com.roncatech.vcat.R;
 import com.roncatech.vcat.BuildConfig;
@@ -85,6 +86,8 @@ public class FragmentTestConditions extends Fragment {
     EditText httpPortEditText;
 
     private Spinner videoOrientationSpinner;
+    private Spinner displayRefreshSpinner;
+    private CheckBox frameNumberCheck;
 
     ImageButton aboutButton;
 
@@ -236,6 +239,57 @@ public class FragmentTestConditions extends Fragment {
 
         }
 
+        // Display refresh rate. Only rates the panel actually reports are offered, so 120 is
+        // absent on a 60 Hz-only device. Pinning this removes the largest uncontrolled term in a
+        // cross-device battery comparison: a 120 Hz-default phone otherwise pays a big standing
+        // display cost for 30 fps content.
+        displayRefreshSpinner = view.findViewById(R.id.displayRefreshDropdown);
+
+        if (displayRefreshSpinner != null) {
+            final List<Integer> rates = DisplayInfo.supportedRefreshRates(requireContext());
+            ArrayAdapter<Integer> adapter = new ArrayAdapter<Integer>(
+                    requireContext(),
+                    android.R.layout.simple_spinner_item,
+                    rates
+            ) {
+                @NonNull @Override public View getView(int pos, View convertView, @NonNull ViewGroup parent) {
+                    TextView tv = (TextView) super.getView(pos, convertView, parent);
+                    tv.setText(getItem(pos) + " Hz");
+                    return tv;
+                }
+                @Override public View getDropDownView(int pos, View convertView, @NonNull ViewGroup parent) {
+                    TextView tv = (TextView) super.getDropDownView(pos, convertView, parent);
+                    tv.setText(getItem(pos) + " Hz");
+                    return tv;
+                }
+            };
+            adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+            displayRefreshSpinner.setAdapter(adapter);
+
+            // A saved config may name a rate this device doesn't have (configs move between
+            // devices); fall back to the default rather than showing an unsupported selection.
+            int selected = rates.indexOf(runConfig.displayRefreshHz);
+            if (selected < 0) {
+                runConfig.displayRefreshHz = RunConfig.DEFAULT_REFRESH_HZ;
+                selected = Math.max(0, rates.indexOf(RunConfig.DEFAULT_REFRESH_HZ));
+            }
+            displayRefreshSpinner.setSelection(selected, false);
+            displayRefreshSpinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+                @Override public void onItemSelected(AdapterView<?> parent, View v, int pos, long id) {
+                    runConfig.displayRefreshHz = (Integer) parent.getItemAtPosition(pos);
+                }
+                @Override public void onNothingSelected(AdapterView<?> parent) {}
+            });
+        }
+
+
+        frameNumberCheck = view.findViewById(R.id.frameNumberCheck);
+        if (frameNumberCheck != null) {
+            frameNumberCheck.setChecked(runConfig.showFrameNumber);
+            frameNumberCheck.setOnCheckedChangeListener(
+                    (buttonView, isChecked) -> runConfig.showFrameNumber = isChecked);
+        }
+
         // ✅ Radio Buttons for Run Mode
         runModeRadioGroup = view.findViewById(R.id.radioGroup);
         batteryPickerText = view.findViewById(R.id.batteryPickerText);
@@ -322,8 +376,21 @@ public class FragmentTestConditions extends Fragment {
             decoderContainer.addView(row);
 
             if (this.runConfig.decoderCfg.contains(mimeType)) {
-                int idx = decoderAdapter.getPosition(this.runConfig.decoderCfg.getDecoder(mimeType));
-                decoderSpinner.post(() -> decoderSpinner.setSelection(idx, false));
+                String savedId = this.runConfig.decoderCfg.getDecoder(mimeType);
+                int idx = decoderAdapter.getPosition(savedId);
+                if (idx >= 0) {
+                    decoderSpinner.post(() -> decoderSpinner.setSelection(idx, false));
+                } else if (!decoders.decoders.isEmpty()) {
+                    // The saved decoder is no longer registered — a plugin AAR was removed or its
+                    // id changed between builds. Left alone, the stale id survives in the config
+                    // and StrictRenderersFactoryV2 finds nothing in the registry, so it adds no
+                    // renderer at all and the codec silently stops decoding. Re-point the config
+                    // at what the spinner is actually showing.
+                    this.runConfig.decoderCfg.setDecoder(mimeType, decoders.decoders.get(0));
+                    decoderSpinner.post(() -> decoderSpinner.setSelection(0, false));
+                } else {
+                    this.runConfig.decoderCfg.removeDecoder(mimeType);
+                }
             }
 
             decoderSpinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
