@@ -5,6 +5,75 @@ description of what shipped so the history is not lost when the working tree mov
 
 ---
 
+## 2026-10-24 — Log details: a rotation crash, a phantom input, and a dialog that would not scroll
+
+**Theme:** Five defects in the results detail view. Four were only visible by opening it and
+turning the phone; the fifth was visible in the logs all along.
+
+### Rotating the phone took the whole app down
+
+On a configuration change the framework rebuilds every fragment from saved state via
+`Fragment.instantiate()`, which looks up a **public no-argument constructor** by reflection.
+`TestResultsDetailDialog` had only `private TestResultsDetailDialog(String filePath)`:
+
+    Fragment$InstantiationException: Unable to instantiate fragment TestResultsDetailDialog
+    Caused by: NoSuchMethodException: TestResultsDetailDialog.<init> []
+
+It kills the app rather than the dialog because the failure lands in
+`FragmentManager.restoreSaveStateInternal()` before `MainActivity.onCreate` finishes. The fix is
+small because the plumbing was already correct -- the path lives in the arguments bundle and
+`onCreate` reads it, so the constructor was storing it redundantly.
+
+**`PlaylistDialog` has the same defect** and is not fixed here: `public PlaylistDialog(Context,
+String, Uri, Uri, PlaylistUpdates)` with no no-arg constructor. Rotating with it open will crash
+identically. It is not the same one-line change -- the name and URIs would bundle easily, but a
+`Context` and a listener cannot, so the listener has to be re-attached from the host on
+recreation. Holding a `Context` field in a fragment also leaks the activity across rotation.
+
+### A nameless second input beside the real clip
+
+The inputs table is built by walking every telemetry row and keying on `test.filename`, and rows
+written while no `Format` is available are stamped `"empty"` for filename, codec and decoder.
+
+Measured on `vcatd_log_1792825656173`: **139 of 774 rows**, recurring every 121,214 ms — which is
+exactly that run's `test.file_duration_ms`. One per loop boundary, where
+`startClipWithFreshPlayer()` swaps the player for the next pass and `getVideoFormat()` briefly
+returns null. 190 iterations, 139 affected rows; the first only an hour in, because a ~60 s
+telemetry interval lands inside the swap window only some of the time.
+
+Fixed at both ends: `FullScreenPlayerActivity` reuses the last identity it resolved, so new runs
+do not record identity-less rows at all; and the dialog skips unnamed rows when listing inputs,
+which repairs the logs already on disk. Their thermal, battery and drop figures still count
+toward the totals — only the identity is skipped.
+
+Note the row itself is deliberate and worth keeping: on a short clip a whole playthrough can fall
+between periodic rows and exist only in the row written at its end.
+
+### Clipped in landscape, wrapped in portrait
+
+The dialog root was a `ConstraintLayout` at `wrap_content` with no scroll container, so in
+landscape the bottom of the inputs table was simply unreachable. Now wrapped in a `ScrollView`
+with `fillViewport`, leaving portrait unchanged.
+
+Adding a fifth column then made portrait wrap every cell into a block of text, because
+`stretchColumns="*"` with `shrinkColumns="2"` had no room to work with. The table now sits in a
+`HorizontalScrollView` and sizes columns to content, so a row stays one line. The decoder column
+is no longer ellipsized to 10 ems: the full name is what distinguishes
+`vcat-dav2d-ee033a4@salomethirot-arm` from the upstream build, which is the comparison these logs
+exist for.
+
+### Average bitrate column
+
+Now that `video.bitrate` is populated, the inputs table shows it. Logs predating that carry
+`-1 bps` and display `n/a` rather than a number that would invite comparison against runs holding
+a real figure.
+
+### Commits
+
+`e25322f`
+
+---
+
 ## 2026-10-21 — Frame rate, bitrate, a running drop rate, and a 14.3% drop figure that was ours
 
 **Theme:** Three reported fields that were never populated, and the measurement that showed the
