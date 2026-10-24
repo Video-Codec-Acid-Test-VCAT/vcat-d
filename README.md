@@ -64,6 +64,8 @@ The short version:
 |-----------|------|
 | **vcat-d (app)** | Benchmarking UI, telemetry, test orchestration, reporting, container parsing (MP4), and the decoder-plugin loader/registry |
 | **[vcatd-dav1d-plugin](https://github.com/Video-Codec-Acid-Test-VCAT/vcatd-dav1d-plugin)** | External AV1 software decoder plugin (dav1d) |
+| **[vcatd-dav2d-plugin](https://github.com/Video-Codec-Acid-Test-VCAT/vcatd-dav2d-plugin)** | External AV2 software decoder plugin (dav2d), built from VideoLAN upstream |
+| **vcatd-dav2d-plugin** *(branch `vcat-dav2d-ee033a4_at_salomethirot-arm`)* | The same plugin built against Arm's optimization branch of dav2d — installs alongside the upstream build |
 | **[vcatd-vvdec-plugin](https://github.com/Video-Codec-Acid-Test-VCAT/vcatd-vvdec-plugin)** | External VVC/H.266 software decoder plugin (vvdec) |
 
 Decoders are delivered as external `.aar` plugins dropped into `decoder-plugins/`. This keeps the app lightweight and lets each decoder evolve independently from the UI and workflow code.
@@ -85,7 +87,7 @@ every `.aar` in that folder automatically.
 - JDK 17+
 - NDK 27.0.12077973 (install via Android Studio SDK Manager)
 - CMake 3.22+ and Ninja (install via SDK Manager)
-- For the vvdec plugin only: Python 3.8+ and Meson ≥ 1.2 (`pip install meson`) — it builds vvdec from source
+- For the vvdec and dav2d plugins: Python 3.8+ and Meson ≥ 1.2 (`pip install meson`) — both build their decoder from source
 
 ### Repositories
 
@@ -93,6 +95,7 @@ Clone into the same parent directory:
 ```bash
 git clone https://github.com/Video-Codec-Acid-Test-VCAT/vcat-d.git
 git clone https://github.com/Video-Codec-Acid-Test-VCAT/vcatd-dav1d-plugin.git
+git clone https://github.com/Video-Codec-Acid-Test-VCAT/vcatd-dav2d-plugin.git   # optional (AV2)
 git clone https://github.com/Video-Codec-Acid-Test-VCAT/vcatd-vvdec-plugin.git   # optional (VVC/H.266)
 ```
 
@@ -104,6 +107,48 @@ cd vcatd-dav1d-plugin
 cp app/build/outputs/dist/vcatd-dav1d-plugin.aar ../vcat-d/decoder-plugins/
 ```
 dav1d links from prebuilt static libraries bundled in the plugin, so this build is fast.
+
+### AV2 (dav2d) plugin — optional, and why there are two of them
+
+AV2 is built twice, from the same plugin source against two different revisions of dav2d, and
+both `.aar` files are installed at once. They register as distinct decoders — `vcat.dav2d` and
+`vcat.dav2d.st-arm` — so `video/av02` can be pointed at either from **Conditions → Decoder
+Configuration** without rebuilding or reinstalling.
+
+That is the point of carrying both. dav2d is under active optimization, and Arm maintain a branch
+of it carrying AArch64 assembly that has not yet landed upstream. Having both decoders resident
+on the same device lets a run isolate the effect of that work: same clip, same thread count, same
+display and thermal conditions, same battery, one variable. On a MediaTek MT6878 the upstream
+build and Arm's branch differ enough to change the outcome of a test — Arm's branch has measured
+**32% longer battery life on identical content at identical throughput**, and reaches real-time
+decode on 1080p30 AV2 where the upstream build of the day did not.
+
+The upstream build is the reference. The st-arm build is the thing being measured against it.
+
+**Upstream dav2d:**
+
+```bash
+cd vcatd-dav2d-plugin
+./gradlew dist
+cp app/build/outputs/dist/vcatd-dav2d-plugin.aar ../vcat-d/decoder-plugins/
+```
+
+**Arm's optimization branch** — a branch of the same repository, so clone it a second time into a
+separate directory rather than switching branches in place:
+
+```bash
+git clone -b vcat-dav2d-ee033a4_at_salomethirot-arm \
+    https://github.com/Video-Codec-Acid-Test-VCAT/vcatd-dav2d-plugin.git \
+    vcatd-dav2d-st-arm-plugin
+cd vcatd-dav2d-st-arm-plugin
+./gradlew dist
+cp app/build/outputs/dist/vcatd-dav2d-st-arm-plugin.aar ../vcat-d/decoder-plugins/
+```
+
+> **Note:** both builds compile dav2d from source with Meson/Ninja, so the first build takes
+> several minutes per ABI. Each pins a specific dav2d commit, recorded in `app/build.gradle`, so a
+> benchmark number can always be traced back to one decoder revision. The st-arm branch also
+> carries local patches under `patches/`, applied at build time.
 
 ### VVC / H.266 (vvdec) plugin — optional
 
