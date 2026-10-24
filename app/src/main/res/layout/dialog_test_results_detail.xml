@@ -33,9 +33,18 @@ All vcat-d artwork is owned exclusively by RoncaTech LLC. Use of vcat-d logos an
 * Contact: legal@roncatech.com • https://roncatech.com/legal
 -->
 
-<androidx.constraintlayout.widget.ConstraintLayout
+<!-- Scrolls because the content is taller than the dialog in landscape. The root used to be
+     the ConstraintLayout at wrap_content, which fits portrait and is simply clipped when the
+     screen is short: no scroll container meant the bottom of the inputs table was unreachable.
+     fillViewport keeps the content stretched to the dialog height when it does fit. -->
+<ScrollView
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:fillViewport="true">
+
+<androidx.constraintlayout.widget.ConstraintLayout
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:padding="16dp">
@@ -171,38 +180,57 @@ All vcat-d artwork is owned exclusively by RoncaTech LLC. Use of vcat-d logos an
         app:layout_constraintStart_toStartOf="parent"
         android:layout_marginTop="16dp"/>
 
-    <!-- TableLayout for inputs -->
-    <TableLayout
-        android:id="@+id/tableVideoInputs"
+    <!-- Scrolls sideways rather than wrapping. With five columns the table does not fit a
+         portrait dialog, and stretch/shrink made it wrap every cell into a block of text.
+         Columns now size to their content and the table scrolls, so a row stays one line. -->
+    <HorizontalScrollView
+        android:id="@+id/scrollVideoInputs"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:stretchColumns="*"
-        android:shrinkColumns="2"
+        android:scrollbars="horizontal"
         app:layout_constraintTop_toBottomOf="@id/tvInputsHeader"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
         android:layout_marginTop="8dp">
 
+    <TableLayout
+        android:id="@+id/tableVideoInputs"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content">
+
         <!-- Header Row -->
         <TableRow>
             <TextView
                 android:padding="4dp"
+                android:singleLine="true"
                 android:text="Codec"
                 android:textStyle="bold"/>
             <TextView
                 android:padding="4dp"
+                android:singleLine="true"
                 android:text="Res"
                 android:textStyle="bold"/>
             <TextView
                 android:padding="4dp"
+                android:singleLine="true"
                 android:text="Decoder"
                 android:textStyle="bold"/>
             <TextView
                 android:padding="4dp"
+                android:singleLine="true"
                 android:text="FPS"
+                android:textStyle="bold"/>
+            <TextView
+                android:padding="4dp"
+                android:singleLine="true"
+                android:text="Bitrate"
                 android:textStyle="bold"/>
         </TableRow>
         <!-- Data rows will be added programmatically -->
     </TableLayout>
 
+    </HorizontalScrollView>
+
 </androidx.constraintlayout.widget.ConstraintLayout>
+
+</ScrollView>

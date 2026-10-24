@@ -70,13 +70,24 @@ public class TestResultsDetailDialog extends DialogFragment {
     private TestResult results;
     private String filePath;
 
-    private TestResultsDetailDialog(String filePath){
+    /**
+     * Public and no-argument because the framework re-instantiates fragments itself.
+     *
+     * <p>On a configuration change -- rotating the device -- the activity is destroyed and every
+     * fragment is rebuilt from saved state via {@code Fragment.instantiate()}, which looks up
+     * exactly this constructor by reflection. A private one taking the file path left none to
+     * find, so rotating with the details open crashed the app before it could restore:
+     * {@code Fragment$InstantiationException ... NoSuchMethodException: <init> []}.
+     *
+     * <p>The path survives in the arguments bundle instead, which is what {@link #onCreate}
+     * already read it from.
+     */
+    public TestResultsDetailDialog() {
         super();
-        this.filePath = filePath;
     }
 
     public static TestResultsDetailDialog newInstance(String filePath) {
-        TestResultsDetailDialog frag = new TestResultsDetailDialog(filePath);
+        TestResultsDetailDialog frag = new TestResultsDetailDialog();
         Bundle args = new Bundle();
         args.putString(ARG_PATH, filePath);
         frag.setArguments(args);
@@ -91,12 +102,25 @@ public class TestResultsDetailDialog extends DialogFragment {
         }
     }
 
+    /** Bitrate for display: "n/a" for the unset forms older logs carry. */
+    private static String displayBitrate(String raw) {
+        if (raw == null) return "n/a";
+        String v = raw.trim();
+        if (v.isEmpty() || "none".equals(v) || "empty".equals(v)
+                || v.startsWith("-1") || "Unknown".equals(v)) {
+            return "n/a";
+        }
+        return v;
+    }
+
     static class TestFile{
         public final String fileName;
         public final String resolution;
         public final String codec;
         public final String decoder;
         public final String frameRate;
+        /** As written to the log, e.g. "1.35 Mbps"; "none" on rows that predate the column. */
+        public final String bitrate;
         public final int systemThermalStatus;
         public final double batteryThermalStatus;
         public final int frameDrops;
@@ -108,6 +132,7 @@ public class TestResultsDetailDialog extends DialogFragment {
                         String codec,
                         String decoder,
                         String frameRate,
+                        String bitrate,
                         int systemThermalStatus,
                         double batteryThermalStatus,
                         int frameDrops){
@@ -116,6 +141,7 @@ public class TestResultsDetailDialog extends DialogFragment {
             this.codec = codec;
             this.decoder = decoder;
             this.frameRate = frameRate;
+            this.bitrate = bitrate;
             this.systemThermalStatus = systemThermalStatus;
             this.batteryThermalStatus = batteryThermalStatus;
             this.frameDrops = frameDrops;
@@ -137,6 +163,12 @@ public class TestResultsDetailDialog extends DialogFragment {
             catch (NumberFormatException e){
                 return 0;
             }
+        }
+
+        /** True for the placeholders a row carries when no clip identity was available. */
+        static boolean isUnnamed(String name){
+            return name == null || name.trim().isEmpty()
+                    || "none".equals(name) || "empty".equals(name);
         }
 
         public static TestFile fromCsvRow(Map<String,String> row){
@@ -165,6 +197,7 @@ public class TestResultsDetailDialog extends DialogFragment {
                     row.getOrDefault("video.codec_name", "none"),
                     row.getOrDefault("video.decoder_name", "none"),
                     row.getOrDefault("video.framerate", "none"),
+                    row.getOrDefault("video.bitrate", "none"),
                     parseIntOr0(row.getOrDefault("system.thermal_status", "0")),
                     parseDoubleOr0(row.getOrDefault("battery.temperature", "0")),
                     parseIntOr0(row.getOrDefault("video.frames_dropped", "0"))
@@ -228,7 +261,11 @@ public class TestResultsDetailDialog extends DialogFragment {
 
             for(Map<String,String> row : this.results.getTelemetryRows()){
                 TestFile curFile = TestFile.fromCsvRow(row);
-                if(!uniqueFiles.containsKey(curFile.fileName)){
+                // Rows written before the first Format arrives, or after the player is released,
+                // carry no clip identity. Counting them listed a nameless second input alongside
+                // the real one. Their thermal, battery and drop figures are still folded in
+                // below -- only the identity is skipped.
+                if(!TestFile.isUnnamed(curFile.fileName) && !uniqueFiles.containsKey(curFile.fileName)){
                     uniqueFiles.put(curFile.fileName, curFile);
                 }
 
@@ -265,14 +302,17 @@ public class TestResultsDetailDialog extends DialogFragment {
                 TextView tvName = new TextView(getContext());
                 tvName.setText(tf.fileName);
                 tvName.setPadding(4,4,4,4);
+                tvName.setSingleLine(true);
 
                 TextView tvCodec = new TextView(getContext());
                 tvCodec.setText(tf.codec);
                 tvCodec.setPadding(4,4,4,4);
+                tvCodec.setSingleLine(true);
 
                 TextView tvRes = new TextView(getContext());
                 tvRes.setText(tf.resolution);
                 tvRes.setPadding(4,4,4,4);
+                tvRes.setSingleLine(true);
 
                 TextView tvDec = new TextView(getContext());
 
@@ -283,8 +323,9 @@ public class TestResultsDetailDialog extends DialogFragment {
                 }
                 tvDec.setText(decoder);
                 tvDec.setSingleLine(true);
-                tvDec.setEllipsize(TextUtils.TruncateAt.END);
-                tvDec.setMaxEms(10);  // adjust as you like
+                // No ellipsizing now the table scrolls sideways: the full decoder name is what
+                // distinguishes vcat-dav2d-ee033a4@salomethirot-arm from the upstream build.
+                tvDec.setPadding(4,4,4,4);
                 TooltipCompat.setTooltipText(tvDec, tf.decoder);
 
                 String parts[] = tf.frameRate.split(" ");
@@ -296,6 +337,15 @@ public class TestResultsDetailDialog extends DialogFragment {
                     tvFR.setText("n/a");
                 }
                 tvFR.setPadding(4,4,4,4);
+                tvFR.setSingleLine(true);
+
+                // Average bitrate, as the log recorded it. Older logs predate the column and the
+                // measured fallback, so they carry "none" or "-1 bps" -- shown as n/a rather than
+                // as a number that would invite comparison against runs that do have it.
+                TextView tvBr = new TextView(getContext());
+                tvBr.setText(displayBitrate(tf.bitrate));
+                tvBr.setPadding(4,4,4,4);
+                tvBr.setSingleLine(true);
 
                 // add all cells to the row
                 //row.addView(tvName);
@@ -303,6 +353,7 @@ public class TestResultsDetailDialog extends DialogFragment {
                 row.addView(tvRes);
                 row.addView(tvDec);
                 row.addView(tvFR);
+                row.addView(tvBr);
 
                 // add the row to the table
                 table.addView(row);

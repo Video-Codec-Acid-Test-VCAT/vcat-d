@@ -149,6 +149,17 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
      */
     private long runTotalFrameDrops = 0L;
 
+    /**
+     * The last video identity actually resolved from the player.
+     *
+     * <p>The row written at teardown runs after the player has been released, so
+     * {@link #getTlVideoInfo} finds no Format and would otherwise stamp that row "empty" --
+     * giving the run a second, nameless entry in the results detail view alongside the real
+     * clip. The row is worth keeping, since on a short clip a whole playthrough can exist only
+     * in it, so it reuses the identity it had rather than losing it.
+     */
+    private TelemetryLogger.VideoInfo lastVideoInfo = null;
+
     /** When the last telemetry row was written, so teardown can tell if one is still owed. */
     private long lastTelemetryRowMs = 0;
 
@@ -1694,13 +1705,13 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
             TestStatus testStatus) {
 
         if(this.exoPlayer == null) {
-            return TelemetryLogger.VideoInfo.empty;
+            return lastKnownVideoInfo();
         }
         // Grab the video track’s Format from ExoPlayer
         Format fmt = exoPlayer.getVideoFormat();
         if (fmt == null) {
             // No video track info available yet
-            return TelemetryLogger.VideoInfo.empty;
+            return lastKnownVideoInfo();
         }
 
 
@@ -1732,7 +1743,19 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
                 /* fps      = */ fps
         );
 
+        this.lastVideoInfo = vi;
         return vi;
+    }
+
+    /**
+     * The identity of the clip last seen, or {@code empty} before any has been resolved.
+     *
+     * <p>Only the opening rows of a run can legitimately be "empty" -- before the first Format
+     * arrives there is genuinely nothing to report.
+     */
+    private TelemetryLogger.VideoInfo lastKnownVideoInfo() {
+        return (this.lastVideoInfo != null)
+                ? this.lastVideoInfo : TelemetryLogger.VideoInfo.empty;
     }
 
     public static String formatBitrate(String bitrateStr) {
