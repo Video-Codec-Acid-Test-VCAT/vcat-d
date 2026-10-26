@@ -1548,6 +1548,7 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
                             "Plugin API: %s\n" +
                             "Framerate: %.2f fps\n"+
                             "Display: %d%% %dHz (%.1fHz)\n" +
+                            "Threads: %d\n" +
                             "Run Mode: %s\n" +
                             "Battery: %d%% %.1f:%.1f\n"+
                             "System Thermal Status: %d:%d\n"+
@@ -1569,6 +1570,11 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
                     // the two disagree, the run is not the run that was asked for.
                     this.viewModel.getRunConfig().displayRefreshHz,
                     DisplayInfo.currentRefreshRate(this),
+                    // A run condition, not a decoder property, and one that materially changes
+                    // the result: on CPH2625 raising it from 2 to 4 measured *worse*, because low
+                    // delay confines the pool to tile parallelism and the extra threads land on
+                    // the little cluster. Worth seeing on screen next to the decoder it applies to.
+                    this.viewModel.getRunConfig().threads,
                     this.viewModel.getRunConfig().runModeStr(),
                     (int) BatteryInfo.getBatteryLevel(this),
                     curBatteryTempC, maxBatteryTempC,
