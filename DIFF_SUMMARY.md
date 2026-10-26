@@ -5,6 +5,34 @@ description of what shipped so the history is not lost when the working tree mov
 
 ---
 
+## 2026-10-26 — Threads on the overlay; 0.3.5 (3005)
+
+`Threads` now appears in the on-screen information display, with the other run conditions
+(`Display`, `Run Mode`) rather than with the video and decoder block — it is set in Conditions,
+not a property of the clip. It reads `RunConfig.threads`, the same value
+`StrictRenderersFactoryV2` passes to the decoder, so the overlay cannot disagree with what is
+actually running.
+
+It earns a line because it changes results more than it appears to. On CPH2625, raising it from
+2 to 4 measured **worse** — 6.5 fps rendered against 21.7 — because low delay confines the thread
+pool to tile parallelism inside a single frame, so a frame completes only when its slowest tile
+does, and the extra threads land on the A55 cluster which then gates completion. On the host,
+where cores are uniform, the same 2 → 4 step nearly doubles throughput. Having the value on
+screen makes that visible during a run rather than only afterwards in the header.
+
+**Known gap:** `threads` is in the telemetry header but has no CSV column, so it cannot vary per
+row. Fine while it is fixed for a run; it would need to move into the row data to compare thread
+counts within one session.
+
+Version bumped to **0.3.5 / 3005**. `header_version` is the version code, so logs recorded from
+this build carry 3005 where earlier ones carry 3004.
+
+### Commits
+
+`5d79cc9`
+
+---
+
 ## 2026-10-24 — Log details: a rotation crash, a phantom input, and a dialog that would not scroll
 
 **Theme:** Five defects in the results detail view. Four were only visible by opening it and
