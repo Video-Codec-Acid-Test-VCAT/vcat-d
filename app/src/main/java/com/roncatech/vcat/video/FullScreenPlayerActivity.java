@@ -676,6 +676,8 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
 
     FrameDrops fd = new FrameDrops();
 
+    @Nullable private VideoSize lastVideoSize = null;
+
     private float originalWindowBrightness = -1;
     /** Refresh rate asked for this run; the achieved rate is checked once playback is up. */
     private int requestedRefreshHz = RunConfig.DEFAULT_REFRESH_HZ;
@@ -1043,6 +1045,9 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
             public void onVideoSizeChanged(EventTime et, VideoSize size) {
                 Log.d(TAG, "videoSize=" + size.width + "x" + size.height
                         + " pxAspect=" + size.pixelWidthHeightRatio);
+                if (hasValidVideoSize(size)) {
+                    FullScreenPlayerActivity.this.lastVideoSize = size;
+                }
             }
 
             @Override
@@ -1169,6 +1174,8 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
 
     // Put this near your other private helpers
     private void startClipWithFreshPlayer() {
+
+        this.lastVideoSize = null;
 
         // New file: restart its clock, and clear the drop counters so nothing from the previous
         // clip leaks into this one's first row. Both counters are reported per interval; this is
@@ -1724,6 +1731,11 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
         // Width & height
         String width  = String.valueOf(fmt.width);
         String height = String.valueOf(fmt.height);
+        VideoSize outputSize = this.lastVideoSize;
+        if (hasValidVideoSize(outputSize)) {
+            width = String.valueOf(outputSize.width);
+            height = String.valueOf(outputSize.height);
+        }
 
         // Bitrate → human-readable string
         // (assumes formatBitrate takes a String; adjust if you have a long overload)
