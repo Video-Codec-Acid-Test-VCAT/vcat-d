@@ -38,6 +38,17 @@ public final class DecoderPluginLoader {
     private static final String TAG = "DecoderPluginLoader";
     private static final String ASSET_DIR = "decoder-plugins";
 
+    /**
+     * Plugins registered after all others. The first plugin registered for a MIME type is the
+     * default whenever no decoder is selected -- it heads the Conditions spinner and is the first
+     * renderer ExoPlayer tries -- and registration follows the asset listing, which is
+     * alphabetical. So the pinned vvdec 3.0.0 comparison build ("vcatd-vvdec-30-...") sorted
+     * ahead of the current one ("vcatd-vvdec-plugin") and became the VVC default after every
+     * fresh install. Older builds kept for comparison belong here.
+     */
+    private static final List<String> LOAD_LAST =
+            java.util.Collections.singletonList("vcatd-vvdec-30-plugin.aar");
+
     private DecoderPluginLoader() {}
 
     public static void loadAll(Context context) {
@@ -52,10 +63,15 @@ public final class DecoderPluginLoader {
             Log.i(TAG, "No decoder plugins found in assets/" + ASSET_DIR);
             return;
         }
+        List<String> ordered = new ArrayList<>();
+        List<String> last = new ArrayList<>();
         for (String fileName : files) {
-            if (fileName.endsWith(".aar")) {
-                loadPlugin(context, fileName);
-            }
+            if (!fileName.endsWith(".aar")) continue;
+            (LOAD_LAST.contains(fileName) ? last : ordered).add(fileName);
+        }
+        ordered.addAll(last);
+        for (String fileName : ordered) {
+            loadPlugin(context, fileName);
         }
     }
 

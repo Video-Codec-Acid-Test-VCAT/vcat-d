@@ -49,6 +49,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 /** Central registry for VCAT decoder plugins (first registration for an id wins). */
 public final class VcatDecoderManager {
@@ -57,6 +58,17 @@ public final class VcatDecoderManager {
 
     private static final VcatDecoderManager INSTANCE = new VcatDecoderManager();
     private final ConcurrentMap<String, VcatDecoder> decoders = new ConcurrentHashMap<>();
+
+    /**
+     * Every registered decoder, in registration order. All enumeration goes through this, never
+     * through {@code decoders.values()}: a ConcurrentHashMap iterates in hash order, so the first
+     * decoder for a MIME type -- the default when none is selected, and the head of the Conditions
+     * spinner -- was decided by the hash of the plugin ids rather than by load order.
+     * "vcat.vvdec.30" hashes ahead of "vcat.vvdec" at every table size, so the vvdec 3.0.0
+     * comparison build became the VVC default after every fresh install, and
+     * DecoderPluginLoader's LOAD_LAST could not change that.
+     */
+    private final List<VcatDecoder> ordered = new CopyOnWriteArrayList<>();
 
     private VcatDecoderManager() {
     }
@@ -81,6 +93,7 @@ public final class VcatDecoderManager {
 
         VcatDecoder existing = this.decoders.putIfAbsent(id, decoder);
         if (existing == null) {
+            this.ordered.add(decoder);
             return true;
         }
 
@@ -98,14 +111,14 @@ public final class VcatDecoderManager {
 
     /** Snapshot list of all registered decoders. */
     public List<VcatDecoder> getDecoders() {
-        return Collections.unmodifiableList(new ArrayList<>(decoders.values()));
+        return Collections.unmodifiableList(new ArrayList<>(ordered));
     }
 
     /** Snapshot list of all registered decoders for specified mime type. */
     public List<VcatDecoder> getDecodersForMimeType(String mimeType) {
         List<VcatDecoder> decodersForMimeType = new ArrayList<>();
 
-        for(VcatDecoder curDecoder : decoders.values()){
+        for(VcatDecoder curDecoder : ordered){
             if(curDecoder.getMimeType().equals(mimeType)){
                 decodersForMimeType.add(curDecoder);
             }
@@ -114,13 +127,13 @@ public final class VcatDecoderManager {
     }
 
     public List<VcatDecoder> getAllDecoderse() {
-        return Collections.unmodifiableList(new ArrayList<>(decoders.values()));
+        return Collections.unmodifiableList(new ArrayList<>(ordered));
     }
 
     public Map<Integer, Mp4ParserExtension> getNonStandardDecoders(){
         Map<Integer, Mp4ParserExtension> nonStandardDecoders = new HashMap();
 
-        for(VcatDecoder curDecoder : decoders.values()){
+        for(VcatDecoder curDecoder : ordered){
             if(curDecoder instanceof Mp4ParserExtension){
                 Mp4ParserExtension nonStd = (Mp4ParserExtension) curDecoder;
                 nonStandardDecoders.put(nonStd.sampleEntry4ccCode(), nonStd);
