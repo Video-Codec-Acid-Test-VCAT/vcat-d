@@ -5,6 +5,60 @@ description of what shipped so the history is not lost when the working tree mov
 
 ---
 
+## 2026-11-03 — VVC defaulted to vvdec 3.0.0; clip-start pre-roll; IVF bitrate
+
+**Theme:** Three independent fixes, all found while rebuilding the dav1d and vvdec plugins after
+they were made cross-platform for vcat-d-ios. The rebuilt AARs were identical to the shipped
+ones (dav1d file for file; vvdec except a non-deterministic armeabi-v7a `.so`), and both played
+cleanly on SM-S938U1: dav1d 179 decoded, 0 errors; vvdec 3.2.0 2148 decoded, 0 errors.
+
+### The VVC default was decided by a hash
+
+`VcatDecoderManager` kept plugins in a `ConcurrentHashMap` and enumerated `decoders.values()`,
+which iterates in **hash order**, not registration order. The first decoder for a MIME type is
+the default whenever none is selected: it heads the Conditions spinner, is saved from there, and
+is the first renderer ExoPlayer tries. `"vcat.vvdec.30"` hashes ahead of `"vcat.vvdec"` at every
+table size, so the vvdec 3.0.0 comparison build became the VVC default after every fresh install
+or uninstall. That is how two test runs on 2026-10-29 were spent on the wrong decoder.
+
+`DecoderPluginLoader` had already been changed to load the 3.0.0 build last (`LOAD_LAST`), on
+the theory that alphabetical asset order was the cause. On its own that changed nothing; the
+vcat-d-ios session found the same collection-order defect there. The registry now keeps a
+registration-order list alongside the map, and every enumeration reads it, so `LOAD_LAST` takes
+effect and `vcat.vvdec` precedes `vcat.vvdec.30`.
+
+An explicit selection was never overwritten. It held through relaunch, opening Conditions and
+rotation. Verified by deleting the saved VVC choice on a debug build: Conditions then showed and
+saved `vcat.vvdec`.
+
+### Pre-roll before each clip's clock starts
+
+ExoPlayer starts the clock as soon as one frame has rendered, so a decoder gets no lead. vvdec
+delivers its keyframe and then runs at about two-thirds of real time for its first second; with
+the clock running, the deficit was recovered by dropping ~70 frames at the start of every loop
+against zero for the rest of the clip. Each clip is now prepared paused and played 500 ms after
+its first READY (logged as `PREROLL first frame after N ms`). The pending `play()` is tied to
+the player that asked and cancelled on play/pause, clip swap, stop and finish.
+
+### IVF clips never reported a bitrate
+
+- `VcatIvfExtractor` declared `TIME_UNSET` duration, so the file-size-over-duration fallback
+  could never work. The seek map now carries the header's duration: displayed frames over the
+  time-base frame rate, `TIME_UNSET` when the header has no frame count. Two tests added.
+- `getVideoBitrate` read the track selection of the *first* video renderer. There is one per
+  plugin plus MediaCodec, and dav1d sits third behind dav2d and vvdec, so that selection was
+  empty. It now reads `ExoPlayer.getVideoFormat()`.
+
+**Note for device testing:** a malformed `vcat_run_config` in `AppPrefs.xml` crashes vcat at
+launch (`JsonSyntaxException` in `SharedViewModel`) instead of falling back to defaults. Not
+changed here.
+
+### Commits
+
+`b3f71b6`, `036185d`, `26fc78e`
+
+---
+
 ## 2026-10-26 — Threads on the overlay; 0.3.5 (3005)
 
 `Threads` now appears in the on-screen information display, with the other run conditions
