@@ -180,6 +180,23 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
      */
     private static final long DROP_SAMPLE_INTERVAL_MS = 2000;
     private final Handler dropSamplerHandler = new Handler(Looper.getMainLooper());
+
+    /**
+     * Pre-roll between a clip's first frame and the start of its clock.
+     *
+     * <p>ExoPlayer starts the clock as soon as one frame has rendered, so a decoder gets no lead.
+     * vvdec delivers its keyframe and then runs at about two-thirds of real time for its first
+     * second; with the clock already running, that deficit was recovered by dropping ~70 frames at
+     * the start of every loop, against zero for the rest of the clip. Each clip is therefore
+     * prepared paused and played only this long after it reaches READY, so the decoder can warm up
+     * and work through its queued input first. 500 ms rather than the 333 ms minimum: the paused
+     * player only polls renderers once a second, so the margin is cheap.
+     */
+    private static final long PREROLL_MS = 500;
+    private final Handler prerollHandler = new Handler(Looper.getMainLooper());
+    /** Set while the current clip is prepared but has not yet started its pre-roll. */
+    private boolean prerollPending = false;
+    private long clipPrepareMs = 0;
     private int pendingFrameDrops = 0;
     private int pendingDroppedToKeyframe = 0;
     private int pendingFramesRendered = 0;
@@ -791,7 +808,27 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
     }
 
     public void onPlayPause(){
+        // A press during pre-roll takes over from it, so the pending play() cannot undo a pause.
+        cancelPreroll();
         exoPlayer.setPlayWhenReady(!exoPlayer.getPlayWhenReady());
+    }
+
+    /** On the clip's first READY, starts the clock after {@link #PREROLL_MS}. */
+    private void maybeStartAfterPreroll() {
+        if (!this.prerollPending) return;
+        this.prerollPending = false;
+        final ExoPlayer p = this.exoPlayer;
+        Log.i(TAG, "PREROLL first frame after " + (System.currentTimeMillis() - this.clipPrepareMs)
+                + " ms; starting clock in " + PREROLL_MS + " ms");
+        this.prerollHandler.postDelayed(() -> {
+            // Only the player that asked; a clip swap or stop in between owns the state now.
+            if (this.exoPlayer == p && p != null) p.play();
+        }, PREROLL_MS);
+    }
+
+    private void cancelPreroll() {
+        this.prerollPending = false;
+        this.prerollHandler.removeCallbacksAndMessages(null);
     }
 
     /**
@@ -850,6 +887,8 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
         // duration and codec without opening each file.
         appendRunToSummary();
 
+        cancelPreroll();
+
         // 1) stop your periodic telemetry
         stopTelemetryTimer();
         // 2) reset the test details
@@ -905,6 +944,7 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
             @Override
             public void onPlaybackStateChanged(int state) {
                 if (state == Player.STATE_READY) {
+                    maybeStartAfterPreroll();
                     onPlaybackStarted();
                 } else if (state == Player.STATE_ENDED) {
                     logTelemetry(true);
@@ -1281,9 +1321,13 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
 
         // Load & play the current clip
         Uri clip = this.testClips.get(this.curFileIndex);
+        // Prepared paused: the first READY starts the pre-roll, which then calls play().
+        cancelPreroll();
+        this.prerollPending = true;
+        this.clipPrepareMs = System.currentTimeMillis();
         newPlayer.setMediaItem(MediaItem.fromUri(clip));
+        newPlayer.setPlayWhenReady(false);
         newPlayer.prepare();
-        newPlayer.play();
 
         // preferredRefreshRate is advisory — the system can refuse it, and LTPO panels move on
         // their own — so record what was actually achieved rather than what was asked for. Delayed
@@ -1356,6 +1400,7 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
         }
 
         if (isFinishing()) {
+            cancelPreroll();
             if (exoPlayer != null) {
                 exoPlayer.release();
                 exoPlayer = null;
