@@ -1689,28 +1689,13 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
     }
 
     private int getVideoBitrate(){
-        int bitrate = com.google.android.exoplayer2.Format.NO_VALUE;
-
-        com.google.android.exoplayer2.trackselection.TrackSelectionArray sels =
-                exoPlayer.getCurrentTrackSelections();
-
-        // find the video renderer index
-        int vidIdx = -1;
-        for (int i = 0; i < exoPlayer.getRendererCount(); i++) {
-            if (exoPlayer.getRendererType(i) == com.google.android.exoplayer2.C.TRACK_TYPE_VIDEO) {
-                vidIdx = i; break;
-            }
-        }
-
-        if (vidIdx >= 0) {
-            com.google.android.exoplayer2.trackselection.TrackSelection sel = sels.get(vidIdx);
-            if (sel != null && sel.length() > 0) {
-                com.google.android.exoplayer2.Format f = sel.getFormat(0); // fallback heuristic
-                if (f != null) {
-                    bitrate = f.bitrate;
-                }
-            }
-        }
+        // The format of the video track actually playing. This used to read the track selection of
+        // the *first* video renderer, but the factory adds one video renderer per plugin plus
+        // MediaCodec, and the track belongs to whichever handles it -- dav1d sits third behind
+        // dav2d and vvdec. The first renderer's selection was empty, so a bitrate the extractor
+        // had computed (as the IVF extractor does) was never read.
+        com.google.android.exoplayer2.Format f = exoPlayer.getVideoFormat();
+        int bitrate = (f != null) ? f.bitrate : com.google.android.exoplayer2.Format.NO_VALUE;
 
         // Fall back to measuring it. Containers rarely carry an average-bitrate field -- VVC in
         // MP4 reports NO_VALUE here just as AV2 in IVF did -- and the overlay and the telemetry

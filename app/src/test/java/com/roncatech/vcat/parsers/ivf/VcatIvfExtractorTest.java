@@ -150,6 +150,24 @@ public class VcatIvfExtractorTest {
         assertEquals(33333L, (long) out.track.timesUs.get(1));
     }
 
+    @Test public void read_seekMap_durationFromHeader() throws IOException {
+        CapturingOutput out = new CapturingOutput();
+        // 3600 displayed frames at 30/1 -> 120 s. TIME_UNSET here left the player with no
+        // duration, so the file-size bitrate fallback could never work for IVF.
+        extract(new VcatIvfExtractor(),
+                input(ivf("AV01", 30, 1, 3600, new long[]{0}, new byte[][]{payload(8)})),
+                out);
+        assertEquals(120_000_000L, out.seekMap.getDurationUs());
+    }
+
+    @Test public void read_seekMap_durationUnsetWithoutFrameCount() throws IOException {
+        CapturingOutput out = new CapturingOutput();
+        extract(new VcatIvfExtractor(),
+                input(ivf("AV01", 30, 1, 0, new long[]{0}, new byte[][]{payload(8)})),
+                out);
+        assertEquals(C.TIME_UNSET, out.seekMap.getDurationUs());
+    }
+
     @Test public void read_multipleFrames_correctSampleCount() throws IOException {
         CapturingOutput out = new CapturingOutput();
         extract(new VcatIvfExtractor(),

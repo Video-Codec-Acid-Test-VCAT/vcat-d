@@ -105,7 +105,7 @@ public final class VcatIvfExtractor implements Extractor {
     public void init(ExtractorOutput output) {
         this.extractorOutput = output;
         this.trackOutput = output.track(0, C.TRACK_TYPE_VIDEO);
-        output.seekMap(new SeekMap.Unseekable(C.TIME_UNSET));
+        // The seek map is emitted from readFileHeader, once the header gives the duration.
         output.endTracks();
     }
 
@@ -135,6 +135,13 @@ public final class VcatIvfExtractor implements Extractor {
         // in which case the bitrate is simply left unreported rather than guessed.
         long len = input.getLength();
         fileLength = (len != C.LENGTH_UNSET) ? len : 0L;
+        // Duration from the header: displayed frames over the time-base frame rate. Declaring it
+        // TIME_UNSET left the player with no duration, so the bitrate fallback (file size over
+        // duration) could never work for IVF, and anything else reading getDuration() got nothing.
+        final float fps = ivfFrameRate();
+        long durationUs = (fps > 0f && fileHeader.frameCount > 0)
+                ? Math.round(fileHeader.frameCount * 1_000_000.0 / fps) : C.TIME_UNSET;
+        extractorOutput.seekMap(new SeekMap.Unseekable(durationUs));
         plugin = VcatDecoderManager.getInstance().findIvfPlugin(fileHeader.fourCc);
         if (plugin == null) {
             throw ParserException.createForMalformedContainer(
