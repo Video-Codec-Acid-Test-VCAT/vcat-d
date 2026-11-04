@@ -88,7 +88,9 @@ public class FragmentTestVector extends Fragment {
                     case 0:
                         return new FragmentVectorImport(); // your import/download UI
                     case 1:
-                        return new FragmentVectorExport();
+                        // Export is not finished. FragmentVectorExport looks functional but is
+                        // not, so the tab shows "Under Construction" until the feature works.
+                        return new FragmentUnderConstruction();
                     default:
                         return new FragmentVectorImport();
                 }
