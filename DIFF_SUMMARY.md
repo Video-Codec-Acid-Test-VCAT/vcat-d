@@ -5,6 +5,28 @@ description of what shipped so the history is not lost when the working tree mov
 
 ---
 
+## 2026-11-04 — Export tab back to "Under Construction"
+
+The Test Vectors > Export tab presented a UI that looked functional but did not work.
+
+Export started as a playlist list whose Export button showed the Under Construction dialog
+(`a0830d1`, `5423bfc`). The plugin-decoder checkpoint `69446af` (2026-03-28) replaced that dialog
+with a partial implementation (`ExportTestVectors`, `ExportTestVectorsDialog`), and from then on
+the tab looked finished.
+
+The tab now shows `FragmentUnderConstruction`: the whole view is the `vcat_under_construction`
+artwork, scaled to fit and centered, with nothing to press. A half-built feature can no longer
+look as if it works. `FragmentVectorExport` and the export classes stay in the tree, unreachable,
+for when the feature is completed; `FragmentTestVector` is the one place to switch it back.
+
+Verified on SM-S938U1: Test Vectors > Export shows only the artwork.
+
+### Commits
+
+`62898d1`
+
+---
+
 ## 2026-11-03 — VVC defaulted to vvdec 3.0.0; clip-start pre-roll; IVF bitrate
 
 **Theme:** Three independent fixes, all found while rebuilding the dav1d and vvdec plugins after
