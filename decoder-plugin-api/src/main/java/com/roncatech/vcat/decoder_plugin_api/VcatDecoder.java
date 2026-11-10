@@ -58,13 +58,40 @@ public interface VcatDecoder {
 
     List<ContainerParser> getSupportedContainerParsers();
 
-    Renderer createVideoRenderer(
+    /**
+     * Creates the decoder's renderer for a run. The host calls this one.
+     *
+     * <p>{@code config} carries the run conditions: threads and the frame-drop thresholds. The
+     * renderer should extend {@link VcatDecoderVideoRenderer} and pass {@code config} to it, so
+     * the host's single drop policy applies; a plugin must not implement its own.
+     *
+     * <p>Plugins built against API 1.0.x implement only the older {@code int threads} form; this
+     * default calls it, so they keep working, with their own drop thresholds.
+     */
+    default Renderer createVideoRenderer(
+            Context context,
+            long allowedJoiningTimeMs,
+            Handler eventHandler,
+            VideoRendererEventListener eventListener,
+            RendererConfig config
+    ) throws DecoderException {
+        return createVideoRenderer(context, allowedJoiningTimeMs, eventHandler, eventListener,
+                config.threads);
+    }
+
+    /**
+     * The API 1.0.x form, kept so plugins built against it still load. New plugins implement the
+     * {@link RendererConfig} form instead.
+     */
+    default Renderer createVideoRenderer(
             Context context,
             long allowedJoiningTimeMs,
             Handler eventHandler,
             VideoRendererEventListener eventListener,
             int threads
-    ) throws DecoderException;
+    ) throws DecoderException {
+        throw new DecoderException(getId() + " implements neither createVideoRenderer form");
+    }
 
     default boolean supports(String mime) {
         return getMimeType().equals(mime);

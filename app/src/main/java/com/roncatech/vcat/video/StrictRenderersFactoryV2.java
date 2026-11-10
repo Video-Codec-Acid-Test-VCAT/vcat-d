@@ -18,6 +18,8 @@ import com.google.android.exoplayer2.video.MediaCodecVideoRenderer;
 import com.google.android.exoplayer2.video.VideoRendererEventListener;
 import com.roncatech.vcat.decoder_plugin.VcatDecoderManager;
 import com.roncatech.vcat.decoder_plugin_api.VcatDecoder;
+import com.roncatech.vcat.models.RunConfig;
+import com.roncatech.vcat.decoder_plugin_api.RendererConfig;
 import com.roncatech.vcat.models.SharedViewModel;
 
 import java.util.ArrayList;
@@ -154,11 +156,17 @@ public final class StrictRenderersFactoryV2 extends DefaultRenderersFactory {
             }
         }
 
+        // The run's decode and drop conditions, applied the same way to every decoder by the
+        // plugin API's VcatDecoderVideoRenderer: threads and Max Delay from Conditions, the
+        // skip-to-keyframe threshold at its default.
+        RunConfig run = this.viewModel.getRunConfig();
+        RendererConfig rendererConfig = new RendererConfig(
+                run.threads, run.maxFrameDelay, RendererConfig.DEFAULT_SKIP_TO_KEYFRAME_DELAY);
+
         for (VcatDecoder plugin : candidates) {
             try {
                 out.add(plugin.createVideoRenderer(context, allowedVideoJoiningTimeMs,
-                        eventHandler, eventListener,
-                        this.viewModel.getRunConfig().threads));
+                        eventHandler, eventListener, rendererConfig));
                 Log.i(TAG, "Added plugin renderer: " + plugin.getId());
             } catch (DecoderException e) {
                 Log.e(TAG, "Plugin renderer not added: " + plugin.getId(), e);

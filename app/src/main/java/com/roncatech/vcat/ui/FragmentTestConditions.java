@@ -87,6 +87,7 @@ public class FragmentTestConditions extends Fragment {
 
     private Spinner videoOrientationSpinner;
     private Spinner displayRefreshSpinner;
+    private Spinner maxFrameDelaySpinner;
     private CheckBox frameNumberCheck;
 
     ImageButton aboutButton;
@@ -282,6 +283,45 @@ public class FragmentTestConditions extends Fragment {
             });
         }
 
+        // Max Delay: how late a decoded frame may be, in frame intervals, before it is dropped.
+        // See RunConfig.maxFrameDelay for why intervals rather than milliseconds.
+        maxFrameDelaySpinner = view.findViewById(R.id.maxFrameDelayDropdown);
+        if (maxFrameDelaySpinner != null) {
+            final List<Double> delays = new ArrayList<>();
+            for (double d : RunConfig.MAX_FRAME_DELAY_OPTIONS) delays.add(d);
+            ArrayAdapter<Double> adapter = new ArrayAdapter<Double>(
+                    requireContext(),
+                    android.R.layout.simple_spinner_item,
+                    delays
+            ) {
+                @NonNull @Override public View getView(int pos, View convertView, @NonNull ViewGroup parent) {
+                    TextView tv = (TextView) super.getView(pos, convertView, parent);
+                    tv.setText(frameDelayLabel(getItem(pos)));
+                    return tv;
+                }
+                @Override public View getDropDownView(int pos, View convertView, @NonNull ViewGroup parent) {
+                    TextView tv = (TextView) super.getDropDownView(pos, convertView, parent);
+                    tv.setText(frameDelayLabel(getItem(pos)));
+                    return tv;
+                }
+            };
+            adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+            maxFrameDelaySpinner.setAdapter(adapter);
+
+            // A value not in the list (hand-edited, or from a later build) falls back to the default.
+            int selected = delays.indexOf(runConfig.maxFrameDelay);
+            if (selected < 0) {
+                runConfig.maxFrameDelay = RunConfig.DEFAULT_MAX_FRAME_DELAY;
+                selected = Math.max(0, delays.indexOf(RunConfig.DEFAULT_MAX_FRAME_DELAY));
+            }
+            maxFrameDelaySpinner.setSelection(selected, false);
+            maxFrameDelaySpinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+                @Override public void onItemSelected(AdapterView<?> parent, View v, int pos, long id) {
+                    runConfig.maxFrameDelay = (Double) parent.getItemAtPosition(pos);
+                }
+                @Override public void onNothingSelected(AdapterView<?> parent) {}
+            });
+        }
 
         frameNumberCheck = view.findViewById(R.id.frameNumberCheck);
         if (frameNumberCheck != null) {
@@ -342,6 +382,14 @@ public class FragmentTestConditions extends Fragment {
         // ✅ Decoder Selection Section
         decoderContainer = view.findViewById(R.id.dynamicDecoderContainer);
         setupDecoderSelection();
+    }
+
+    /** "1.5 frames", "1 frame": the Max Delay choices as the user reads them. */
+    private static String frameDelayLabel(Double frames) {
+        if (frames == null) return "";
+        String n = (frames == Math.rint(frames)) ? String.valueOf(frames.intValue())
+                : String.valueOf(frames);
+        return n + (frames == 1.0 ? " frame" : " frames");
     }
 
     private void setupDecoderSelection() {

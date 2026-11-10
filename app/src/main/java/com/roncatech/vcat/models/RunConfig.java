@@ -69,6 +69,25 @@ public class RunConfig {
 
     /** Requested refresh rate when nothing else is chosen. See {@link #displayRefreshHz}. */
     public static final int DEFAULT_REFRESH_HZ = 60;
+
+    /**
+     * How late a decoded frame may be, in frame intervals, before it is dropped instead of shown.
+     *
+     * <p>In frame intervals rather than milliseconds so it means the same at every frame rate: a
+     * fixed 50 ms allowed 1.2 frames at 24 fps, 1.5 at 30 and 3 at 60, judging the same decoder
+     * more strictly on 24 fps content than on 60. The interval is 1 / the stream's frame rate.
+     * The default, 1.5, is today's 50 ms at 30 fps, so results stay comparable.
+     *
+     * <p>Applied by the host's drop policy to every decoder (see the plugin API's base renderer),
+     * and recorded in {@code test_conditions}, so each log states the rule its drops were
+     * counted under. vcat-d-ios applies the same factor.
+     */
+    public double maxFrameDelay;
+
+    public static final double DEFAULT_MAX_FRAME_DELAY = 1.5;
+
+    /** The choices offered in Conditions, in frame intervals. */
+    public static final double[] MAX_FRAME_DELAY_OPTIONS = {1.0, 1.25, 1.5, 2.0, 2.5, 3.0};
     public enum RunMode{ONCE, BATTERY, TIME};
 
     public enum VideoOrientation{
@@ -130,6 +149,7 @@ public class RunConfig {
         if(this.videoOrientation != that.videoOrientation){return false;}
         if(this.showFrameNumber != that.showFrameNumber){return false;}
         if(this.displayRefreshHz != that.displayRefreshHz){return false;}
+        if(Double.compare(this.maxFrameDelay, that.maxFrameDelay) != 0){return false;}
 
         return Objects.equals(this.decoderCfg, that.decoderCfg);
     }
@@ -143,6 +163,7 @@ public class RunConfig {
                 runLimit,
                 showFrameNumber,
                 displayRefreshHz,
+                maxFrameDelay,
                 decoderCfg
         );
     }
@@ -157,6 +178,7 @@ public class RunConfig {
         this.videoOrientation = VideoOrientation.MATCH_VIDEO;
         this.showFrameNumber = false;
         this.displayRefreshHz = DEFAULT_REFRESH_HZ;
+        this.maxFrameDelay = DEFAULT_MAX_FRAME_DELAY;
     }
 
     public RunConfig(final RunConfig copyFrom){
@@ -169,6 +191,7 @@ public class RunConfig {
                 copyFrom.videoOrientation);
         this.showFrameNumber = copyFrom.showFrameNumber;
         this.displayRefreshHz = copyFrom.displayRefreshHz;
+        this.maxFrameDelay = copyFrom.maxFrameDelay;
     }
 
     // Constructor with parameters
@@ -181,6 +204,7 @@ public class RunConfig {
         this.videoOrientation = videoOrientation;
         this.showFrameNumber = false;
         this.displayRefreshHz = DEFAULT_REFRESH_HZ;
+        this.maxFrameDelay = DEFAULT_MAX_FRAME_DELAY;
     }
 
     // Convert object to JSON string (for saving)
@@ -197,6 +221,11 @@ public class RunConfig {
             // handle new fields, possibly not in persisted config
             if(ret.videoOrientation == null){
                 ret.videoOrientation = VideoOrientation.MATCH_VIDEO;
+            }
+            // Configs saved before Max Delay existed carry no value; never let 0 through, which
+            // would drop every frame.
+            if(!(ret.maxFrameDelay > 0)){
+                ret.maxFrameDelay = DEFAULT_MAX_FRAME_DELAY;
             }
 
             return ret;
@@ -233,6 +262,10 @@ public class RunConfig {
 
             if(config1.displayRefreshHz != config2.displayRefreshHz){
                 return Integer.compare(config1.displayRefreshHz, config2.displayRefreshHz);
+            }
+
+            if(Double.compare(config1.maxFrameDelay, config2.maxFrameDelay) != 0){
+                return Double.compare(config1.maxFrameDelay, config2.maxFrameDelay);
             }
 
             // now compare the decoder cfg

@@ -274,6 +274,35 @@ All vcat-d artwork is owned exclusively by RoncaTech LLC. Use of vcat-d logos an
                         android:spinnerMode="dropdown"/>
                 </LinearLayout>
 
+                <!-- Max Delay: how late a decoded frame may be, in frame intervals, before it is
+                     dropped. In intervals, not ms, so it means the same at every frame rate. -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginTop="2dp"
+                    android:layout_marginStart="8dp"
+                    android:layout_marginEnd="8dp"
+                    android:layout_marginBottom="0dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/max_frame_delay"
+                        android:textSize="14sp"
+                        android:textStyle="bold"
+                        android:layout_marginStart="12dp"
+                        android:layout_marginEnd="12dp"/>
+
+                    <Spinner
+                        android:id="@+id/maxFrameDelayDropdown"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:spinnerMode="dropdown"/>
+                </LinearLayout>
+
                 <!-- Burns the frame number into the lower-right of each decoded frame, in the
                      decoder itself rather than as a view on top, so the number names the frame
                      actually on screen. Diagnostic only: it costs a per-frame draw, so it is off

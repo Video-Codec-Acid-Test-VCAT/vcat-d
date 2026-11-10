@@ -1597,7 +1597,7 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
                             "Run Mode: %s\n" +
                             "Battery: %d%% %.1f:%.1f\n"+
                             "System Thermal Status: %d:%d\n"+
-                            "Framedrops/sec: %.2f (%,d total)\n"+
+                            "Framedrops/sec: %.2f (%,d total) \u00b7 %s\n"+
                             "Run Dur: %s (est %s)",
                     UriUtils.fileNameFromURI(vi.fileName),
                     vi.width,
@@ -1625,6 +1625,9 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
                     curBatteryTempC, maxBatteryTempC,
                     curSysThermal, maxSysThermal,
                     runFrameDropsPerSec(), this.runTotalFrameDrops,
+                    // The rule the drops are counted under, next to the count: a frame later than
+                    // Max Delay is dropped, so the same decoder drops more at 1.0 than at 3.0.
+                    maxDelayLabel(this.viewModel.getRunConfig().maxFrameDelay),
                     this.viewModel.curTestDetails.getElapsedSinceStartHms(),
                     estimateTimeRemaining()
             ));
@@ -1686,6 +1689,13 @@ public class FullScreenPlayerActivity extends AppCompatActivity implements Playe
             default:
                 return "--:--";
         }
+    }
+
+    /** "max delay 1.5 fr": Max Delay, in frame intervals, as the frame-drops row shows it. */
+    private static String maxDelayLabel(double frames) {
+        String n = (frames == Math.rint(frames)) ? String.valueOf((long) frames)
+                : String.valueOf(frames);
+        return "max delay " + n + " fr";
     }
 
     private int getVideoBitrate(){

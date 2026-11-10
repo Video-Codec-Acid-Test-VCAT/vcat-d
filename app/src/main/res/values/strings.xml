@@ -57,6 +57,7 @@ All vcat-d artwork is owned exclusively by RoncaTech LLC. Use of vcat-d logos an
     <string name="about_heading">"About"</string>
     <string name="license_placeholder">This license intentionally left blank (for now)</string>
     <string name="under_construction">Under Construction</string>
+    <string name="max_frame_delay">Max Delay</string>
 
     <!-- Dialog Title -->
     <string name="export_test_vectors_title">Export Test Vectors</string>
