@@ -5,6 +5,83 @@ description of what shipped so the history is not lost when the working tree mov
 
 ---
 
+## 2026-11-09 — One drop policy for all decoders; Max Delay in frame intervals; IVF keyframes
+
+**Theme:** frame buffering and drop policy are the host's, not each plugin's, and they mean the
+same thing at every frame rate and on both platforms.
+
+### Max Delay, in frame intervals
+
+A fixed 50 ms drop threshold is a different amount of slack at each frame rate:
+
+| Frame rate | Frame interval | 50 ms is |
+|---|---|---|
+| 24 fps | 41.7 ms | 1.2 frames |
+| 30 fps | 33.3 ms | 1.5 frames |
+| 60 fps | 16.7 ms | 3.0 frames |
+
+- **Conditions > Max Delay**, directly below Refresh Rate: a decoded frame more than this many
+  frame intervals late is dropped. Choices 1, 1.25, **1.5 (default)**, 2, 2.5, 3.
+  - 1.5 is the old 50 ms at 30 fps, so existing results stay comparable.
+  - Stored as `RunConfig.maxFrameDelay`, so every log's `test_conditions` records it. A config
+    saved before this loads as 1.5; a value of 0 or less never gets through.
+- **Skip to keyframe** at 15 frame intervals (the old 500 ms at 30 fps). Not a run condition.
+- **Overlay:** the frame-drops row ends with the rule it was counted under, `· max delay 1.5 fr`.
+
+### One drop policy: plugin API 1.1.0
+
+The thresholds used to be hard-coded (50 ms / 500 ms) in each of the six plugin renderers, out of
+reach of any run condition.
+
+- `RendererConfig`: threads, `maxFrameDelay`, `skipToKeyframeDelay`, and the conversion to time
+  at a given frame rate (30 fps when unknown, which reproduces the old ms values).
+- `VcatDecoderVideoRenderer`: the base renderer every plugin extends. `shouldDropOutputBuffer` and
+  `shouldDropBuffersToKeyframe` are final. Thresholds are recomputed from `Format.frameRate` when
+  the format arrives, and logged once per clip:
+  `VcatRenderer: drop policy: frameRate=30.0 maxFrameDelay=1.5 (50.0 ms) skipToKeyframeDelay=15.0 (500.0 ms)`.
+  vvdec's VERY-LATE diagnostic moved here, so every decoder has it.
+- `VcatDecoder.createVideoRenderer(..., RendererConfig)`, which the host now calls. The
+  `int threads` form remains, so a plugin built against 1.0.x still loads (with its own
+  thresholds).
+- `StrictRenderersFactoryV2` passes the run's config to every plugin.
+- All six plugins (dav1d, rav1d, dav2d, dav2d-st-arm, vvdec, vvdec-30) were moved onto the base
+  renderer; their own drop methods are deleted.
+- Published to Maven Local only. `RendererConfigTest` covers 24 / 25 / 29.97 / 30 / 60 fps.
+
+### IVF keyframes for AV1 and AV2
+
+IVF has no keyframe flag, and `VcatIvfExtractor` flagged only the first frame. ExoPlayer's
+skip-to-keyframe only skips to a flagged sample, so on IVF a decoder falling behind could only
+drop, never skip: a 14.9 h CPH2625 run recorded **0** dropped-to-keyframe events in 444 loops.
+
+- New `IvfRandomAccess` ports vcat-d-ios's `AV1RandomAccess` rule for rule, keyed by FourCC:
+  - AV1: sequence header plus a shown key frame, or a reduced-still-picture sequence;
+  - AV2: sequence header plus a closed-loop key frame. Checked against `dav2d_parse_obus` at the
+    pinned commit.
+
+  It walks OBU headers by peeking, so frames are never copied. Other codecs keep first-frame-only.
+- Tests use vcat-d-ios's fixtures and assert the same keyframes (AV1 at [0, 60], AV2 at [0]), so
+  both platforms agree.
+- The test's fake `TrackOutput` now throws at end of input like ExoPlayer's `SampleQueue`. It used
+  to return 0, which left a truncated frame looping forever in the extractor.
+
+### Verified, and not yet
+
+- **CPH2625, dav2d 1080p30 AV2:** the policy line shows `maxFrameDelay=1.5 (50.0 ms)`, and
+  `3.0 (100.0 ms)` at 3 frames, so the run condition reaches the decoder.
+- **First observation:** dav2d's drop rate was 6.35% at 1.5 frames and 3.37% at 3 frames (two
+  clips, a small sample). Most of that is late frames being tolerated rather than faster decoding,
+  so drop counts are only comparable between runs with the same Max Delay.
+- **Not yet seen on a device:** an actual skip to keyframe. It needs a decoder 15 frames behind,
+  e.g. dav2d on 1 thread.
+- vcat-d-ios should follow: see `vcat-d-ios/analysis/decode-ahead.md` §7.
+
+### Commits
+
+`4f9d1c1` (IVF keyframes), `93db2bc` (Max Delay, plugin API 1.1.0)
+
+---
+
 ## 2026-11-04 — Export tab back to "Under Construction"
 
 The Test Vectors > Export tab presented a UI that looked functional but did not work.
