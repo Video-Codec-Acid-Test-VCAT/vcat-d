@@ -71,16 +71,22 @@ public class VcatIvfExtractorTest {
 
     // The manager is a process-wide singleton (first-registration wins), so use a single shared
     // stub registered once, and reset its captured state before each test.
-    private static final StubIvfPlugin STUB = new StubIvfPlugin();
+    private static final StubIvfPlugin STUB =
+            new StubIvfPlugin("AV01", "test.stub.av1.ivf", "video/av01");
+    /** AV2 files need an AV02 parser registered; keyframe detection itself is the host's. */
+    private static final StubIvfPlugin STUB_AV2 =
+            new StubIvfPlugin("AV02", "test.stub.av2.ivf", "video/av02");
     private static boolean registered;
 
     @Before
     public void setUp() {
         if (!registered) {
             VcatDecoderManager.getInstance().registerDecoder(STUB);
+            VcatDecoderManager.getInstance().registerDecoder(STUB_AV2);
             registered = true;
         }
         STUB.reset();
+        STUB_AV2.reset();
     }
 
     // ---------- sniff ----------
@@ -202,6 +208,143 @@ public class VcatIvfExtractorTest {
         assertNotEquals(0x31305641, p.fourCc);
     }
 
+    // ---------- keyframes from the bitstream (IvfRandomAccess) ----------
+    //
+    // IVF has no keyframe flag. Without these, only frame 0 was flagged and the renderer's
+    // skip-to-keyframe had nowhere to go. The fixtures and expected keyframes are vcat-d-ios's
+    // (tests/ivf/fixtures, RendererDropPolicyTests), so both platforms agree on the keyframes.
+
+    @Test public void keyframes_av1Fixture_areTheTwoGopStarts() throws IOException {
+        List<Integer> flags = extractFlags("ivf/av1-640x360-2gop.ivf");
+        assertEquals(120, flags.size());
+        assertEquals(java.util.Arrays.asList(0, 60), keyframeIndices(flags));
+    }
+
+    @Test public void keyframes_av2Fixtures_onlyTheClosedLoopKeyFrame() throws IOException {
+        for (String name : new String[]{"ivf/av2-640x360-ra.ivf", "ivf/av2-640x360-noaltref.ivf"}) {
+            assertEquals(name, Collections.singletonList(0), keyframeIndices(extractFlags(name)));
+        }
+    }
+
+    @Test public void keyframes_av1_shownKeyFrameWithSequenceHeader() throws IOException {
+        assertEquals(java.util.Arrays.asList(0, 1), keyframeIndices(extractAv1(
+                av1Tu(true, av1FrameHeader(false, 0, true)),
+                av1Tu(true, av1FrameHeader(false, 0, true)))));
+    }
+
+    @Test public void keyframes_av1_needsTheSequenceHeader() throws IOException {
+        assertEquals(Collections.singletonList(0), keyframeIndices(extractAv1(
+                av1Tu(true, av1FrameHeader(false, 0, true)),
+                av1Tu(false, av1FrameHeader(false, 0, true)))));
+    }
+
+    @Test public void keyframes_av1_interHiddenAndShowExistingAreNot() throws IOException {
+        assertEquals(Collections.singletonList(0), keyframeIndices(extractAv1(
+                av1Tu(true, av1FrameHeader(false, 0, true)),
+                av1Tu(true, av1FrameHeader(false, 1, true)),    // inter frame
+                av1Tu(true, av1FrameHeader(false, 0, false)),   // key frame, not shown
+                av1Tu(true, av1FrameHeader(true, 0, true)))));  // show_existing_frame
+    }
+
+    @Test public void keyframes_av1_reducedStillPictureHeaderMakesEveryFrameKey() throws IOException {
+        byte[] stillSeq = obuAv1(1, new byte[]{0x18, 0x00});    // still_picture, reduced header
+        byte[] tu = concat(obuAv1(2, new byte[0]), stillSeq, obuAv1(6, new byte[]{0x40, 0}));
+        assertEquals(java.util.Arrays.asList(0, 1), keyframeIndices(extractAv1(tu, tu)));
+    }
+
+    @Test public void keyframes_av2_closedLoopKeyFrameWithSequenceHeader() throws IOException {
+        byte[] closedKf = concat(obuAv2(2), obuAv2(1), obuAv2(4));
+        byte[] openKf = concat(obuAv2(2), obuAv2(1), obuAv2(5));
+        byte[] kfNoSeq = concat(obuAv2(2), obuAv2(4));
+        byte[] inter = concat(obuAv2(2), obuAv2(6));
+        assertEquals(java.util.Arrays.asList(0, 1), keyframeIndices(extractAv2(
+                closedKf, closedKf, openKf, kfNoSeq, inter)));
+    }
+
+    /**
+     * The keyframe peek must not change how a truncated last frame ends: it is not a keyframe,
+     * and the sample read then fails with EOFException, as the real SampleQueue makes it.
+     */
+    @Test public void keyframes_truncatedFrame_endsAsBefore() {
+        byte[] tu = av1Tu(true, av1FrameHeader(false, 0, true));
+        byte[] full = ivf("AV01", 30, 1, 2, new long[]{0, 1}, new byte[][]{tu, tu});
+        byte[] cut = java.util.Arrays.copyOf(full, full.length - 3);
+        CapturingOutput out = new CapturingOutput();
+        assertThrows(EOFException.class,
+                () -> extract(new VcatIvfExtractor(), input(cut), out));
+        assertEquals("only the complete first frame is emitted", 1, out.track.flags.size());
+    }
+
+    // ----- helpers for the keyframe tests -----
+
+    private static List<Integer> keyframeIndices(List<Integer> flags) {
+        List<Integer> out = new ArrayList<>();
+        for (int i = 0; i < flags.size(); i++) {
+            if ((flags.get(i) & C.BUFFER_FLAG_KEY_FRAME) != 0) out.add(i);
+        }
+        return out;
+    }
+
+    private List<Integer> extractFlags(String resource) throws IOException {
+        java.io.InputStream in = getClass().getClassLoader().getResourceAsStream(resource);
+        if (in == null) throw new AssertionError("missing test resource " + resource);
+        ByteArrayOutputStream bo = new ByteArrayOutputStream();
+        byte[] buf = new byte[8192];
+        for (int n; (n = in.read(buf)) > 0; ) bo.write(buf, 0, n);
+        in.close();
+        CapturingOutput out = new CapturingOutput();
+        extract(new VcatIvfExtractor(), input(bo.toByteArray()), out);
+        return out.track.flags;
+    }
+
+    private static List<Integer> extractAv1(byte[]... tus) throws IOException {
+        return extractFrames("AV01", tus);
+    }
+
+    private static List<Integer> extractAv2(byte[]... tus) throws IOException {
+        return extractFrames("AV02", tus);
+    }
+
+    private static List<Integer> extractFrames(String fourCc, byte[]... tus) throws IOException {
+        long[] pts = new long[tus.length];
+        for (int i = 0; i < pts.length; i++) pts[i] = i;
+        CapturingOutput out = new CapturingOutput();
+        extract(new VcatIvfExtractor(), input(ivf(fourCc, 30, 1, tus.length, pts, tus)), out);
+        return out.track.flags;
+    }
+
+    /** An AV1 OBU with has_size set: header, leb128 size (payloads here are < 128 bytes), payload. */
+    private static byte[] obuAv1(int type, byte[] payload) {
+        byte[] o = new byte[2 + payload.length];
+        o[0] = (byte) ((type << 3) | 0x02);
+        o[1] = (byte) payload.length;
+        System.arraycopy(payload, 0, o, 2, payload.length);
+        return o;
+    }
+
+    /** First byte of an AV1 uncompressed header: show_existing_frame(1) frame_type(2) show_frame(1). */
+    private static byte[] av1FrameHeader(boolean showExisting, int frameType, boolean show) {
+        int b = (showExisting ? 0x80 : 0) | ((frameType & 3) << 5) | (show ? 0x10 : 0);
+        return new byte[]{(byte) b, 0};
+    }
+
+    /** A temporal unit: temporal delimiter, an optional sequence header, then a frame OBU. */
+    private static byte[] av1Tu(boolean withSequenceHeader, byte[] frameHeader) {
+        byte[] seq = withSequenceHeader ? obuAv1(1, new byte[]{0x00, 0x00, 0x00}) : new byte[0];
+        return concat(obuAv1(2, new byte[0]), seq, obuAv1(6, frameHeader));
+    }
+
+    /** An AV2 OBU as dav2d parses it: leb128 size covering a header byte (type << 2) and 2 payload bytes. */
+    private static byte[] obuAv2(int type) {
+        return new byte[]{3, (byte) (type << 2), 0, 0};
+    }
+
+    private static byte[] concat(byte[]... parts) {
+        ByteArrayOutputStream bo = new ByteArrayOutputStream();
+        for (byte[] p : parts) bo.write(p, 0, p.length);
+        return bo.toByteArray();
+    }
+
     // ===================== helpers =====================
 
     private static byte[] payload(int n) {
@@ -265,13 +408,22 @@ public class VcatIvfExtractorTest {
 
     /** Stub IVF plugin: PEEKS a few header bytes, returns a fixed config. No real codec parsing. */
     private static final class StubIvfPlugin implements VcatDecoder, IvfParserExtension {
+        private final int fourCc;
+        private final String id;
+        private final String mime;
         boolean parseHeaderCalled = false;
         boolean peeked = false;
         int capturedFrameSize = -1;
 
+        StubIvfPlugin(String fourCc, String id, String mime) {
+            this.fourCc = Util.getIntegerCodeForString(fourCc);
+            this.id = id;
+            this.mime = mime;
+        }
+
         void reset() { parseHeaderCalled = false; peeked = false; capturedFrameSize = -1; }
 
-        @Override public int ivfFourCc() { return AV01; }
+        @Override public int ivfFourCc() { return fourCc; }
 
         @Override public VideoConfiguration parseHeader(ExtractorInput input, int frameSize)
                 throws IOException, InterruptedException {
@@ -283,7 +435,7 @@ public class VcatIvfExtractorTest {
                 peeked = true;
             }
             VideoConfiguration.Builder b = new VideoConfiguration.Builder();
-            b.mimeType = "video/av01";
+            b.mimeType = mime;
             b.width = 640;
             b.height = 360;
             return b.build();
@@ -292,10 +444,10 @@ public class VcatIvfExtractorTest {
         @Override public List<ContainerParser> getSupportedContainerParsers() {
             return Collections.singletonList(this);
         }
-        @Override public String getId() { return "test.stub.av1.ivf"; }
+        @Override public String getId() { return id; }
         @Override public String getDisplayName() { return "stub-av1-ivf"; }
         @Override public String getVersion() { return "0"; }
-        @Override public String getMimeType() { return "video/av01"; }
+        @Override public String getMimeType() { return mime; }
         @Override public Renderer createVideoRenderer(
                 Context context, long allowedJoiningTimeMs, Handler eventHandler,
                 VideoRendererEventListener eventListener, int threads) throws DecoderException {
@@ -366,7 +518,14 @@ public class VcatIvfExtractorTest {
             while (total < length) {
                 int r = input.read(buf, total, length - total);
                 if (r == C.RESULT_END_OF_INPUT) {
-                    if (total == 0 && allowEndOfInput) return C.RESULT_END_OF_INPUT;
+                    // As ExoPlayer's SampleQueue: at the end of input with nothing read, return
+                    // RESULT_END_OF_INPUT only if allowed, otherwise throw. Returning 0 here left
+                    // a truncated frame looping forever in the extractor, which never happens
+                    // against the real queue.
+                    if (total == 0) {
+                        if (allowEndOfInput) return C.RESULT_END_OF_INPUT;
+                        throw new EOFException();
+                    }
                     break;
                 }
                 total += r;

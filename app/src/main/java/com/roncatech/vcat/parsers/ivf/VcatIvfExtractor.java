@@ -46,6 +46,7 @@ import com.roncatech.vcat.decoder_plugin.VcatDecoderManager;
 import com.roncatech.vcat.decoder_plugin_api.IvfParserExtension;
 import com.roncatech.vcat.decoder_plugin_api.VideoConfiguration;
 
+import java.io.EOFException;
 import java.io.IOException;
 
 /**
@@ -85,6 +86,9 @@ public final class VcatIvfExtractor implements Extractor {
     private int sampleBytesRemaining;
     private boolean firstSample = true;
     private boolean formatEmitted = false;
+    /** Whether the current frame's keyframe flag has been decided (once, before streaming it). */
+    private boolean keyFrameDecided;
+    private boolean currentKeyFrame;
 
     public VcatIvfExtractor() {
     }
@@ -159,6 +163,7 @@ public final class VcatIvfExtractor implements Extractor {
         currentFrameSize = le32(scratch, 0);
         currentPtsUs = toMicros(le64(scratch, 4));
         sampleBytesRemaining = currentFrameSize;
+        keyFrameDecided = false;
         // The first frame drives sequence-header parsing (Format emission) before it is emitted as
         // a sample; every subsequent frame goes straight to sample output.
         state = formatEmitted ? STATE_SAMPLE : STATE_SEQUENCE_HEADER;
@@ -182,6 +187,12 @@ public final class VcatIvfExtractor implements Extractor {
     }
 
     private int readSample(ExtractorInput input) throws IOException {
+        if (!keyFrameDecided) {
+            // Decided before the first byte is streamed, while the read position is still at
+            // the start of the payload; a read retried after an I/O error decides again.
+            currentKeyFrame = firstSample || isRandomAccessPoint(input);
+            keyFrameDecided = true;
+        }
         while (sampleBytesRemaining > 0) {
             int appended = trackOutput.sampleData(input, sampleBytesRemaining, /* allowEndOfInput= */ false);
             if (appended == C.RESULT_END_OF_INPUT) {
@@ -189,12 +200,32 @@ public final class VcatIvfExtractor implements Extractor {
             }
             sampleBytesRemaining -= appended;
         }
-        int flags = firstSample ? C.BUFFER_FLAG_KEY_FRAME : 0;
+        // IVF has no keyframe flag. The first frame is always one (decoding starts there); after
+        // that, AV1 and AV2 frames are flagged from their bitstream (IvfRandomAccess), so the
+        // renderer's skip-to-keyframe has somewhere to skip to. Other codecs: first frame only.
+        int flags = currentKeyFrame ? C.BUFFER_FLAG_KEY_FRAME : 0;
         trackOutput.sampleMetadata(currentPtsUs, flags, currentFrameSize, /* offset= */ 0, /* cryptoData= */ null);
         // Emit in lockstep with video so neither sample queue starves the player.
         firstSample = false;
         state = STATE_FRAME_HEADER;
         return RESULT_CONTINUE;
+    }
+
+    /**
+     * Whether the frame at the read position is a keyframe, by peeking at its OBUs. A frame cut
+     * short by the end of the file is simply not a keyframe here; the sample read that follows
+     * reports it as truncated, as before.
+     */
+    private boolean isRandomAccessPoint(ExtractorInput input) throws IOException {
+        if (!IvfRandomAccess.knows(fileHeader.fourCc)) return false;
+        input.resetPeekPosition();
+        try {
+            return IvfRandomAccess.isRandomAccessPoint(fileHeader.fourCc, input, currentFrameSize);
+        } catch (EOFException e) {
+            return false;
+        } finally {
+            input.resetPeekPosition();
+        }
     }
 
     /**
