@@ -5,6 +5,26 @@ description of what shipped so the history is not lost when the working tree mov
 
 ---
 
+## 2026-11-18 — Logs: tap opens details; run conditions in the details
+
+- **A tap on a log opens its details directly.** The Details / Delete popup is gone, with its
+  menu (`log_file_context_menu.xml`) and the single-log delete strings. Deleting is done with the
+  edit / trashcan button at the top of the list, which already handled one log or many.
+- **Details show the run conditions**, directly under the log file name:
+  `Threads: 2   Max Delay: 1.5 frames` / `Refresh: 60 Hz   Brightness: 25%`.
+  - Read from the header's raw `test_conditions` (`SessionHeader.testConditionsJson`), not the
+    deserialized `RunConfig`. Gson fills fields a log predates with today's defaults, so an old
+    log would have claimed a 60 Hz refresh and a 1.5-frame max delay it never ran with. A
+    condition the log did not record reads `n/a`.
+  - Formatting is in `ConditionsSummary` (unit tested). The Conditions tab now uses its
+    `frameDelayLabel`, so both screens word Max Delay the same way.
+- **Details are tighter:** Start Time uses the list's `yy/MM/dd HH:mm:ss` format, so it fits on
+  one line (the long month name wrapped the time), and the 8 dp gaps between the info lines are
+  gone.
+- Checked on the CPH2625 (debug build installed over debug; settings unchanged).
+
+---
+
 ## 2026-11-09 — One drop policy for all decoders; Max Delay in frame intervals; IVF keyframes
 
 **Theme:** frame buffering and drop policy are the host's, not each plugin's, and they mean the
