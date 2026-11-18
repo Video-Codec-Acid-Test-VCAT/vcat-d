@@ -42,7 +42,6 @@ import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.ImageButton;
 import android.widget.LinearLayout;
-import android.widget.PopupMenu;
 import android.widget.Toast;
 
 import androidx.annotation.NonNull;
@@ -156,41 +155,11 @@ public class FragmentTestLogs extends Fragment {
         }
     }
 
+    /** A tap opens the details. Deleting is done from the trashcan at the top. */
     private void onLogFileClick(View view, String filePath) {
-        PopupMenu popup = new PopupMenu(requireContext(), view);
-        popup.getMenuInflater().inflate(R.menu.log_file_context_menu, popup.getMenu());
-
-        popup.setOnMenuItemClickListener(item -> {
-            int id = item.getItemId();
-            if (id == R.id.action_details) {
-                TestResultsDetailDialog
-                        .newInstance(filePath)
-                        .show(getParentFragmentManager(), "test_result_detail");
-                return true;
-            } else if (id == R.id.action_delete) {
-                confirmDeleteLogFile(filePath);
-                return true;
-            }
-            return false;
-        });
-
-        popup.show();
-    }
-
-    private void confirmDeleteLogFile(String filePath) {
-        String name = TestResultsItem.getFileName(filePath);
-        new AlertDialog.Builder(requireContext())
-                .setTitle(R.string.delete_log_confirm_title)
-                .setMessage(getString(R.string.delete_log_confirm_message, name))
-                .setPositiveButton(R.string.delete_confirm_yes, (dialog, which) -> {
-                    boolean ok = deleteLog(filePath);
-                    Toast.makeText(requireContext(),
-                            ok ? R.string.delete_log_ok : R.string.delete_log_failed,
-                            Toast.LENGTH_SHORT).show();
-                    loadTestResults();
-                })
-                .setNegativeButton(R.string.delete_confirm_no, null)
-                .show();
+        TestResultsDetailDialog
+                .newInstance(filePath)
+                .show(getParentFragmentManager(), "test_result_detail");
     }
 
     private void deleteSelectedFiles() {

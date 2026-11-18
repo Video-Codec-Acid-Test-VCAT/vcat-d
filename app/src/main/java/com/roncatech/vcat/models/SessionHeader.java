@@ -330,6 +330,46 @@ public class SessionHeader {
         }
     }
     public static SessionHeader fromLogFile(BufferedReader telemetryFileReader){
+        String jsonStr = readHeaderJson(telemetryFileReader);
+        if (jsonStr == null) {
+            return null;
+        }
+
+        try {
+            return gson.fromJson(jsonStr, SessionHeader.class);
+        } catch (JsonParseException | NullPointerException e) {
+            Log.e(TAG, "SessionHeader::fromLogFile: Exception parsing header: " + e.getLocalizedMessage());
+            // malformed JSON
+            return null;
+        }
+    }
+
+    /**
+     * The header's {@code test_conditions} object exactly as the log wrote it, or null if the
+     * log has no readable header.
+     *
+     * <p>Use this, not {@link #getTestConditions()}, to ask whether a log recorded a condition.
+     * Gson builds RunConfig through its no-argument constructor, so a field a log predates comes
+     * back holding today's default -- an old log would claim a 60 Hz refresh and a 1.5-frame max
+     * delay it never ran with.
+     */
+    @androidx.annotation.Nullable
+    public static JsonObject testConditionsJson(Context ctx, Uri uri) {
+        try (InputStream is = ctx.getContentResolver().openInputStream(uri);
+             BufferedReader r = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8))) {
+            String jsonStr = readHeaderJson(r);
+            if (jsonStr == null) return null;
+            JsonElement tc = JsonParser.parseString(jsonStr).getAsJsonObject().get("test_conditions");
+            return (tc != null && tc.isJsonObject()) ? tc.getAsJsonObject() : null;
+        } catch (IOException | RuntimeException e) {
+            Log.e(TAG, "testConditionsJson: " + e.getLocalizedMessage());
+            return null;
+        }
+    }
+
+    /** The JSON preamble of a telemetry CSV, through the close of its root object; null if none. */
+    @androidx.annotation.Nullable
+    private static String readHeaderJson(BufferedReader telemetryFileReader){
         StringBuilder json = new StringBuilder();
         int depth = 0;
         boolean started = false;
@@ -365,15 +405,7 @@ public class SessionHeader {
             // no JSON in file
             return null;
         }
-
-        try {
-            String jsonStr = json.toString();
-            return gson.fromJson(jsonStr, SessionHeader.class);
-        } catch (JsonParseException | NullPointerException e) {
-            Log.e(TAG, "SessionHeader::fromLogFile: Exception parsing header: " + e.getLocalizedMessage());
-            // malformed JSON
-            return null;
-        }
+        return json.toString();
     }
 
 }

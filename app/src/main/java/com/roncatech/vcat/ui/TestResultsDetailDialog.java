@@ -61,6 +61,8 @@ import androidx.appcompat.widget.TooltipCompat;
 import androidx.fragment.app.DialogFragment;
 import com.roncatech.vcat.R;
 
+import com.roncatech.vcat.models.ConditionsSummary;
+import com.roncatech.vcat.models.SessionHeader;
 import com.roncatech.vcat.models.TestResult;
 import com.roncatech.vcat.models.SessionInfo;
 
@@ -231,6 +233,10 @@ public class TestResultsDetailDialog extends DialogFragment {
 
         logFile.setText("Log File: " + Uri.parse(this.filePath).getLastPathSegment());
 
+        TextView tvConditions = content.findViewById(R.id.tvConditions);
+        tvConditions.setText(ConditionsSummary.describe(
+                SessionHeader.testConditionsJson(requireContext(), Uri.parse(filePath))));
+
         if(this.results != null && results.getTelemetryRows().size() > 0){
             SessionInfo.StartTime startTime = results.getSessionHeader().getSessionInfo().start_time;
             long lastTime = Long.parseLong(results.getTelemetryRows().get(results.getTelemetryRows().size()-1).get("test.timestamp"));
@@ -243,8 +249,9 @@ public class TestResultsDetailDialog extends DialogFragment {
             Double.parseDouble(results.getTelemetryRows().get(0).get("battery.level"));
             double batteryEnd = Double.parseDouble(results.getTelemetryRows().get(results.getTelemetryRows().size()-1).get("battery.level"));
 
-            SimpleDateFormat sdf = new SimpleDateFormat(
-                    "dd MMMM yyyy HH:mm:ss", Locale.getDefault());
+            // The Logs list's own format, so the line fits the dialog unwrapped and the row and
+            // its details read the same date the same way.
+            SimpleDateFormat sdf = new SimpleDateFormat("yy/MM/dd HH:mm:ss", Locale.US);
 
             tvStart.setText("Start Time: " + sdf.format(new Date(startTime.unix_time_ms)));
             // Seconds stay the primary figure (they're what the telemetry records), with hours

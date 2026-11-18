@@ -74,6 +74,17 @@ All vcat-d artwork is owned exclusively by RoncaTech LLC. Use of vcat-d logos an
         app:layout_constraintEnd_toEndOf="parent"
         android:layout_marginTop="8dp"/>
 
+    <!-- Run conditions the log recorded: Threads, Max Delay, Refresh, Brightness. Two lines,
+         filled from the header's test_conditions; a condition the log predates reads n/a. -->
+    <TextView
+        android:id="@+id/tvConditions"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:textSize="16sp"
+        app:layout_constraintTop_toBottomOf="@id/tvLogFile"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"/>
+
     <!-- Start Time -->
     <TextView
         android:id="@+id/tvStartTime"
@@ -81,10 +92,10 @@ All vcat-d artwork is owned exclusively by RoncaTech LLC. Use of vcat-d logos an
         android:layout_height="wrap_content"
         android:text="Start Time:"
         android:textSize="16sp"
-        app:layout_constraintTop_toBottomOf="@id/tvLogFile"
+        android:maxLines="1"
+        app:layout_constraintTop_toBottomOf="@id/tvConditions"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toEndOf="parent"
-        android:layout_marginTop="8dp"/>
+        app:layout_constraintEnd_toEndOf="parent"/>
 
     <!-- Test Duration -->
     <TextView
@@ -95,8 +106,7 @@ All vcat-d artwork is owned exclusively by RoncaTech LLC. Use of vcat-d logos an
         android:textSize="16sp"
         app:layout_constraintTop_toBottomOf="@id/tvStartTime"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toEndOf="parent"
-        android:layout_marginTop="8dp"/>
+        app:layout_constraintEnd_toEndOf="parent"/>
 
     <!-- Battery -->
     <TextView
@@ -107,8 +117,7 @@ All vcat-d artwork is owned exclusively by RoncaTech LLC. Use of vcat-d logos an
         android:textSize="16sp"
         app:layout_constraintTop_toBottomOf="@id/tvTestDuration"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toEndOf="parent"
-        android:layout_marginTop="8dp"/>
+        app:layout_constraintEnd_toEndOf="parent"/>
 
     <!-- Thermal Row (horizontal) -->
     <LinearLayout

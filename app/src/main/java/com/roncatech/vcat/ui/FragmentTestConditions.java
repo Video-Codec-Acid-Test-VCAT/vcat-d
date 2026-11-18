@@ -59,6 +59,7 @@ import androidx.lifecycle.ViewModelProvider;
 
 import com.google.android.exoplayer2.mediacodec.MediaCodecInfo;
 import com.google.android.exoplayer2.mediacodec.MediaCodecUtil;
+import com.roncatech.vcat.models.ConditionsSummary;
 import com.roncatech.vcat.models.RunConfig;
 import com.roncatech.vcat.models.SharedViewModel;
 
@@ -386,10 +387,7 @@ public class FragmentTestConditions extends Fragment {
 
     /** "1.5 frames", "1 frame": the Max Delay choices as the user reads them. */
     private static String frameDelayLabel(Double frames) {
-        if (frames == null) return "";
-        String n = (frames == Math.rint(frames)) ? String.valueOf(frames.intValue())
-                : String.valueOf(frames);
-        return n + (frames == 1.0 ? " frame" : " frames");
+        return frames == null ? "" : ConditionsSummary.frameDelayLabel(frames);
     }
 
     private void setupDecoderSelection() {
